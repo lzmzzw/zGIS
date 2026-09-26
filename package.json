@@ -1,0 +1,43 @@
+{
+  "name": "zgis",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@8.10.0",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "tauri": "tauri",
+    "smoke": "playwright test"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "fflate": "0.8.2",
+    "lossless-json": "4.3.1",
+    "lucide-react": "1.48.0",
+    "ol": "10.10.0",
+    "papaparse": "5.7.0",
+    "proj4": "2.22.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "shpjs": "6.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@tauri-apps/cli": "2.11.5",
+    "@types/geojson": "^7946.0.16",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "prettier": "^3.9.9",
+    "typescript": "7.0.2",
+    "vite": "8.3.1",
+    "vitest": "5.0.2"
+  }
+}
