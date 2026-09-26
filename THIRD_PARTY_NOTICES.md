@@ -50,7 +50,7 @@
 - rbush@4.0.1: MIT https://github.com/mourner/rbush
 - react@19.3.0: MIT https://react.dev/
 - react-dom@19.3.0: MIT https://react.dev/
-- reference-spec-reader@0.2.0: MIT 
+- reference-spec-reader@0.2.0: MIT
 - resolve-protobuf-schema@2.1.0: MIT https://github.com/mafintosh/resolve-protobuf-schema
 - rolldown@1.2.11: MIT https://rolldown.rs/
 - scheduler@0.28.0: MIT https://react.dev/
@@ -298,8 +298,8 @@
 - json-patch@3.0.1: MIT/Apache-2.0 https://github.com/idubrov/json-patch
 - jsonptr@0.6.3: MIT OR Apache-2.0 https://github.com/chanced/jsonptr
 - keyboard-types@0.7.0: MIT OR Apache-2.0 https://github.com/pyfisch/keyboard-types
-- libappindicator@0.9.0: Apache-2.0 OR MIT 
-- libappindicator-sys@0.9.0: Apache-2.0 OR MIT 
+- libappindicator@0.9.0: Apache-2.0 OR MIT
+- libappindicator-sys@0.9.0: Apache-2.0 OR MIT
 - libc@0.2.189: MIT OR Apache-2.0 https://github.com/rust-lang/libc
 - libdbus-sys@0.2.7: Apache-2.0/MIT https://github.com/diwic/dbus-rs
 - libloading@0.7.4: ISC https://github.com/nagisa/rust_libloading/
@@ -346,7 +346,7 @@
 - objc2-web-kit@0.3.2: Zlib OR Apache-2.0 OR MIT https://github.com/madsmtm/objc2
 - once_cell@1.21.4: MIT OR Apache-2.0 https://github.com/matklad/once_cell
 - openssl@0.10.81: Apache-2.0 https://github.com/rust-openssl/rust-openssl
-- openssl-macros@0.1.1: MIT/Apache-2.0 
+- openssl-macros@0.1.1: MIT/Apache-2.0
 - openssl-probe@0.2.1: MIT OR Apache-2.0 https://github.com/rustls/openssl-probe
 - openssl-sys@0.9.117: MIT https://github.com/rust-openssl/rust-openssl
 - option-ext@0.2.0: MPL-2.0 https://github.com/soc/option-ext.git
