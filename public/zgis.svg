@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">zgis</title>
+  <rect width="512" height="512" rx="78" fill="#029673"/>
+  <path d="M85 163L256 80L427 163L256 246Z" fill="#FFFFFF"/>
+  <path d="M85 261L165 223L256 268L347 223L427 261L256 345Z" fill="#A7E9D1"/>
+  <path d="M85 359L165 321L256 366L347 321L427 359L256 442Z" fill="#A1E2CA"/>
+</svg>

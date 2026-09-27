@@ -104,11 +104,9 @@ textarea:focus-visible {
 .brand-mark {
   height: 30px;
   width: 30px;
-  display: grid;
-  place-items: center;
-  color: #fff;
-  background: var(--green);
-  border-radius: 5px;
+  display: block;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 .version {
   font-size: 11px;

@@ -685,9 +685,7 @@ export default function App() {
       <div className="app">
         <header className="app-header">
           <div className="brand">
-            <span className="brand-mark">
-              <Layers size={21} />
-            </span>
+            <img className="brand-mark" src="/zgis.svg" alt="" />
             <strong>zGIS</strong>
             <span className="version">0.1</span>
           </div>
@@ -924,7 +922,7 @@ export default function App() {
               </div>
               {!layers.length && (
                 <div className="map-empty">
-                  <Layers size={30} />
+                  <img className="brand-mark" src="/zgis.svg" alt="" />
                   <h2>zGIS</h2>
                   <button
                     onClick={() =>
