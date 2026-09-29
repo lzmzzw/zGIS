@@ -844,6 +844,102 @@ dd {
   border-left: 1px solid var(--border);
   padding-left: 20px;
 }
+.source-tabs {
+  border-bottom: 1px solid var(--border);
+}
+.source-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  overflow: auto;
+}
+.source-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.source-heading > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.source-connect {
+  justify-content: flex-start;
+}
+.source-tables {
+  display: grid;
+  gap: 4px;
+}
+.source-table {
+  padding: 8px 4px;
+  height: auto;
+  min-height: 44px;
+  background: transparent;
+  border: 0;
+  justify-content: flex-start;
+  text-align: left;
+}
+.source-table > span {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 4px;
+}
+.source-table strong {
+  font-weight: 400;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.source-table small {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.source-table > svg {
+  flex-shrink: 0;
+}
+.connection-advanced {
+  margin: 0;
+}
+.connection-advanced summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.submit-target {
+  overflow-wrap: anywhere;
+}
+.submit-counts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.submit-counts > div {
+  display: grid;
+  gap: 8px;
+}
+.submit-counts strong {
+  font-size: 22px;
+  font-weight: 400;
+}
+.submit-error {
+  border-left: 2px solid var(--danger);
+  background: var(--danger-fill);
+  padding: 12px;
+  margin-top: 18px;
+}
+.submit-error details {
+  margin: 12px 0 0;
+}
+.submit-error p {
+  overflow-wrap: anywhere;
+}
 .spin {
   animation: spin 1s linear infinite;
 }

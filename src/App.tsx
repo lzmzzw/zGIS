@@ -44,6 +44,13 @@ import GeoJSON from "ol/format/GeoJSON";
 import MapView, { type Tool } from "./MapView";
 import { ImportPanel, ExportPanel } from "./FilePanels";
 import {
+  SourcePanel,
+  ConnectionPanel,
+  LoadPanel,
+  SubmitPanel,
+} from "./DatabasePanels";
+import { databaseChanges } from "./dbChanges";
+import {
   createDemoLayer,
   exportGeoJSON,
   exportCsv,
@@ -215,6 +222,7 @@ export default function App() {
   const [annotations, setAnnotations] = useState(true);
   const [snapping, setSnapping] = useState(true);
   const [layersOpen, setLayersOpen] = useState(true);
+  const [sourceTab, setSourceTab] = useState<"layers" | "sources">("layers");
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<"layer" | "feature">(
     "layer",
@@ -240,6 +248,8 @@ export default function App() {
     | "import"
     | "export"
     | "database"
+    | "db-load"
+    | "submit"
     | "settings"
     | "close"
     | "recovery"
@@ -265,6 +275,7 @@ export default function App() {
   const histories = useRef(new Map<string, History>());
   const [, refreshHistory] = useState(0);
   const dbBaselines = useRef(new Map<string, GeoFeature[]>());
+  const dbReadLimits = useRef(new Map<string, number>());
   const input = useRef<HTMLInputElement>(null);
   const currentLayers = useRef(layers);
   currentLayers.current = layers;
@@ -318,6 +329,17 @@ export default function App() {
   function openFiles() {
     if (desktop) void task(async () => acceptFiles(await api.open()));
     else input.current?.click();
+  }
+  function openSources() {
+    setLayersOpen(true);
+    setSourceTab("sources");
+    if (!connectionId) openModal("database");
+  }
+  function configureDatabase(index: number) {
+    setDbIndex(index);
+    setDbWktColumn("");
+    setDbSrid(dbLayers[index]?.srid || 4326);
+    openModal("db-load");
   }
   function changeBasemap(value: string) {
     if (value.startsWith("tdt") && !tdtKey) {
@@ -420,6 +442,7 @@ export default function App() {
     }
   }
   function addLayers(imported: DocumentLayer[]) {
+    setSourceTab("layers");
     setLayers((old) => [...old, ...imported]);
     setActiveId(imported[0]?.id);
     setFitNonce((n) => n + 1);
@@ -541,7 +564,7 @@ export default function App() {
   async function save(asNew = false) {
     if (!active) return;
     if (active.sourceKind === "postgis") {
-      await commit();
+      openModal("submit");
       return;
     }
     if (active.sourceKind === "shp") {
@@ -635,6 +658,9 @@ export default function App() {
       setConnection((c) => ({ ...c, password: "" }));
       setDbLayers(await api.discover(id));
       setDbIndex(0);
+      setSourceTab("sources");
+      setLayersOpen(true);
+      setModal(null);
       setStatus("数据库已连接");
     });
   }
@@ -673,93 +699,73 @@ export default function App() {
         },
       );
       dbBaselines.current.set(doc.id, cloneFeatures(doc.features));
+      dbReadLimits.current.set(doc.id, dbLimit);
       if (bbox) dbBounds.current.set(doc.id, bbox);
       addLayers([doc]);
+      setSourceTab("layers");
       setModal(null);
     });
   }
-  async function commit() {
-    if (!active?.db || uncertainDocs.has(active.id)) return;
-    await task(async () => {
-      const before = dbBaselines.current.get(active.id) ?? [];
-      const oldMap = new Map(before.map((f) => [f.id, f]));
-      const nowMap = new Map(active.features.map((f) => [f.id, f]));
-      const changes: unknown[] = [];
-      for (const f of active.features) {
-        const old = oldMap.get(f.id);
-        if (!old)
-          changes.push({
-            kind: "insert",
-            geometry: f.geometry,
-            properties: f.properties,
-          });
-        else if (
-          JSON.stringify(old.geometry) !== JSON.stringify(f.geometry) ||
-          JSON.stringify(old.properties) !== JSON.stringify(f.properties)
-        )
-          changes.push({
-            kind: "update",
-            dbKey: old.dbKey,
-            baseline: old.baseline,
-            geometry: f.geometry,
-            properties: f.properties,
-            geometryChanged:
-              JSON.stringify(old.geometry) !== JSON.stringify(f.geometry),
-          });
-      }
-      for (const f of before)
-        if (!nowMap.has(f.id))
-          changes.push({
-            kind: "delete",
-            dbKey: f.dbKey,
-            baseline: f.baseline,
-          });
-      if (!changes.length) {
-        setStatus("没有待提交修改");
-        return;
-      }
-      const blockRetry = (message: string) => {
-        setUncertainDocs((old) => new Set([...old, active.id]));
-        setLayers((old) =>
-          old.map((l) =>
-            l.id === active.id
-              ? { ...l, warnings: [...(l.warnings ?? []), message] }
-              : l,
-          ),
-        );
-      };
-      try {
-        await api.commit(active.db!.connectionId, active.db!, changes);
-      } catch (e) {
-        if (errorText(e).includes("提交结果待核对"))
-          blockRetry(
-            "提交结果待核对，请重新载入来源后核对数据；当前副本禁止重复提交。",
-          );
-        throw e;
-      }
-      const result = await api
-        .query(
-          active.db!.connectionId,
-          active.db!,
-          dbLimit,
-          dbBounds.current.get(active.id),
-        )
-        .catch((e) => {
-          blockRetry(
-            "提交已成功，但重读失败。请重新载入来源；当前副本禁止重复提交。",
-          );
-          throw new Error("提交已成功，重读失败：" + errorText(e));
-        });
-      dbBaselines.current.set(active.id, cloneFeatures(result.features));
-      histories.current.delete(active.id);
+  async function commitLayer(doc: DocumentLayer): Promise<DocumentLayer> {
+    if (!doc.db || !doc.db.keyColumns.length || uncertainDocs.has(doc.id))
+      throw new Error("当前副本不可提交，请重新载入来源");
+    const before = dbBaselines.current.get(doc.id);
+    if (!before) throw new Error("提交基线缺失，请重新载入来源");
+    const changes = databaseChanges(before, doc.features);
+    if (!changes.length) {
+      const updated = { ...doc, dirty: false };
       setLayers((old) =>
-        old.map((l) =>
-          l.id === active.id
-            ? { ...l, features: result.features, dirty: false }
-            : l,
+        old.map((layer) => (layer.id === doc.id ? updated : layer)),
+      );
+      setStatus("没有待提交修改");
+      return updated;
+    }
+    const blockRetry = (message: string) => {
+      setUncertainDocs((old) => new Set([...old, doc.id]));
+      setLayers((old) =>
+        old.map((layer) =>
+          layer.id === doc.id
+            ? { ...layer, warnings: [...(layer.warnings ?? []), message] }
+            : layer,
         ),
       );
-      setStatus(`已提交 ${changes.length} 条变更`);
+    };
+    try {
+      await api.commit(doc.db.connectionId, doc.db, changes);
+    } catch (reason) {
+      if (errorText(reason).includes("提交结果待核对"))
+        blockRetry(
+          "提交结果待核对，请重新载入来源后核对数据；当前副本禁止重复提交。",
+        );
+      throw reason;
+    }
+    const result = await api
+      .query(
+        doc.db.connectionId,
+        doc.db,
+        dbReadLimits.current.get(doc.id) ?? 10000,
+        dbBounds.current.get(doc.id),
+      )
+      .catch((reason) => {
+        blockRetry(
+          "提交已成功，但重读失败。请重新载入来源；当前副本禁止重复提交。",
+        );
+        throw new Error("提交已成功，重读失败：" + errorText(reason));
+      });
+    dbBaselines.current.set(doc.id, cloneFeatures(result.features));
+    histories.current.delete(doc.id);
+    const updated = { ...doc, features: result.features, dirty: false };
+    setLayers((old) =>
+      old.map((layer) => (layer.id === doc.id ? updated : layer)),
+    );
+    setStatus(`已提交 ${changes.length} 条变更`);
+    return updated;
+  }
+  async function commit() {
+    if (!active) return;
+    await task(async () => {
+      await commitLayer(active);
+      setModal(null);
     });
   }
   async function closeLayer() {
@@ -863,10 +869,7 @@ export default function App() {
                 <FolderOpen size={16} />
                 导入数据…
               </button>
-              <button
-                onClick={() => openModal("database")}
-                disabled={!desktop || busy}
-              >
+              <button onClick={openSources} disabled={!desktop || busy}>
                 <Database size={16} />
                 PostGIS 数据源…
               </button>
@@ -882,7 +885,12 @@ export default function App() {
             <HeaderMenu label="视图">
               <button
                 aria-pressed={layersOpen}
-                onClick={() => setLayersOpen((v) => !v)}
+                onClick={() => {
+                  if (sourceTab === "sources") {
+                    setSourceTab("layers");
+                    setLayersOpen(true);
+                  } else setLayersOpen((v) => !v);
+                }}
               >
                 <Layers size={16} />
                 图层
@@ -1032,80 +1040,116 @@ export default function App() {
         >
           <aside className="layers-panel" hidden={!layersOpen}>
             <div className="panel-heading">
-              <span>图层</span>
-              <span className="count">{layers.length}</span>
+              <span>{sourceTab === "layers" ? "图层" : "数据源"}</span>
+              <span className="count">
+                {sourceTab === "layers" ? layers.length : dbLayers.length}
+              </span>
             </div>
-            <div className="layer-list">
-              {layers.map((l) => (
-                <div
-                  key={l.id}
-                  className={`layer-row ${l.id === activeId ? "selected" : ""}`}
-                  onDoubleClick={() => {
-                    setActiveId(l.id);
-                    setFitNonce((n) => n + 1);
-                  }}
-                >
-                  <IconButton
-                    label={l.visible ? "隐藏图层" : "显示图层"}
-                    onClick={() =>
-                      setLayers((old) =>
-                        old.map((item) =>
-                          item.id === l.id
-                            ? { ...item, visible: !item.visible }
-                            : item,
-                        ),
-                      )
-                    }
-                  >
-                    {l.visible ? <Eye size={16} /> : <EyeOff size={16} />}
-                  </IconButton>
-                  <span
-                    className="layer-swatch"
-                    style={{ background: l.color }}
-                  />
-                  <button
-                    className="layer-text"
-                    onClick={() => {
-                      setActiveId(l.id);
-                      setInspectorOpen(true);
-                      setInspectorTab("layer");
-                    }}
-                  >
-                    <strong title={l.name}>
-                      {l.name}
-                      {l.dirty ? " *" : ""}
-                    </strong>
-                  </button>
-                  {(l.sourceKind === "shp" ||
-                    (l.sourceKind === "postgis" &&
-                      (!l.db?.keyColumns.length ||
-                        uncertainDocs.has(l.id)))) && (
-                    <LockKeyhole size={13} aria-label="只读图层" />
-                  )}
+            <div className="inspector-tabs source-tabs">
+              <button
+                className={sourceTab === "layers" ? "active" : "quiet"}
+                onClick={() => setSourceTab("layers")}
+              >
+                图层
+              </button>
+              <button
+                className={sourceTab === "sources" ? "active" : "quiet"}
+                disabled={!desktop}
+                onClick={() => setSourceTab("sources")}
+              >
+                数据源
+              </button>
+            </div>
+            {sourceTab === "sources" ? (
+              <SourcePanel
+                layers={dbLayers}
+                index={dbIndex}
+                connected={Boolean(connectionId)}
+                label={connection.database || "PostGIS"}
+                busy={busy}
+                onIndex={setDbIndex}
+                onLoad={configureDatabase}
+                onConnect={() => openModal("database")}
+                onRefresh={() =>
+                  void task(async () => {
+                    setDbLayers(await api.discover(connectionId));
+                    setDbIndex(0);
+                    setDbWktColumn("");
+                  })
+                }
+              />
+            ) : (
+              <>
+                <div className="layer-list">
+                  {layers.map((l) => (
+                    <div
+                      key={l.id}
+                      className={`layer-row ${l.id === activeId ? "selected" : ""}`}
+                      onDoubleClick={() => {
+                        setActiveId(l.id);
+                        setFitNonce((n) => n + 1);
+                      }}
+                    >
+                      <IconButton
+                        label={l.visible ? "隐藏图层" : "显示图层"}
+                        onClick={() =>
+                          setLayers((old) =>
+                            old.map((item) =>
+                              item.id === l.id
+                                ? { ...item, visible: !item.visible }
+                                : item,
+                            ),
+                          )
+                        }
+                      >
+                        {l.visible ? <Eye size={16} /> : <EyeOff size={16} />}
+                      </IconButton>
+                      <span
+                        className="layer-swatch"
+                        style={{ background: l.color }}
+                      />
+                      <button
+                        className="layer-text"
+                        onClick={() => {
+                          setActiveId(l.id);
+                          setInspectorOpen(true);
+                          setInspectorTab("layer");
+                        }}
+                      >
+                        <strong title={l.name}>
+                          {l.name}
+                          {l.dirty ? " *" : ""}
+                        </strong>
+                      </button>
+                      {(l.sourceKind === "shp" ||
+                        (l.sourceKind === "postgis" &&
+                          (!l.db?.keyColumns.length ||
+                            uncertainDocs.has(l.id)))) && (
+                        <LockKeyhole size={13} aria-label="只读图层" />
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            {!layers.length && (
-              <div className="empty-source">
-                <button onClick={openFiles} disabled={busy}>
-                  <FolderOpen size={16} />
-                  打开文件…
-                </button>
-                <button
-                  onClick={() => openModal("database")}
-                  disabled={!desktop || busy}
-                >
-                  <Database size={16} />
-                  PostGIS 数据源…
-                </button>
-                <button
-                  onClick={() => addLayers([createDemoLayer()])}
-                  disabled={busy}
-                >
-                  <Plus size={16} />
-                  城市示例
-                </button>
-              </div>
+                {!layers.length && (
+                  <div className="empty-source">
+                    <button onClick={openFiles} disabled={busy}>
+                      <FolderOpen size={16} />
+                      打开文件…
+                    </button>
+                    <button onClick={openSources} disabled={!desktop || busy}>
+                      <Database size={16} />
+                      PostGIS 数据源…
+                    </button>
+                    <button
+                      onClick={() => addLayers([createDemoLayer()])}
+                      disabled={busy}
+                    >
+                      <Plus size={16} />
+                      城市示例
+                    </button>
+                  </div>
+                )}
+              </>
             )}
             <div className="layer-footer">
               <button className="quiet" onClick={openFiles} disabled={busy}>
@@ -1854,168 +1898,71 @@ export default function App() {
           </Modal>
         )}
         {modal === "database" && (
-          <Modal title="PostGIS 数据源" onClose={() => setModal(null)}>
-            <div className="form-grid">
-              <div className="two-columns">
-                <label>
-                  主机
-                  <input
-                    value={connection.host}
-                    onChange={(e) =>
-                      setConnection((c) => ({ ...c, host: e.target.value }))
-                    }
-                  />
-                </label>
-                <label>
-                  端口
-                  <input
-                    type="number"
-                    value={connection.port}
-                    onChange={(e) =>
-                      setConnection((c) => ({
-                        ...c,
-                        port: Number(e.target.value),
-                      }))
-                    }
-                  />
-                </label>
-              </div>
-              <div className="two-columns">
-                <label>
-                  数据库
-                  <input
-                    value={connection.database}
-                    onChange={(e) =>
-                      setConnection((c) => ({ ...c, database: e.target.value }))
-                    }
-                  />
-                </label>
-                <label>
-                  用户
-                  <input
-                    value={connection.user}
-                    onChange={(e) =>
-                      setConnection((c) => ({ ...c, user: e.target.value }))
-                    }
-                  />
-                </label>
-              </div>
-              <label>
-                密码
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={connection.password}
-                  onChange={(e) =>
-                    setConnection((c) => ({ ...c, password: e.target.value }))
-                  }
-                />
-              </label>
-              <label>
-                TLS
-                <select
-                  value={connection.sslMode}
-                  onChange={(e) =>
-                    setConnection((c) => ({ ...c, sslMode: e.target.value }))
-                  }
-                >
-                  <option value="require">TLS · 校验证书</option>
-                  <option value="disable">禁用 TLS · 明文连接</option>
-                </select>
-              </label>
-              <button disabled={busy} onClick={connect}>
-                <Database size={16} />
-                {connectionId ? "重新连接" : "连接"}
-              </button>
-              {connectionId && (
-                <>
-                  <label>
-                    数据表
-                    <select
-                      value={dbIndex}
-                      onChange={(e) => {
-                        setDbIndex(Number(e.target.value));
-                        setDbWktColumn("");
-                      }}
-                    >
-                      {dbLayers.map((l, i) => (
-                        <option
-                          key={`${l.schema}.${l.table}.${l.geometryColumn}`}
-                          value={i}
-                        >
-                          {l.schema}.{l.table}
-                          {l.geometryColumn ? ` · ${l.geometryColumn}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {dbLayers[dbIndex]?.geometryKind === "wkt" && (
-                    <div className="two-columns">
-                      <label>
-                        WKT 文本列
-                        <select
-                          value={
-                            dbWktColumn || dbLayers[dbIndex]?.geometryColumn
-                          }
-                          onChange={(e) => setDbWktColumn(e.target.value)}
-                        >
-                          <option value="">选择列</option>
-                          {dbLayers[dbIndex]?.columns
-                            .filter(
-                              (c) =>
-                                c.type.includes("text") ||
-                                c.type.includes("character"),
-                            )
-                            .map((c) => (
-                              <option key={c.name}>{c.name}</option>
-                            ))}
-                        </select>
-                      </label>
-                      <label>
-                        SRID
-                        <input
-                          type="number"
-                          value={dbSrid}
-                          onChange={(e) => setDbSrid(Number(e.target.value))}
-                        />
-                      </label>
-                    </div>
-                  )}
-                  {dbLayers[dbIndex]?.geometryKind === "geometry" && (
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={dbUseViewport}
-                        onChange={(e) => setDbUseViewport(e.target.checked)}
-                      />
-                      仅载入当前地图范围
-                    </label>
-                  )}
-                  <label>
-                    最多读取记录
-                    <input
-                      type="number"
-                      min="1"
-                      max="100000"
-                      value={dbLimit}
-                      onChange={(e) => setDbLimit(Number(e.target.value))}
-                    />
-                  </label>
-                  <p className="form-note">
-                    无稳定主键的来源只读。密码不保存；提交修改会写入数据库。
-                  </p>
-                  <div className="modal-actions">
-                    <button
-                      disabled={busy || !dbLayers.length}
-                      onClick={loadDatabase}
-                    >
-                      <FolderOpen size={16} />
-                      载入
-                    </button>
-                  </div>
-                </>
+          <Modal
+            title="PostGIS 连接"
+            onClose={() => {
+              if (!busy) {
+                setConnection((config) => ({ ...config, password: "" }));
+                openModal(null);
+              }
+            }}
+          >
+            <ConnectionPanel
+              config={connection}
+              busy={busy}
+              connected={Boolean(connectionId)}
+              onChange={setConnection}
+              onConnect={() => void connect()}
+              onClose={() => {
+                setConnection((config) => ({ ...config, password: "" }));
+                openModal(null);
+              }}
+            />
+          </Modal>
+        )}
+        {modal === "db-load" && dbLayers[dbIndex] && (
+          <Modal
+            title="加载数据表"
+            onClose={() => {
+              if (!busy) openModal(null);
+            }}
+          >
+            <LoadPanel
+              layer={dbLayers[dbIndex]}
+              column={dbWktColumn}
+              srid={dbSrid}
+              limit={dbLimit}
+              viewport={dbUseViewport}
+              busy={busy}
+              onColumn={setDbWktColumn}
+              onSrid={setDbSrid}
+              onLimit={setDbLimit}
+              onViewport={setDbUseViewport}
+              onLoad={() => void loadDatabase()}
+              onClose={() => openModal(null)}
+            />
+          </Modal>
+        )}
+        {modal === "submit" && active?.db && (
+          <Modal
+            title="提交到数据库"
+            showError={false}
+            onClose={() => {
+              if (!busy) openModal(null);
+            }}
+          >
+            <SubmitPanel
+              target={active.name}
+              changes={databaseChanges(
+                dbBaselines.current.get(active.id) ?? [],
+                active.features,
               )}
-            </div>
+              busy={busy}
+              blocked={uncertainDocs.has(active.id)}
+              error={error}
+              onSubmit={() => void commit()}
+              onClose={() => openModal(null)}
+            />
           </Modal>
         )}
         {modal === "close" && (
