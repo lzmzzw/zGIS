@@ -6,8 +6,9 @@ export function cancelParsing(): void {
 export function parseInWorker(
   files: InputFile[],
   options: ImportOptions = {},
+  perFileOptions?: ImportOptions[],
 ): Promise<DocumentLayer[]> {
-  return requestWorker({ files, options });
+  return requestWorker({ files, options, perFileOptions });
 }
 export interface CsvPreview {
   fields: string[];

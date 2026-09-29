@@ -9,6 +9,29 @@ import {
 } from "./domain";
 import { zipSync, strToU8 } from "fflate";
 describe("地理数据格式转换", () => {
+  it("不同 CSV 独立识别坐标列并拒绝错误映射", async () => {
+    const files = [
+      { name: "a.csv", bytes: Array.from(strToU8("x,y\n1,2")) },
+      { name: "b.csv", bytes: Array.from(strToU8("lon,lat\n3,4")) },
+    ];
+    const layers = await importFiles(files, {}, [
+      { xColumn: "x", yColumn: "y" },
+      {},
+    ]);
+    expect(layers.map((layer) => layer.features[0].geometry)).toEqual([
+      { type: "Point", coordinates: [1, 2] },
+      { type: "Point", coordinates: [3, 4] },
+    ]);
+    await expect(
+      importFiles(files, { xColumn: "x", yColumn: "y" }),
+    ).rejects.toThrow("不存在列 x");
+    expect(() => importCsv("x,y\n1,2", { xColumn: "x", yColumn: "x" })).toThrow(
+      "同一列",
+    );
+    expect(() => importCsv("x,y\n1,2", { geometryMode: "wkt" })).toThrow(
+      "WKT 列",
+    );
+  });
   it("CSV 保留前导零、引号、多行属性", () => {
     const features = importCsv(
       'code,note,wkt\r\n001,"a,""quoted""\nline","POINT (116 39)"',

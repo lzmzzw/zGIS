@@ -5,6 +5,7 @@ self.onmessage = async (
   event: MessageEvent<{
     files: InputFile[];
     options: ImportOptions;
+    perFileOptions?: ImportOptions[];
     preview?: boolean;
   }>,
 ) => {
@@ -106,7 +107,11 @@ self.onmessage = async (
       return;
     }
     self.postMessage({
-      layers: await importFiles(event.data.files, event.data.options),
+      layers: await importFiles(
+        event.data.files,
+        event.data.options,
+        event.data.perFileOptions,
+      ),
     });
   } catch (error) {
     self.postMessage({

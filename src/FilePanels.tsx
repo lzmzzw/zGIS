@@ -14,20 +14,21 @@ export function ImportPanel({
   files: InputFile[];
   busy: boolean;
   error: string;
-  onImport: (options: ImportOptions) => void;
+  onImport: (options: ImportOptions[]) => void;
   onClose: () => void;
   onChange: () => void;
 }) {
   const [fileIndex, setFileIndex] = useState(0);
-  const [options, setOptions] = useState<ImportOptions>({
-    encoding: "utf-8",
-    crs: "EPSG:4326",
-  });
+  const [configurations, setConfigurations] = useState<ImportOptions[]>(() =>
+    files.map(() => ({ encoding: "utf-8", crs: "EPSG:4326" })),
+  );
   const [preview, setPreview] = useState<CsvPreview>();
   const [loading, setLoading] = useState(true);
   const [previewError, setPreviewError] = useState("");
   const csvFiles = files.filter((file) => /\.csv$/i.test(file.name));
   const file = csvFiles[fileIndex];
+  const originalIndex = files.indexOf(file);
+  const options = configurations[originalIndex] ?? {};
   useEffect(() => {
     if (!file) {
       setLoading(false);
@@ -59,7 +60,11 @@ export function ImportPanel({
   const mode = options.geometryMode ?? preview?.options.geometryMode ?? "xy";
   const change = (key: keyof ImportOptions, value: string) => {
     onChange();
-    setOptions((old) => ({ ...old, [key]: value }));
+    setConfigurations((old) =>
+      old.map((config, index) =>
+        index === originalIndex ? { ...config, [key]: value } : config,
+      ),
+    );
   };
   const column = (key: "wktColumn" | "xColumn" | "yColumn", label: string) => (
     <label>
@@ -92,7 +97,7 @@ export function ImportPanel({
                 value={fileIndex}
                 onChange={(event) => {
                   setFileIndex(Number(event.target.value));
-                  setOptions({ encoding: options.encoding, crs: options.crs });
+                  setPreview(undefined);
                 }}
               >
                 {csvFiles.map((item, index) => (
@@ -243,7 +248,7 @@ export function ImportPanel({
               file && (loading || previewError || preview?.validationError),
             )
           }
-          onClick={() => onImport({ ...preview?.options, ...options })}
+          onClick={() => onImport(configurations)}
         >
           {busy ? (
             <LoaderCircle size={15} className="spin" />

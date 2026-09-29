@@ -138,7 +138,11 @@ export function importCsv(
       : options.wktColumn || find(["wkt", "geometry", "geom"]);
   const xc = options.xColumn || find(["longitude", "lon", "lng", "x", "经度"]);
   const yc = options.yColumn || find(["latitude", "lat", "y", "纬度"]);
+  if (options.geometryMode === "wkt" && !wc) throw new Error("请选择 WKT 列");
   if (!wc && (!xc || !yc)) throw new Error("请选择 WKT 列或经纬度列");
+  for (const column of wc ? [wc] : [xc!, yc!])
+    if (!fields.includes(column)) throw new Error(`不存在列 ${column}`);
+  if (!wc && xc === yc) throw new Error("X 和 Y 不能使用同一列");
   const crs = options.crs ?? "EPSG:4326";
   return parsed.data.map((row, index) => {
     try {
@@ -320,6 +324,7 @@ export function makeLayer(
 export async function importFiles(
   files: InputFile[],
   options: ImportOptions = {},
+  perFileOptions?: ImportOptions[],
 ): Promise<DocumentLayer[]> {
   const layers: DocumentLayer[] = [];
   const decoder = new TextDecoder(options.encoding ?? "utf-8");
@@ -353,8 +358,12 @@ export async function importFiles(
       }),
     );
   }
-  for (const file of files) {
-    const text = () => decoder.decode(new Uint8Array(file.bytes));
+  for (const [fileIndex, file] of files.entries()) {
+    const fileOptions = { ...options, ...perFileOptions?.[fileIndex] };
+    const text = () =>
+      new TextDecoder(fileOptions.encoding ?? "utf-8").decode(
+        new Uint8Array(file.bytes),
+      );
     if (/\.(geojson|json)$/i.test(file.name))
       layers.push(
         makeLayer(file.name, importGeoJSON(text()), "geojson", {
@@ -367,20 +376,20 @@ export async function importFiles(
       const find = (names: string[]) =>
         fields.find((f) => names.includes(f.toLowerCase()));
       const config: ImportOptions = {
-        ...options,
+        ...fileOptions,
         wktColumn:
-          options.geometryMode === "xy"
+          fileOptions.geometryMode === "xy"
             ? undefined
-            : options.wktColumn || find(["wkt", "geometry", "geom"]),
+            : fileOptions.wktColumn || find(["wkt", "geometry", "geom"]),
         xColumn:
-          options.xColumn || find(["longitude", "lon", "lng", "x", "经度"]),
-        yColumn: options.yColumn || find(["latitude", "lat", "y", "纬度"]),
+          fileOptions.xColumn || find(["longitude", "lon", "lng", "x", "经度"]),
+        yColumn: fileOptions.yColumn || find(["latitude", "lat", "y", "纬度"]),
       };
       layers.push(
         makeLayer(file.name, importCsv(text(), config), "csv", {
           sourceId: file.sourceId,
           csvConfig: config,
-          originalCrs: options.crs ?? "EPSG:4326",
+          originalCrs: fileOptions.crs ?? "EPSG:4326",
         }),
       );
     } else if (/\.zip$/i.test(file.name)) {

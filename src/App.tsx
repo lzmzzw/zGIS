@@ -450,12 +450,16 @@ export default function App() {
       `已载入 ${imported.reduce((n, l) => n + l.features.length, 0)} 个要素`,
     );
   }
-  async function importSelected(files: InputFile[], options?: ImportOptions) {
+  async function importSelected(
+    files: InputFile[],
+    options?: ImportOptions,
+    perFileOptions?: ImportOptions[],
+  ) {
     await task(async () => {
       setStatus("解析中");
       let result: DocumentLayer[];
       try {
-        result = await parseInWorker(files, options);
+        result = await parseInWorker(files, options, perFileOptions);
       } catch (reason) {
         setPendingFiles(files);
         setModal("import");
@@ -746,6 +750,13 @@ export default function App() {
         dbReadLimits.current.get(doc.id) ?? 10000,
         dbBounds.current.get(doc.id),
       )
+      .then((result) => {
+        result.features.forEach((feature) => {
+          const problems = validateGeometry(feature.geometry);
+          if (problems.length) throw new Error(problems.join("；"));
+        });
+        return result;
+      })
       .catch((reason) => {
         blockRetry(
           "提交已成功，但重读失败。请重新载入来源；当前副本禁止重复提交。",
@@ -754,7 +765,16 @@ export default function App() {
       });
     dbBaselines.current.set(doc.id, cloneFeatures(result.features));
     histories.current.delete(doc.id);
-    const updated = { ...doc, features: result.features, dirty: false };
+    const updated = {
+      ...doc,
+      features: result.features,
+      dirty: false,
+      warnings: result.truncated
+        ? [
+            `已达到 ${dbReadLimits.current.get(doc.id) ?? 10000} 条读取上限，当前不是全表`,
+          ]
+        : [],
+    };
     setLayers((old) =>
       old.map((layer) => (layer.id === doc.id ? updated : layer)),
     );
@@ -1652,7 +1672,9 @@ export default function App() {
               files={pendingFiles}
               busy={busy}
               error={error}
-              onImport={(options) => void importSelected(pendingFiles, options)}
+              onImport={(options) =>
+                void importSelected(pendingFiles, {}, options)
+              }
               onClose={() => {
                 setPendingFiles([]);
                 openModal(null);
