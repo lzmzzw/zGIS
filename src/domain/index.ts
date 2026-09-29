@@ -132,7 +132,10 @@ export function importCsv(
   const fields = parsed.meta.fields ?? [];
   const find = (names: string[]) =>
     fields.find((f) => names.includes(f.toLowerCase()));
-  const wc = options.wktColumn || find(["wkt", "geometry", "geom"]);
+  const wc =
+    options.geometryMode === "xy"
+      ? undefined
+      : options.wktColumn || find(["wkt", "geometry", "geom"]);
   const xc = options.xColumn || find(["longitude", "lon", "lng", "x", "经度"]);
   const yc = options.yColumn || find(["latitude", "lat", "y", "纬度"]);
   if (!wc && (!xc || !yc)) throw new Error("请选择 WKT 列或经纬度列");
@@ -365,7 +368,10 @@ export async function importFiles(
         fields.find((f) => names.includes(f.toLowerCase()));
       const config: ImportOptions = {
         ...options,
-        wktColumn: options.wktColumn || find(["wkt", "geometry", "geom"]),
+        wktColumn:
+          options.geometryMode === "xy"
+            ? undefined
+            : options.wktColumn || find(["wkt", "geometry", "geom"]),
         xColumn:
           options.xColumn || find(["longitude", "lon", "lng", "x", "经度"]),
         yColumn: options.yColumn || find(["latitude", "lat", "y", "纬度"]),

@@ -852,6 +852,71 @@ dd {
     transform: rotate(360deg);
   }
 }
+.modal:has(.split-dialog) {
+  width: 820px;
+}
+.split-dialog {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  margin: 0 -20px;
+}
+.dialog-config {
+  padding: 0 20px 16px;
+  border-right: 1px solid var(--border);
+}
+.dialog-summary {
+  min-width: 0;
+  padding: 0 20px 16px;
+}
+.dialog-summary > header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.preview-table {
+  overflow: auto;
+  max-height: 300px;
+}
+.preview-table th {
+  position: static;
+}
+.inline-error {
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+select[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.import-file-list {
+  display: grid;
+  gap: 12px;
+}
+.import-file-list > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.import-file-list > div > span:first-of-type {
+  flex: 1;
+}
+@media (max-width: 600px) {
+  .split-dialog {
+    grid-template-columns: 1fr;
+    margin: 0;
+  }
+  .dialog-config {
+    padding: 0 0 20px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .dialog-summary {
+    padding: 20px 0 0;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .spin {
     animation: none;

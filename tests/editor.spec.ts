@@ -116,6 +116,86 @@ test("CSV worker import, text codes, invalid geometry retained inside editor", a
   await (await promise).saveAs("output/smoke/export.csv");
 });
 
+test("CSV preview correction and explicit XY mode preserve rows", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .locator("input[type=file]")
+    .setInputFiles({
+      name: "双几何.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(
+        'name,longitude,latitude,wkt\r\n甲,116,40,"POINT (117 41)"',
+      ),
+    });
+  await expect(page.locator(".preview-table tbody tr")).toHaveCount(1);
+  await page.getByLabel("几何来源", { exact: true }).selectOption("xy");
+  await page.getByLabel("X / 经度列", { exact: true }).selectOption("name");
+  await expect(
+    page.getByRole("button", { name: "导入", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByLabel("X / 经度列", { exact: true })).toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+  await page.screenshot({ path: "output/smoke/csv-inline-error.png" });
+  await page
+    .getByLabel("X / 经度列", { exact: true })
+    .selectOption("longitude");
+  await expect(
+    page.getByRole("button", { name: "导入", exact: true }),
+  ).toBeEnabled();
+  await page.screenshot({ path: "output/smoke/csv-preview.png" });
+  await page.getByRole("button", { name: "导入", exact: true }).click();
+  await showTable(page);
+  await page.locator(".attribute-panel tbody tr").first().click();
+  await wktEditor(page);
+  await expect(
+    page.getByRole("textbox", { name: "WKT 几何", exact: true }),
+  ).toHaveValue("POINT(116 40)");
+});
+
+test("file parse errors remain in original window and export rejects non-point XY", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .locator("input[type=file]")
+    .setInputFiles({
+      name: "三维.geojson",
+      mimeType: "application/json",
+      buffer: Buffer.from('{"type":"Point","coordinates":[116,40,10]}'),
+    });
+  await expect(page.getByRole("dialog")).toContainText("三维.geojson");
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "二维",
+  );
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "取消", exact: true })
+    .click();
+  await page
+    .locator("input[type=file]")
+    .setInputFiles({
+      name: "道路.geojson",
+      mimeType: "application/json",
+      buffer: Buffer.from(
+        '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[116,40],[117,41]]},"properties":{"name":"道路"}}]}',
+      ),
+    });
+  await expect(page.locator(".layer-text")).toContainText("道路.geojson");
+  await fileAction(page, "导出 / 转换");
+  await page.getByLabel("输出格式").selectOption("xy");
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "仅支持点",
+  );
+  await expect(
+    page.getByRole("button", { name: "导出", exact: true }),
+  ).toBeDisabled();
+  await page.screenshot({ path: "output/smoke/export-summary.png" });
+});
+
 test("SHP ZIP is selectable and read only, save routes to conversion", async ({
   page,
 }) => {

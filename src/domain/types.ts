@@ -8,6 +8,7 @@ export interface GeoFeature {
   baseline?: unknown;
 }
 export interface ImportOptions {
+  geometryMode?: "wkt" | "xy";
   wktColumn?: string;
   xColumn?: string;
   yColumn?: string;

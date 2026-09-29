@@ -42,6 +42,7 @@ import {
 import WKT from "ol/format/WKT";
 import GeoJSON from "ol/format/GeoJSON";
 import MapView, { type Tool } from "./MapView";
+import { ImportPanel, ExportPanel } from "./FilePanels";
 import {
   createDemoLayer,
   exportGeoJSON,
@@ -106,10 +107,12 @@ function Modal({
   title,
   children,
   onClose,
+  showError = true,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  showError?: boolean;
 }) {
   const error = useContext(ErrorContext);
   const ref = useRef<HTMLDialogElement>(null);
@@ -139,7 +142,7 @@ function Modal({
           <X size={18} />
         </IconButton>
       </header>
-      {error && (
+      {showError && error && (
         <p className="warning" role="alert">
           {error}
         </p>
@@ -248,12 +251,9 @@ export default function App() {
     | null
   >(null);
   const [pendingFiles, setPendingFiles] = useState<InputFile[]>([]);
-  const [importOptions, setImportOptions] = useState<ImportOptions>({
-    crs: "EPSG:4326",
-    encoding: "utf-8",
-  });
   const [exportMode, setExportMode] = useState("geojson");
   const [exportCrs, setExportCrs] = useState("EPSG:4326");
+  const [exportFilename, setExportFilename] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [tableOpen, setTableOpen] = useState(false);
@@ -300,6 +300,11 @@ export default function App() {
     setPropertyDraft(null);
   }, [activeId, selectedId]);
   function openModal(value: typeof modal) {
+    if (value === "export" && active)
+      setExportFilename(
+        active.name.replace(/\.[^.]+$/, "") +
+          (exportMode === "geojson" ? ".geojson" : ".csv"),
+      );
     setError("");
     setModal(value);
   }
@@ -425,7 +430,14 @@ export default function App() {
   async function importSelected(files: InputFile[], options?: ImportOptions) {
     await task(async () => {
       setStatus("解析中");
-      const result = await parseInWorker(files, options);
+      let result: DocumentLayer[];
+      try {
+        result = await parseInWorker(files, options);
+      } catch (reason) {
+        setPendingFiles(files);
+        setModal("import");
+        throw reason;
+      }
       addLayers(result);
       setPendingFiles([]);
       setModal(null);
@@ -433,9 +445,9 @@ export default function App() {
   }
   async function acceptFiles(files: InputFile[]) {
     if (!files.length) return;
+    setPendingFiles(files);
     if (files.some((f) => /\.csv$/i.test(f.name))) {
-      setPendingFiles(files);
-      setModal("import");
+      openModal("import");
     } else await importSelected(files);
   }
   function edit(features: GeoFeature[]) {
@@ -533,7 +545,7 @@ export default function App() {
       return;
     }
     if (active.sourceKind === "shp") {
-      setModal("export");
+      openModal("export");
       return;
     }
     await task(async () => {
@@ -602,7 +614,7 @@ export default function App() {
                 crs: exportCrs,
               });
         const name =
-          active.name.replace(/\.[^.]+$/, "") +
+          exportFilename.trim().replace(/\.(geojson|json|csv)$/i, "") +
           (exportMode === "geojson" ? ".geojson" : ".csv");
         if (desktop) {
           const result = await api.save(content, name);
@@ -1578,150 +1590,69 @@ export default function App() {
           <span>{desktop ? "Windows 桌面" : "浏览器预览"}</span>
         </footer>
         {modal === "import" && (
-          <Modal title="CSV 导入" onClose={() => setModal(null)}>
-            <div className="form-grid">
-              <label>
-                文件<span>{pendingFiles.map((f) => f.name).join("、")}</span>
-              </label>
-              <label>
-                编码
-                <select
-                  value={importOptions.encoding}
-                  onChange={(e) =>
-                    setImportOptions((o) => ({
-                      ...o,
-                      encoding: e.target.value,
-                    }))
-                  }
-                >
-                  <option value="utf-8">UTF-8</option>
-                  <option value="gb18030">GB18030 / GBK</option>
-                </select>
-              </label>
-              <label>
-                WKT 列
-                <input
-                  placeholder="自动识别 wkt / geometry / geom"
-                  value={importOptions.wktColumn ?? ""}
-                  onChange={(e) =>
-                    setImportOptions((o) => ({
-                      ...o,
-                      wktColumn: e.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <div className="two-columns">
-                <label>
-                  X / 经度列
-                  <input
-                    placeholder="longitude / lon / x"
-                    value={importOptions.xColumn ?? ""}
-                    onChange={(e) =>
-                      setImportOptions((o) => ({
-                        ...o,
-                        xColumn: e.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  Y / 纬度列
-                  <input
-                    placeholder="latitude / lat / y"
-                    value={importOptions.yColumn ?? ""}
-                    onChange={(e) =>
-                      setImportOptions((o) => ({
-                        ...o,
-                        yColumn: e.target.value,
-                      }))
-                    }
-                  />
-                </label>
-              </div>
-              <label>
-                来源坐标系
-                <select
-                  value={importOptions.crs}
-                  onChange={(e) =>
-                    setImportOptions((o) => ({ ...o, crs: e.target.value }))
-                  }
-                >
-                  <option>EPSG:4326</option>
-                  <option>EPSG:3857</option>
-                </select>
-              </label>
-              <div className="modal-actions">
-                <button
-                  disabled={busy}
-                  onClick={() => importSelected(pendingFiles, importOptions)}
-                >
-                  <Check size={16} />
-                  导入
-                </button>
-              </div>
-            </div>
+          <Modal
+            title={
+              pendingFiles.some((file) => /\.csv$/i.test(file.name))
+                ? "CSV 导入"
+                : "文件导入"
+            }
+            showError={false}
+            onClose={() => {
+              if (!busy) {
+                setPendingFiles([]);
+                openModal(null);
+              }
+            }}
+          >
+            <ImportPanel
+              files={pendingFiles}
+              busy={busy}
+              error={error}
+              onImport={(options) => void importSelected(pendingFiles, options)}
+              onClose={() => {
+                setPendingFiles([]);
+                openModal(null);
+              }}
+              onChange={() => setError("")}
+            />
           </Modal>
         )}
-        {modal === "export" && (
-          <Modal title="导出 / 转换" onClose={() => setModal(null)}>
-            <div className="form-grid">
-              <label>
-                输出格式
-                <select
-                  value={exportMode}
-                  onChange={(e) => setExportMode(e.target.value)}
-                >
-                  <option value="geojson">GeoJSON</option>
-                  <option value="wkt">CSV · WKT</option>
-                  <option value="xy">CSV · 经纬度点</option>
-                  {desktop && <option value="postgis">PostGIS · 新建表</option>}
-                </select>
-              </label>
-              {exportMode !== "geojson" && exportMode !== "postgis" && (
-                <label>
-                  目标坐标系
-                  <select
-                    value={exportCrs}
-                    onChange={(e) => setExportCrs(e.target.value)}
-                  >
-                    <option>EPSG:4326</option>
-                    <option>EPSG:3857</option>
-                  </select>
-                </label>
-              )}
-              {exportMode === "postgis" && (
-                <>
-                  <label>
-                    连接<span>{connectionId ? "已连接" : "尚未连接"}</span>
-                  </label>
-                  <label>
-                    Schema
-                    <input
-                      value={targetSchema}
-                      onChange={(e) => setTargetSchema(e.target.value)}
-                    />
-                  </label>
-                  <label>
-                    新表名
-                    <input
-                      value={targetTable}
-                      onChange={(e) => setTargetTable(e.target.value)}
-                    />
-                  </label>
-                </>
-              )}
-              <p className="form-note">
-                {active?.features.length} 个要素 · {fields.length}{" "}
-                个属性字段。CSV 嵌套属性将转为 JSON 文本；经纬度格式仅支持点。
-              </p>
-              <div className="modal-actions">
-                <button disabled={busy} onClick={doExport}>
-                  <Download size={16} />
-                  导出
-                </button>
-              </div>
-            </div>
+        {modal === "export" && active && (
+          <Modal
+            title="导出 / 转换"
+            showError={false}
+            onClose={() => {
+              if (!busy) openModal(null);
+            }}
+          >
+            <ExportPanel
+              layer={active}
+              mode={exportMode}
+              crs={exportCrs}
+              filename={exportFilename}
+              connected={Boolean(connectionId)}
+              schema={targetSchema}
+              table={targetTable}
+              desktop={desktop}
+              busy={busy}
+              error={error}
+              onMode={(value) => {
+                setExportMode(value);
+                setExportFilename((name) =>
+                  name.replace(
+                    /\.(geojson|json|csv)$/i,
+                    value === "geojson" ? ".geojson" : ".csv",
+                  ),
+                );
+                setError("");
+              }}
+              onCrs={setExportCrs}
+              onFilename={setExportFilename}
+              onSchema={setTargetSchema}
+              onTable={setTargetTable}
+              onExport={() => void doExport()}
+              onClose={() => openModal(null)}
+            />
           </Modal>
         )}
         {modal === "settings" && (
