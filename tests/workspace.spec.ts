@@ -30,6 +30,23 @@ async function exit(page: Page) {
   await page.getByRole("button", { name: "退出", exact: true }).click();
 }
 
+test("native open continues into worker import after dialog busy state", async ({
+  page,
+}) => {
+  await installDesktopMock(page);
+  await page.goto("/");
+  await page
+    .locator(".app-header summary")
+    .filter({ hasText: /^文件$/ })
+    .click();
+  await page
+    .locator(".app-header")
+    .getByRole("button", { name: "打开文件…", exact: true })
+    .filter({ visible: true })
+    .click();
+  await expect(page.locator(".layer-row")).toContainText("native.geojson");
+});
+
 test("restored CSV saves as GeoJSON with matching filename", async ({
   page,
 }) => {

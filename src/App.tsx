@@ -332,8 +332,16 @@ export default function App() {
     }
   }
   function openFiles() {
-    if (desktop) void task(async () => acceptFiles(await api.open()));
+    if (desktop) void openDesktopFiles();
     else input.current?.click();
+  }
+  async function openDesktopFiles() {
+    if (busyRef.current) return;
+    let files: InputFile[] = [];
+    await task(async () => {
+      files = await api.open();
+    });
+    if (files.length) await acceptFiles(files);
   }
   function openSources() {
     setLayersOpen(true);

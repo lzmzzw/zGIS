@@ -86,6 +86,27 @@ export async function installDesktopMock(
               return id;
             }
             if (command === "load_recovery") return state.snapshot;
+            if (command === "open_files")
+              return [
+                {
+                  name: "native.geojson",
+                  sourceId: "test-open",
+                  bytes: Array.from(
+                    new TextEncoder().encode(
+                      JSON.stringify({
+                        type: "FeatureCollection",
+                        features: [
+                          {
+                            type: "Feature",
+                            geometry: { type: "Point", coordinates: [1, 2] },
+                            properties: { name: "native" },
+                          },
+                        ],
+                      }),
+                    ),
+                  ),
+                },
+              ];
             if (command === "save_recovery") {
               if (state.backupError) throw Error(state.backupError);
               state.snapshot = String(args.content);
