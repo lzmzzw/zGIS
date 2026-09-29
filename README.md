@@ -62,6 +62,6 @@ pwsh -File scripts/build.ps1
 
 后端单测可执行 `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`，需先载入 `scripts/msvc-environment.ps1`。打包脚本显式载入 MSVC，防止 Git 的 link.exe 抢占。Cargo.lock 和 pnpm-lock.yaml 都提交，构建、截图与测试数据在 output/target，不提交。
 
-安装版桌面 smoke 使用 WebView2 本地 CDP，仅测试时通过环境启用，不写入产品配置：指定 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9226` 和独立 `WEBVIEW2_USER_DATA_FOLDER` 后启动，再执行 `node scripts/desktop-smoke.mjs <PID>`。测试只操作生成的测试文件，用 Windows UI Automation 验证原生对话框。完成后停止测试实例，不在常规启动时开启调试端口。
+安装版验收执行 `pwsh -File scripts/installed-smoke.ps1`，先正常关闭现有 zGIS 会话。脚本暂存并最终还原原恢复文件，使用独立 WebView2 目录，仅操作生成的测试文件；验证原生打开、保存、导出、取消、外部修改保护，以及真实退出后跨进程恢复和放弃。WebView2 本地 CDP 仅测试时通过环境启用，不写入产品配置，常规启动不开调试端口。独立 WebView2 目录本身不隔离 Rust 恢复文件，不直接对用户运行中的实例执行底层 smoke。
 
 接口见 [src-tauri/IPC.md](src-tauri/IPC.md)。最初设计见 [zGIS技术方案](../../../Deliverables/zGIS/zGIS技术方案.md)，实现边界以本 README 为准。数据库的 AI 直接操作仍遵守工作台 DBX 入口，应用数据层不提供旁路工具。
