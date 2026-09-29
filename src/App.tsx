@@ -34,13 +34,10 @@ import {
   Check,
   LoaderCircle,
   FileJson,
-  RotateCcw,
   Search,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import WKT from "ol/format/WKT";
-import GeoJSON from "ol/format/GeoJSON";
 import MapView, { type Tool } from "./MapView";
 import { ImportPanel, ExportPanel } from "./FilePanels";
 import {
@@ -50,6 +47,7 @@ import {
   SubmitPanel,
 } from "./DatabasePanels";
 import { databaseChanges } from "./dbChanges";
+import { restoreLayers, snapshotLayers, type ExitAction } from "./workspace";
 import {
   createDemoLayer,
   exportGeoJSON,
@@ -57,6 +55,7 @@ import {
   cloneFeatures,
   validateGeometry,
   geometryToWkt,
+  geometryFromWkt,
   makeLayer,
   parseProperties,
 } from "./domain";
@@ -252,7 +251,6 @@ export default function App() {
     | "submit"
     | "settings"
     | "close"
-    | "recovery"
     | "quit"
     | "json"
     | "wkt"
@@ -270,8 +268,15 @@ export default function App() {
   const [propertyText, setPropertyText] = useState("{}");
   const [wktText, setWktText] = useState("");
   const [newField, setNewField] = useState("");
-  const [recovery, setRecovery] = useState<DocumentLayer[] | null>(null);
   const [recoveryReady, setRecoveryReady] = useState(!desktop);
+  const [exitActions, setExitActions] = useState<Record<string, ExitAction>>(
+    {},
+  );
+  const snapshotQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const exitPending = useRef(false);
+  const busyRef = useRef(false);
+  busyRef.current = busy;
+  const recoveryBlocked = useRef(false);
   const histories = useRef(new Map<string, History>());
   const [, refreshHistory] = useState(0);
   const dbBaselines = useRef(new Map<string, GeoFeature[]>());
@@ -349,22 +354,61 @@ export default function App() {
     }
     setBasemap(value);
   }
+  function writeSnapshot(documents: DocumentLayer[]) {
+    const content = snapshotLayers(documents);
+    const next = snapshotQueue.current
+      .catch(() => {})
+      .then(() => api.backup(content));
+    snapshotQueue.current = next;
+    return next;
+  }
+  function requestExit() {
+    if (busyRef.current || !recoveryReady) return;
+    exitPending.current = true;
+    setError("");
+    setExitActions(
+      Object.fromEntries(
+        currentLayers.current
+          .filter((layer) => layer.dirty)
+          .map((layer) => [layer.id, "keep"]),
+      ),
+    );
+    setModal("quit");
+  }
+  function cancelExit() {
+    if (busyRef.current) return;
+    exitPending.current = false;
+    openModal(null);
+  }
   useEffect(() => {
     if (!desktop) return;
+    let disposed = false;
     api
       .recover()
       .then((raw) => {
+        if (disposed) return;
         if (raw) {
-          const data = JSON.parse(raw);
-          if (Array.isArray(data) && data.some((l: DocumentLayer) => l.dirty)) {
-            setRecovery(data);
-            setModal("recovery");
+          const restored = restoreLayers(raw);
+          if (restored.length) {
+            addLayers(restored);
+            setStatus(`已恢复 ${restored.length} 个本地副本`);
           }
         }
       })
-      .catch(() => {})
-      .finally(() => setRecoveryReady(true));
+      .catch((reason) => {
+        if (disposed) return;
+        recoveryBlocked.current = true;
+        setError("恢复副本加载失败：" + errorText(reason));
+      })
+      .finally(() => {
+        if (!disposed) setRecoveryReady(true);
+      });
+    return () => {
+      disposed = true;
+    };
   }, []);
+  const exitHandler = useRef(requestExit);
+  exitHandler.current = requestExit;
   useEffect(() => {
     if (!desktop) return;
     let disposed = false;
@@ -372,42 +416,35 @@ export default function App() {
     getCurrentWindow()
       .onCloseRequested((event) => {
         event.preventDefault();
-        if (currentLayers.current.some((l) => l.dirty)) {
-          setModal("quit");
-        } else {
-          api
-            .backup("[]")
-            .then(() => getCurrentWindow().destroy())
-            .catch((e) => {
-              setError(errorText(e));
-              setModal("quit");
-            });
-        }
+        exitHandler.current();
       })
       .then((fn) => {
         if (disposed) fn();
         else unlisten = fn;
-      });
+      })
+      .catch((reason) => setError(errorText(reason)));
     return () => {
       disposed = true;
       unlisten?.();
     };
   }, []);
   useEffect(() => {
-    if (!desktop || !recoveryReady || recovery) return;
+    if (
+      !desktop ||
+      !recoveryReady ||
+      recoveryBlocked.current ||
+      exitPending.current ||
+      busy
+    )
+      return;
     const timer = setTimeout(() => {
-      const safe = layers.map((l) => ({
-        ...l,
-        db: undefined,
-        sourceId: undefined,
-        sourceKind: l.sourceKind === "postgis" ? "geojson" : l.sourceKind,
-      }));
-      api
-        .backup(JSON.stringify(safe))
-        .catch(() => setStatus("恢复副本保存失败"));
+      if (exitPending.current || busyRef.current) return;
+      void writeSnapshot(currentLayers.current).catch(() =>
+        setStatus("恢复副本保存失败"),
+      );
     }, 1500);
     return () => clearTimeout(timer);
-  }, [layers, recoveryReady, recovery]);
+  }, [layers, recoveryReady, modal, busy]);
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
       if (currentLayers.current.some((l) => l.dirty)) {
@@ -429,7 +466,8 @@ export default function App() {
     setWktText(selected?.geometry ? geometryToWkt(selected.geometry) : "");
   }, [selected]);
   async function task(action: () => Promise<void>) {
-    if (busy) return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError("");
     try {
@@ -438,6 +476,7 @@ export default function App() {
       setError(errorText(e));
       setStatus("操作失败");
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
@@ -550,10 +589,7 @@ export default function App() {
   function applyWkt() {
     if (!selected || !active || !editable || busy) return;
     try {
-      const geom = wktText.trim() ? new WKT().readGeometry(wktText) : null;
-      const json = geom ? new GeoJSON().writeGeometryObject(geom) : null;
-      const errors = validateGeometry(json);
-      if (errors.length) throw new Error(errors.join("；"));
+      const json = geometryFromWkt(wktText);
       edit(
         active.features.map((f) =>
           f.id === selected.id ? { ...f, geometry: json } : f,
@@ -576,46 +612,70 @@ export default function App() {
       return;
     }
     await task(async () => {
-      const content =
-        active.sourceKind === "csv"
-          ? exportCsv(active.features, {
-              ...active.csvConfig,
-              mode: active.csvConfig?.wktColumn ? "wkt" : "xy",
-              crs: active.originalCrs,
-            })
-          : exportGeoJSON(active.features);
-      if (desktop) {
-        const result = await api.save(
-          content,
-          /\.(geojson|json|csv)$/i.test(active.name)
-            ? active.name
-            : active.name + ".geojson",
-          asNew ? undefined : active.sourceId,
-          !asNew && Boolean(active.sourceId),
-        );
-        if (!result) {
-          setStatus("已取消保存");
-          return;
-        }
-        setLayers((old) =>
-          old.map((l) =>
-            l.id === active.id
-              ? {
-                  ...l,
-                  dirty: false,
-                  sourceId: result.sourceId,
-                  name: result.name,
-                }
-              : l,
-          ),
-        );
-      } else {
-        download(content, active.name);
-        setLayers((old) =>
-          old.map((l) => (l.id === active.id ? { ...l, dirty: false } : l)),
-        );
+      await saveDocument(active, asNew);
+    });
+  }
+  async function saveDocument(
+    doc: DocumentLayer,
+    asNew = false,
+  ): Promise<DocumentLayer> {
+    const content =
+      doc.sourceKind === "csv"
+        ? exportCsv(doc.features, {
+            ...doc.csvConfig,
+            mode: doc.csvConfig?.wktColumn ? "wkt" : "xy",
+            crs: doc.originalCrs,
+          })
+        : exportGeoJSON(doc.features);
+    let updated = { ...doc, dirty: false, restored: false };
+    const filename =
+      doc.sourceKind === "csv"
+        ? /\.csv$/i.test(doc.name)
+          ? doc.name
+          : doc.name + ".csv"
+        : /\.(geojson|json)$/i.test(doc.name)
+          ? doc.name
+          : doc.name.replace(/\.(csv|shp)$/i, "") + ".geojson";
+    if (desktop) {
+      const result = await api.save(
+        content,
+        filename,
+        asNew ? undefined : doc.sourceId,
+        !asNew && Boolean(doc.sourceId),
+      );
+      if (!result) throw new Error("已取消保存，工作区仍保留");
+      updated = { ...updated, sourceId: result.sourceId, name: result.name };
+    } else download(content, filename);
+    setLayers((old) =>
+      old.map((layer) => (layer.id === doc.id ? updated : layer)),
+    );
+    currentLayers.current = currentLayers.current.map((layer) =>
+      layer.id === doc.id ? updated : layer,
+    );
+    setStatus("保存完成");
+    return updated;
+  }
+  async function processExit() {
+    await task(async () => {
+      const retained: DocumentLayer[] = [];
+      for (const doc of [...currentLayers.current]) {
+        if (!doc.dirty) continue;
+        const action = exitActions[doc.id] ?? "keep";
+        if (action === "keep") retained.push(doc);
+        else if (action === "save")
+          await saveDocument(doc, doc.sourceKind === "shp");
+        else if (action === "submit") await commitLayer(doc);
       }
-      setStatus("保存完成");
+      if (desktop) {
+        if (!recoveryBlocked.current || retained.length)
+          await writeSnapshot(retained);
+        await getCurrentWindow().destroy();
+      } else {
+        setLayers(retained);
+        setActiveId(retained[0]?.id);
+        exitPending.current = false;
+        setModal(null);
+      }
     });
   }
   async function doExport() {
@@ -779,6 +839,9 @@ export default function App() {
       old.map((layer) => (layer.id === doc.id ? updated : layer)),
     );
     setStatus(`已提交 ${changes.length} 条变更`);
+    currentLayers.current = currentLayers.current.map((layer) =>
+      layer.id === doc.id ? updated : layer,
+    );
     return updated;
   }
   async function commit() {
@@ -792,18 +855,9 @@ export default function App() {
     if (!active) return;
     await task(async () => {
       const next = layers.filter((l) => l.id !== active.id);
-      if (desktop)
-        await api.backup(
-          JSON.stringify(
-            next.map((l) => ({
-              ...l,
-              db: undefined,
-              sourceId: undefined,
-              sourceKind: l.sourceKind === "postgis" ? "geojson" : l.sourceKind,
-            })),
-          ),
-        );
+      if (desktop) await writeSnapshot(next);
       setLayers(next);
+      currentLayers.current = next;
       histories.current.delete(active.id);
       dbBaselines.current.delete(active.id);
       dbBounds.current.delete(active.id);
@@ -834,6 +888,43 @@ export default function App() {
     (active?.sourceKind !== "postgis" ||
       (Boolean(active.db?.keyColumns.length) &&
         !uncertainDocs.has(active.id!)));
+  let draftSummary = "";
+  let draftError = "";
+  if (modal === "json" || modal === "wkt") {
+    try {
+      draftSummary =
+        modal === "json"
+          ? `${Object.keys(parseProperties(propertyText)).length} 个字段`
+          : (geometryFromWkt(wktText)?.type ?? "空几何");
+    } catch (reason) {
+      draftError = errorText(reason);
+    }
+  }
+  function fieldSummary(field: string) {
+    const values =
+      active?.features.map((feature) => feature.properties[field]) ?? [];
+    const types = [
+      ...new Set(
+        values
+          .filter((value) => value != null)
+          .map((value) =>
+            Array.isArray(value)
+              ? "数组"
+              : typeof value === "object"
+                ? "对象"
+                : typeof value === "number"
+                  ? "数值"
+                  : typeof value === "boolean"
+                    ? "布尔"
+                    : "文本",
+          ),
+      ),
+    ];
+    const empty = values.filter(
+      (value) => value == null || value === "",
+    ).length;
+    return `${types.join(" / ") || "空值"} · ${values.length} 条 · ${empty} 空值`;
+  }
   return (
     <ErrorContext.Provider value={error}>
       <div className="app">
@@ -882,6 +973,11 @@ export default function App() {
               >
                 <X size={16} />
                 移除图层
+              </button>
+              <hr />
+              <button disabled={busy || !recoveryReady} onClick={requestExit}>
+                <X size={16} />
+                退出
               </button>
             </HeaderMenu>
             <HeaderMenu label="数据">
@@ -1356,7 +1452,7 @@ export default function App() {
                           <th key={field} title={field}>
                             <HeaderMenu label={field}>
                               <span className="field-info">
-                                {field} · {active?.features.length ?? 0} 条记录
+                                {fieldSummary(field)}
                               </span>
                               <button
                                 disabled={
@@ -1459,8 +1555,60 @@ export default function App() {
                       }
                     />
                   </label>
+                  <label>
+                    不透明度{" "}
+                    <output>{Math.round((active.opacity ?? 1) * 100)}%</output>
+                    <input
+                      type="range"
+                      aria-label="不透明度"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={active.opacity ?? 1}
+                      onChange={(event) =>
+                        setLayers((old) =>
+                          old.map((layer) =>
+                            layer.id === active.id
+                              ? {
+                                  ...layer,
+                                  opacity: Number(event.target.value),
+                                }
+                              : layer,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                  <label>
+                    线宽 <output>{active.strokeWidth ?? 2} px</output>
+                    <input
+                      type="range"
+                      aria-label="线宽"
+                      min="1"
+                      max="8"
+                      step="1"
+                      value={active.strokeWidth ?? 2}
+                      onChange={(event) =>
+                        setLayers((old) =>
+                          old.map((layer) =>
+                            layer.id === active.id
+                              ? {
+                                  ...layer,
+                                  strokeWidth: Number(event.target.value),
+                                }
+                              : layer,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
                   <details open>
                     <summary>来源详情</summary>
+                    {active.restored && (
+                      <p className="form-note">
+                        恢复副本 · {active.restoredFrom}
+                      </p>
+                    )}
                     <dl>
                       <dt>格式</dt>
                       <dd>
@@ -1528,20 +1676,11 @@ export default function App() {
                           onChange={(e) => {
                             if (!active) return;
                             const inputValue = e.target.value;
-                            if (
-                              typeof value === "number" &&
-                              (inputValue === "" ||
-                                !Number.isFinite(Number(inputValue)))
-                            )
-                              return;
                             setPropertyDraft((draft) =>
                               draft
                                 ? {
                                     ...draft,
-                                    [key]:
-                                      typeof value === "number"
-                                        ? Number(inputValue)
-                                        : inputValue,
+                                    [key]: inputValue,
                                   }
                                 : null,
                             );
@@ -1557,14 +1696,28 @@ export default function App() {
                       <button
                         disabled={!editable || busy}
                         onClick={() => {
+                          const properties = { ...propertyDraft };
+                          for (const [key, value] of Object.entries(
+                            selected.properties,
+                          )) {
+                            if (typeof value !== "number") continue;
+                            const draft = properties[key];
+                            if (
+                              String(draft).trim() === "" ||
+                              !Number.isFinite(Number(draft))
+                            ) {
+                              setError(`${key} 必须是有限数值`);
+                              return;
+                            }
+                            properties[key] = Number(draft);
+                          }
                           edit(
                             active!.features.map((f) =>
-                              f.id === selected.id
-                                ? { ...f, properties: propertyDraft }
-                                : f,
+                              f.id === selected.id ? { ...f, properties } : f,
                             ),
                           );
                           setPropertyDraft(null);
+                          setError("");
                           setStatus("属性已更新");
                         }}
                       >
@@ -1830,22 +1983,23 @@ export default function App() {
                   <dd>{active?.name}</dd>
                   <dt>要素</dt>
                   <dd>{selected.id}</dd>
-                  <dt>{modal === "json" ? "当前字段" : "当前类型"}</dt>
-                  <dd>
-                    {modal === "json"
-                      ? Object.keys(selected.properties).length
-                      : (selected.geometry?.type ?? "空几何")}
-                  </dd>
+                  <dt>{modal === "json" ? "草稿字段" : "草稿类型"}</dt>
+                  <dd>{draftError ? "未通过校验" : draftSummary}</dd>
                   <dt>工作坐标</dt>
                   <dd>WGS84</dd>
                 </dl>
                 {!editable && <p className="form-note">当前来源只读</p>}
+                {draftError && (
+                  <p className="inline-error" role="alert">
+                    {draftError}
+                  </p>
+                )}
               </aside>
             </div>
             <div className="modal-actions">
               <button onClick={() => openModal(null)}>关闭</button>
               <button
-                disabled={!editable || busy}
+                disabled={!editable || busy || Boolean(draftError)}
                 onClick={modal === "json" ? applyProperties : applyWkt}
               >
                 <Check size={15} />
@@ -1998,61 +2152,69 @@ export default function App() {
             </div>
           </Modal>
         )}
-        {modal === "recovery" && (
-          <Modal title="发现未保存副本" onClose={() => setModal(null)}>
-            <p>
-              上次运行保留了 {recovery?.length}{" "}
-              个图层。数据库来源将恢复为本地副本。
+        {modal === "quit" && (
+          <Modal title="退出 zGIS" onClose={cancelExit}>
+            <div className="exit-layers">
+              {layers
+                .filter((layer) => layer.dirty)
+                .map((layer) => (
+                  <label key={layer.id}>
+                    <span title={layer.name}>
+                      {layer.name}
+                      <small>
+                        {layer.features.length} 个要素 · {layer.sourceKind}
+                      </small>
+                    </span>
+                    <select
+                      aria-label={`退出处理 ${layer.name}`}
+                      value={exitActions[layer.id] ?? "keep"}
+                      disabled={busy}
+                      onChange={(event) =>
+                        setExitActions((old) => ({
+                          ...old,
+                          [layer.id]: event.target.value as ExitAction,
+                        }))
+                      }
+                    >
+                      <option value="keep">保留恢复副本</option>
+                      <option value="save">
+                        {layer.sourceKind === "postgis" ||
+                        layer.sourceKind === "shp"
+                          ? "另存 GeoJSON"
+                          : "保存文件"}
+                      </option>
+                      {layer.db?.keyColumns.length &&
+                      !uncertainDocs.has(layer.id) ? (
+                        <option value="submit">提交到数据库</option>
+                      ) : null}
+                      <option value="discard">放弃修改</option>
+                    </select>
+                  </label>
+                ))}
+              {!layers.some((layer) => layer.dirty) && <p>所有图层已保存。</p>}
+            </div>
+            <p className="form-note">
+              待处理 {layers.filter((layer) => layer.dirty).length} 个图层 ·
+              保留{" "}
+              {
+                layers.filter(
+                  (layer) =>
+                    layer.dirty && (exitActions[layer.id] ?? "keep") === "keep",
+                ).length
+              }{" "}
+              个恢复副本
             </p>
             <div className="modal-actions">
-              <button
-                onClick={() => {
-                  api.backup("[]");
-                  setRecovery(null);
-                  setModal(null);
-                }}
-              >
-                放弃副本
+              <button disabled={busy} onClick={cancelExit}>
+                取消
               </button>
-              <button
-                onClick={() => {
-                  addLayers(recovery ?? []);
-                  setRecovery(null);
-                  setModal(null);
-                }}
-              >
-                <RotateCcw size={16} />
-                恢复
-              </button>
-            </div>
-          </Modal>
-        )}
-        {modal === "quit" && (
-          <Modal title="退出 zGIS" onClose={() => setModal(null)}>
-            <p>存在未保存修改，是否保留恢复副本后退出？</p>
-            <div className="modal-actions">
-              <button onClick={() => setModal(null)}>取消</button>
-              <button
-                onClick={() =>
-                  task(async () => {
-                    await api.backup(
-                      JSON.stringify(
-                        currentLayers.current.map((l) => ({
-                          ...l,
-                          db: undefined,
-                          sourceId: undefined,
-                          sourceKind:
-                            l.sourceKind === "postgis"
-                              ? "geojson"
-                              : l.sourceKind,
-                        })),
-                      ),
-                    );
-                    await getCurrentWindow().destroy();
-                  })
-                }
-              >
-                保留副本并退出
+              <button disabled={busy} onClick={() => void processExit()}>
+                {busy ? (
+                  <LoaderCircle size={15} className="spin" />
+                ) : (
+                  <Check size={15} />
+                )}
+                处理并退出
               </button>
             </div>
           </Modal>

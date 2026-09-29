@@ -39,11 +39,11 @@ interface Props {
   onBounds?: (bbox: number[]) => void;
 }
 const format = new GeoJSON();
-function style(color: string, selected = false, accent = "#3e73d8") {
+function style(color: string, selected = false, accent = "#3e73d8", width = 2) {
   return new Style({
     stroke: new Stroke({
       color: selected ? accent : color,
-      width: selected ? 2 : 1,
+      width: selected ? Math.max(2, width) : width,
     }),
     fill: new Fill({ color: (selected ? accent : color) + "24" }),
     image: new Circle({
@@ -159,12 +159,14 @@ export default function MapView(props: Props) {
         vectorRefs.current.set(item.id, layer);
       }
       layer.setVisible(item.visible);
+      layer.setOpacity(item.opacity ?? 1);
       layer.setZIndex(index + 10);
       layer.setStyle((feature) =>
         style(
           item.color,
           feature.getId() === props.selectedId && item.id === props.activeId,
           props.theme === "dark" ? "#78a8ff" : "#3e73d8",
+          item.strokeWidth ?? 2,
         ),
       );
       const source = layer.getSource()!;

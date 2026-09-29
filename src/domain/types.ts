@@ -21,6 +21,10 @@ export interface DocumentLayer {
   features: GeoFeature[];
   visible: boolean;
   color: string;
+  opacity?: number;
+  strokeWidth?: number;
+  restored?: boolean;
+  restoredFrom?: string;
   sourceKind: "geojson" | "csv" | "shp" | "postgis";
   sourceId?: string;
   crs: string;

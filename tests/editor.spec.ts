@@ -97,7 +97,9 @@ test("CSV worker import, text codes, invalid geometry retained inside editor", a
   await page
     .getByRole("textbox", { name: "WKT 几何", exact: true })
     .fill("POINT Z (116 40 10)");
-  await page.getByRole("button", { name: "应用几何", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "应用几何", exact: true }),
+  ).toBeDisabled();
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
     "二维",
   );
@@ -120,15 +122,13 @@ test("CSV preview correction and explicit XY mode preserve rows", async ({
   page,
 }) => {
   await page.goto("/");
-  await page
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "双几何.csv",
-      mimeType: "text/csv",
-      buffer: Buffer.from(
-        'name,longitude,latitude,wkt\r\n甲,116,40,"POINT (117 41)"',
-      ),
-    });
+  await page.locator("input[type=file]").setInputFiles({
+    name: "双几何.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(
+      'name,longitude,latitude,wkt\r\n甲,116,40,"POINT (117 41)"',
+    ),
+  });
   await expect(page.locator(".preview-table tbody tr")).toHaveCount(1);
   await page.getByLabel("几何来源", { exact: true }).selectOption("xy");
   await page.getByLabel("X / 经度列", { exact: true }).selectOption("name");
@@ -160,13 +160,11 @@ test("file parse errors remain in original window and export rejects non-point X
   page,
 }) => {
   await page.goto("/");
-  await page
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "三维.geojson",
-      mimeType: "application/json",
-      buffer: Buffer.from('{"type":"Point","coordinates":[116,40,10]}'),
-    });
+  await page.locator("input[type=file]").setInputFiles({
+    name: "三维.geojson",
+    mimeType: "application/json",
+    buffer: Buffer.from('{"type":"Point","coordinates":[116,40,10]}'),
+  });
   await expect(page.getByRole("dialog")).toContainText("三维.geojson");
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
     "二维",
@@ -175,15 +173,13 @@ test("file parse errors remain in original window and export rejects non-point X
     .getByRole("dialog")
     .getByRole("button", { name: "取消", exact: true })
     .click();
-  await page
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "道路.geojson",
-      mimeType: "application/json",
-      buffer: Buffer.from(
-        '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[116,40],[117,41]]},"properties":{"name":"道路"}}]}',
-      ),
-    });
+  await page.locator("input[type=file]").setInputFiles({
+    name: "道路.geojson",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[116,40],[117,41]]},"properties":{"name":"道路"}}]}',
+    ),
+  });
   await expect(page.locator(".layer-text")).toContainText("道路.geojson");
   await fileAction(page, "导出 / 转换");
   await page.getByLabel("输出格式").selectOption("xy");

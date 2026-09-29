@@ -1157,3 +1157,23 @@ select[aria-invalid="true"] {
     min-width: 150px;
   }
 }
+.exit-layers {
+  display: grid;
+  gap: 12px;
+  max-height: 360px;
+  overflow: auto;
+}
+.exit-layers label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 164px;
+  gap: 16px;
+  align-items: center;
+}
+.exit-layers label > span {
+  overflow-wrap: anywhere;
+}
+.exit-layers small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+}
