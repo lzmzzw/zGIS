@@ -1,42 +1,85 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-test("city attributes, geometry, undo, export and viewport", async ({
+
+async function fileAction(page: Page, name: string) {
+  await page
+    .locator(".app-header summary")
+    .filter({ hasText: /^文件$/ })
+    .click();
+  await page.getByRole("button", { name, exact: true }).click();
+}
+async function showTable(page: Page) {
+  await page
+    .locator(".header-actions")
+    .getByRole("button", { name: "属性表", exact: true })
+    .click();
+}
+async function demo(page: Page) {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "城市示例", exact: true })
+    .filter({ visible: true })
+    .click();
+  await showTable(page);
+  await expect(page.locator("tbody tr")).toHaveCount(4);
+}
+async function wktEditor(page: Page) {
+  await page.getByRole("button", { name: "WKT 几何…", exact: true }).click();
+}
+
+test("city attributes use explicit apply, independent geometry editor, undo and export", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto("/");
+  await demo(page);
+  await page.locator("tbody tr").first().click();
+  const city = page.getByRole("textbox", { name: "属性 城市", exact: true });
+  await expect(city).toBeDisabled();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await city.fill("取消测试");
+  await expect(page.locator("tbody tr").first()).toContainText("北京");
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(city).toHaveValue("北京");
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await city.fill("北京测试");
+  await page.getByRole("button", { name: "应用", exact: true }).click();
+  await expect(page.locator("tbody tr").first()).toContainText("北京测试");
+  await wktEditor(page);
   await page
-    .getByRole("button", { name: "城市示例", exact: true })
+    .getByRole("textbox", { name: "WKT 几何", exact: true })
+    .fill("POINT (117 40)");
+  await page.getByRole("button", { name: "应用几何", exact: true }).click();
+  await expect(
+    page.getByRole("textbox", { name: "WKT 几何", exact: true }),
+  ).toHaveValue("POINT(117 40)");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "关闭", exact: true })
     .first()
     .click();
-  await expect(page.locator("tbody tr")).toHaveCount(4);
-  await page.locator("tbody tr").first().click();
-  await page
-    .getByRole("textbox", { name: "属性 城市", exact: true })
-    .fill("北京测试");
-  await expect(page.locator("tbody tr").first()).toContainText("北京测试");
-  await page.getByRole("textbox", { name: "WKT 几何" }).fill("POINT (117 40)");
-  await page.getByRole("button", { name: "应用几何" }).click();
-  await expect(page.getByRole("textbox", { name: "WKT 几何" })).toHaveValue(
-    "POINT(117 40)",
-  );
   await page.getByRole("button", { name: "撤销", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "WKT 几何" })).not.toHaveValue(
-    "POINT(117 40)",
-  );
+  await wktEditor(page);
+  await expect(
+    page.getByRole("textbox", { name: "WKT 几何", exact: true }),
+  ).not.toHaveValue("POINT(117 40)");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "关闭", exact: true })
+    .first()
+    .click();
   await page.getByRole("button", { name: "重做", exact: true }).click();
-  await page.getByRole("button", { name: "导出 / 转换", exact: true }).click();
-  const downloadPromise = page.waitForEvent("download");
+  await fileAction(page, "导出 / 转换");
+  const promise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出", exact: true }).click();
-  const download = await downloadPromise;
-  await download.saveAs("output/smoke/export.geojson");
+  await (await promise).saveAs("output/smoke/export.geojson");
   await page.screenshot({ path: "output/smoke/editor-desktop.png" });
-  await page.setViewportSize({ width: 960, height: 640 });
-  await page.screenshot({ path: "output/smoke/editor-compact.png" });
   expect(errors).toEqual([]);
 });
-test("CSV worker import, projection and invalid geometry", async ({ page }) => {
+
+test("CSV worker import, text codes, invalid geometry retained inside editor", async ({
+  page,
+}) => {
   await page.goto("/");
   await page.locator("input[type=file]").setInputFiles({
     name: "坐标.csv",
@@ -46,52 +89,107 @@ test("CSV worker import, projection and invalid geometry", async ({ page }) => {
     ),
   });
   await page.getByRole("button", { name: "导入", exact: true }).click();
+  await showTable(page);
   await expect(page.locator("tbody tr")).toHaveCount(2);
   await expect(page.locator("tbody tr").first()).toContainText("001");
   await page.locator("tbody tr").first().click();
+  await wktEditor(page);
   await page
-    .getByRole("textbox", { name: "WKT 几何" })
+    .getByRole("textbox", { name: "WKT 几何", exact: true })
     .fill("POINT Z (116 40 10)");
-  await page.getByRole("button", { name: "应用几何" }).click();
-  await expect(page.getByRole("alert")).toContainText("二维");
-  await page.getByRole("button", { name: "关闭错误" }).click();
-  await page.getByRole("button", { name: "导出 / 转换", exact: true }).click();
+  await page.getByRole("button", { name: "应用几何", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "二维",
+  );
+  await expect(
+    page.getByRole("textbox", { name: "WKT 几何", exact: true }),
+  ).toHaveValue("POINT Z (116 40 10)");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "关闭", exact: true })
+    .first()
+    .click();
+  await fileAction(page, "导出 / 转换");
   await page.getByLabel("输出格式").selectOption("wkt");
   const promise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出", exact: true }).click();
   await (await promise).saveAs("output/smoke/export.csv");
 });
-test("SHP ZIP, source ID and duplicate field protection", async ({ page }) => {
+
+test("SHP ZIP is selectable and read only, save routes to conversion", async ({
+  page,
+}) => {
   execFileSync("node", ["scripts/create-fixtures.mjs"]);
   await page.goto("/");
   await page
     .locator("input[type=file]")
     .setInputFiles("output/smoke/fixtures/cities.zip");
+  await showTable(page);
   await expect(page.locator("tbody tr")).toHaveCount(2);
-  await expect(page.locator("tbody tr").first()).toContainText("北京");
   await page.locator("tbody tr").first().click();
-  await page.getByRole("textbox", { name: "新字段名" }).fill("name");
-  await page.getByRole("button", { name: "添加字段", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("字段已存在");
   await expect(
     page.getByRole("textbox", { name: "属性 name", exact: true }),
   ).toHaveValue("北京");
-  await page.getByRole("button", { name: "关闭错误" }).click();
-  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "编辑", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "新增点", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "选择", exact: true }),
+  ).toBeEnabled();
+  await wktEditor(page);
+  await expect(
+    page.getByRole("textbox", { name: "WKT 几何", exact: true }),
+  ).toHaveAttribute("readonly", "");
+  await expect(
+    page.getByRole("button", { name: "应用几何", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "关闭", exact: true })
+    .first()
+    .click();
+  await fileAction(page, "保存");
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.screenshot({ path: "output/smoke/shp-conversion.png" });
 });
-test("map point, line and polygon drawing with deletion and undo", async ({
+
+test("field menu protects duplicates and adds to every feature", async ({
   page,
 }) => {
-  await page.goto("/");
+  await demo(page);
   await page
-    .getByRole("button", { name: "城市示例", exact: true })
-    .first()
+    .locator("th summary")
+    .filter({ hasText: /^城市$/ })
     .click();
+  await page
+    .locator("th .menu-items")
+    .getByRole("button", { name: "添加字段", exact: true })
+    .click();
+  await page.getByRole("textbox", { name: "新字段名" }).fill("城市");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "添加字段", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("字段已存在");
+  await page.getByRole("textbox", { name: "新字段名" }).fill("备注");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "添加字段", exact: true })
+    .click();
+  await expect(page.locator("th").filter({ hasText: "备注" })).toHaveCount(1);
+  await expect(page.locator("tbody tr")).toHaveCount(4);
+});
+
+test("drawing completion, cancellation, vertices, deletion and undo", async ({
+  page,
+}) => {
+  await demo(page);
+  await page.locator("tbody tr").first().click();
   await page.getByLabel("底图", { exact: true }).selectOption("none");
-  const map = page.getByLabel("地理数据地图");
-  const box = await map.boundingBox();
+  const box = await page.getByLabel("地理数据地图").boundingBox();
   if (!box) throw new Error("Map not rendered");
   const point = (x: number, y: number) => ({
     x: box.x + x * box.width,
@@ -102,30 +200,128 @@ test("map point, line and polygon drawing with deletion and undo", async ({
   await page.mouse.click(point(0.4, 0.5).x, point(0.4, 0.5).y);
   await expect(page.locator("tbody tr")).toHaveCount(5);
   await page.locator("tbody tr").last().click();
+  await wktEditor(page);
   const before = await page
-    .getByRole("textbox", { name: "WKT 几何" })
+    .getByRole("textbox", { name: "WKT 几何", exact: true })
     .inputValue();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "关闭", exact: true })
+    .first()
+    .click();
   await page.getByRole("button", { name: "编辑顶点", exact: true }).click();
   await page.mouse.move(point(0.4, 0.5).x, point(0.4, 0.5).y);
   await page.mouse.down();
   await page.mouse.move(point(0.45, 0.55).x, point(0.45, 0.55).y, { steps: 6 });
   await page.mouse.up();
-  await expect(page.getByRole("textbox", { name: "WKT 几何" })).not.toHaveValue(
-    before,
-  );
+  await page.getByRole("button", { name: "结束顶点编辑", exact: true }).click();
+  await wktEditor(page);
+  await expect(
+    page.getByRole("textbox", { name: "WKT 几何", exact: true }),
+  ).not.toHaveValue(before);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "关闭", exact: true })
+    .first()
+    .click();
   await page.getByRole("button", { name: "新增线", exact: true }).click();
   await page.mouse.click(point(0.3, 0.3).x, point(0.3, 0.3).y);
   await page.mouse.dblclick(point(0.6, 0.4).x, point(0.6, 0.4).y);
   await expect(page.locator("tbody tr")).toHaveCount(6);
-  await expect(page.locator("tbody tr").last()).toContainText("LineString");
   await page.getByRole("button", { name: "新增面", exact: true }).click();
   await page.mouse.click(point(0.3, 0.6).x, point(0.3, 0.6).y);
   await page.mouse.click(point(0.5, 0.7).x, point(0.5, 0.7).y);
-  await page.mouse.dblclick(point(0.6, 0.5).x, point(0.6, 0.5).y);
+  await page.mouse.click(point(0.6, 0.5).x, point(0.6, 0.5).y);
+  await page.getByRole("button", { name: "完成绘制", exact: true }).click();
   await expect(page.locator("tbody tr")).toHaveCount(7);
   await expect(page.locator("tbody tr").last()).toContainText("Polygon");
+  await page.getByRole("button", { name: "新增线", exact: true }).click();
+  await page.mouse.click(point(0.2, 0.3).x, point(0.2, 0.3).y);
+  await page.getByRole("button", { name: "取消绘制", exact: true }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(7);
   await page.getByRole("button", { name: "删除选中要素", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "删除", exact: true })
+    .click();
   await expect(page.locator("tbody tr")).toHaveCount(6);
   await page.getByRole("button", { name: "撤销", exact: true }).click();
   await expect(page.locator("tbody tr")).toHaveCount(7);
+});
+
+test("single header, panels, theme persistence, resizing and canvas rendering", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".attribute-panel")).toBeHidden();
+  await expect(page.locator(".inspector")).toBeHidden();
+  await expect(page.locator(".map-empty")).toHaveCount(0);
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByLabel("主题", { exact: true }).selectOption("light");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "关闭", exact: true })
+    .click();
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.getByRole("button", { name: "底图设置", exact: true }).click();
+  await page.getByLabel("底图类型", { exact: true }).selectOption("tdt-vec");
+  await expect(page.getByRole("dialog")).toContainText(
+    "填写 tk 后可载入天地图",
+  );
+  await page.getByLabel("显示注记", { exact: true }).uncheck();
+  await page.getByLabel("底图类型", { exact: true }).selectOption("osm");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "关闭", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "底图设置", exact: true }),
+  ).toBeFocused();
+  await page
+    .getByRole("button", { name: "城市示例", exact: true })
+    .filter({ visible: true })
+    .click();
+  await showTable(page);
+  await page.locator("tbody tr").first().click();
+  const resizer = page.getByRole("separator", { name: "调整属性表高度" });
+  await resizer.focus();
+  await page.keyboard.press("ArrowUp");
+  await expect(resizer).toHaveAttribute("aria-valuenow", "270");
+  await page.screenshot({ path: "output/smoke/redesign-light.png" });
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByLabel("主题", { exact: true }).selectOption("dark");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "关闭", exact: true })
+    .click();
+  await page.screenshot({ path: "output/smoke/redesign-dark.png" });
+  await page.getByLabel("底图", { exact: true }).selectOption("none");
+  await page.waitForTimeout(250);
+  const painted = await page
+    .locator(".ol-layer canvas")
+    .evaluateAll((canvases) =>
+      canvases.some((element) => {
+        const canvas = element as HTMLCanvasElement;
+        try {
+          const data = canvas
+            .getContext("2d")
+            ?.getImageData(0, 0, canvas.width, canvas.height).data;
+          return data?.some((value, index) => index % 4 === 3 && value > 0);
+        } catch {
+          return false;
+        }
+      }),
+    );
+  expect(painted).toBeTruthy();
+  for (const width of [1440, 960, 768, 375]) {
+    await page.setViewportSize({ width, height: 800 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBeTruthy();
+    await page.screenshot({ path: `output/smoke/redesign-${width}.png` });
+  }
 });

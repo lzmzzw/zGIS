@@ -24,6 +24,10 @@ import {
   Layers,
   Eye,
   EyeOff,
+  LockKeyhole,
+  Table2,
+  Magnet,
+  ChevronDown,
   Plus,
   X,
   Settings2,
@@ -110,9 +114,15 @@ function Modal({
   const error = useContext(ErrorContext);
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const returnTarget =
+      previous?.closest(".header-menu")?.querySelector("summary") ?? previous;
     ref.current?.showModal();
     const dialog = ref.current;
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      if (returnTarget?.isConnected) returnTarget.focus();
+    };
   }, []);
   return (
     <dialog
@@ -142,6 +152,46 @@ interface History {
   past: GeoFeature[][];
   future: GeoFeature[][];
 }
+function HeaderMenu({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node))
+        ref.current?.removeAttribute("open");
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, []);
+  return (
+    <details
+      ref={ref}
+      className="header-menu"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          ref.current?.removeAttribute("open");
+          ref.current?.querySelector("summary")?.focus();
+        }
+      }}
+    >
+      <summary>{label}</summary>
+      <div
+        className="menu-items"
+        onClick={(event) => {
+          if ((event.target as Element).closest("button:not(:disabled)"))
+            ref.current?.removeAttribute("open");
+        }}
+      >
+        {children}
+      </div>
+    </details>
+  );
+}
 export default function App() {
   const [layers, setLayers] = useState<DocumentLayer[]>([]);
   const [activeId, setActiveId] = useState<string>();
@@ -149,6 +199,31 @@ export default function App() {
   const [tool, setTool] = useState<Tool>("select");
   const [basemap, setBasemap] = useState("osm");
   const [tdtKey, setTdtKey] = useState("");
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    try {
+      return localStorage.getItem("zgis.theme") === "light" ? "light" : "dark";
+    } catch {
+      return "dark";
+    }
+  });
+  const [settingCategory, setSettingCategory] = useState<"appearance" | "map">(
+    "appearance",
+  );
+  const [annotations, setAnnotations] = useState(true);
+  const [snapping, setSnapping] = useState(true);
+  const [layersOpen, setLayersOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<"layer" | "feature">(
+    "layer",
+  );
+  const [propertyDraft, setPropertyDraft] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [tableHeight, setTableHeight] = useState(250);
+  const [featureFitNonce, setFeatureFitNonce] = useState(0);
+  const [finishNonce, setFinishNonce] = useState(0);
+  const [nodeCount, setNodeCount] = useState(0);
   const [fitNonce, setFitNonce] = useState(0);
   const [position, setPosition] = useState<number[]>([104, 34]);
   const [bounds, setBounds] = useState<number[]>([-180, -85, 180, 85]);
@@ -166,6 +241,10 @@ export default function App() {
     | "close"
     | "recovery"
     | "quit"
+    | "json"
+    | "wkt"
+    | "field"
+    | "delete"
     | null
   >(null);
   const [pendingFiles, setPendingFiles] = useState<InputFile[]>([]);
@@ -177,7 +256,7 @@ export default function App() {
   const [exportCrs, setExportCrs] = useState("EPSG:4326");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
-  const [tableOpen, setTableOpen] = useState(true);
+  const [tableOpen, setTableOpen] = useState(false);
   const [propertyText, setPropertyText] = useState("{}");
   const [wktText, setWktText] = useState("");
   const [newField, setNewField] = useState("");
@@ -209,6 +288,40 @@ export default function App() {
   const [dbLimit, setDbLimit] = useState(10000);
   const [targetSchema, setTargetSchema] = useState("public");
   const [targetTable, setTargetTable] = useState("");
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem("zgis.theme", theme);
+    } catch {
+      /* Theme remains usable when storage is unavailable. */
+    }
+  }, [theme]);
+  useEffect(() => {
+    setPropertyDraft(null);
+  }, [activeId, selectedId]);
+  function openModal(value: typeof modal) {
+    setError("");
+    setModal(value);
+  }
+  function selectFeature(id?: string) {
+    setSelectedId(id);
+    if (id) {
+      setInspectorOpen(true);
+      setInspectorTab("feature");
+    }
+  }
+  function openFiles() {
+    if (desktop) void task(async () => acceptFiles(await api.open()));
+    else input.current?.click();
+  }
+  function changeBasemap(value: string) {
+    if (value.startsWith("tdt") && !tdtKey) {
+      setSettingCategory("map");
+      openModal("settings");
+      return;
+    }
+    setBasemap(value);
+  }
   useEffect(() => {
     if (!desktop) return;
     api
@@ -326,7 +439,7 @@ export default function App() {
     } else await importSelected(files);
   }
   function edit(features: GeoFeature[]) {
-    if (!active || busy) return;
+    if (!active || busy || !editable) return;
     const history = histories.current.get(active.id) ?? {
       past: [],
       future: [],
@@ -360,7 +473,7 @@ export default function App() {
     if (insert) setTool("select");
   }
   function history(direction: "undo" | "redo") {
-    if (!active || busy) return;
+    if (!active || busy || !editable) return;
     const h = histories.current.get(active.id);
     if (!h) return;
     const from = direction === "undo" ? h.past : h.future;
@@ -377,7 +490,7 @@ export default function App() {
     }
   }
   function applyProperties() {
-    if (!selected || !active) return;
+    if (!selected || !active || !editable || busy) return;
     try {
       const value: unknown = parseProperties(propertyText);
       if (!value || Array.isArray(value) || typeof value !== "object")
@@ -396,7 +509,7 @@ export default function App() {
     }
   }
   function applyWkt() {
-    if (!selected || !active) return;
+    if (!selected || !active || !editable || busy) return;
     try {
       const geom = wktText.trim() ? new WKT().readGeometry(wktText) : null;
       const json = geom ? new GeoJSON().writeGeometryObject(geom) : null;
@@ -413,7 +526,7 @@ export default function App() {
       setError(errorText(e));
     }
   }
-  async function save() {
+  async function save(asNew = false) {
     if (!active) return;
     if (active.sourceKind === "postgis") {
       await commit();
@@ -438,8 +551,8 @@ export default function App() {
           /\.(geojson|json|csv)$/i.test(active.name)
             ? active.name
             : active.name + ".geojson",
-          active.sourceId,
-          Boolean(active.sourceId),
+          asNew ? undefined : active.sourceId,
+          !asNew && Boolean(active.sourceId),
         );
         if (!result) {
           setStatus("已取消保存");
@@ -678,8 +791,11 @@ export default function App() {
   const shown = filtered.slice(page * pageSize, (page + 1) * pageSize);
   const h = active ? histories.current.get(active.id) : undefined;
   const editable =
-    active?.sourceKind !== "postgis" ||
-    (Boolean(active.db?.keyColumns.length) && !uncertainDocs.has(active.id));
+    Boolean(active) &&
+    active?.sourceKind !== "shp" &&
+    (active?.sourceKind !== "postgis" ||
+      (Boolean(active.db?.keyColumns.length) &&
+        !uncertainDocs.has(active.id!)));
   return (
     <ErrorContext.Provider value={error}>
       <div className="app">
@@ -687,35 +803,195 @@ export default function App() {
           <div className="brand">
             <img className="brand-mark" src="/zgis.svg" alt="" />
             <strong>zGIS</strong>
-            <span className="version">0.1</span>
           </div>
-          <div className="document-title">
-            {active?.name ?? "地理数据工作区"}
+          <nav className="header-menus" aria-label="主菜单">
+            <HeaderMenu label="文件">
+              <button onClick={openFiles} disabled={busy}>
+                <FolderOpen size={16} />
+                打开文件…
+              </button>
+              <button
+                onClick={() => void save()}
+                disabled={
+                  !active ||
+                  busy ||
+                  (active.sourceKind === "postgis" && !editable)
+                }
+              >
+                <Save size={16} />
+                {active?.sourceKind === "postgis" ? "提交修改" : "保存"}
+              </button>
+              <button
+                onClick={() => void save(true)}
+                disabled={!active || busy || active.sourceKind === "postgis"}
+              >
+                <Save size={16} />
+                另存为…
+              </button>
+              <button
+                disabled={!active || busy}
+                onClick={() => openModal("export")}
+              >
+                <Download size={16} />
+                导出 / 转换
+              </button>
+              <hr />
+              <button
+                disabled={!active || busy}
+                onClick={() =>
+                  active?.dirty ? openModal("close") : void closeLayer()
+                }
+              >
+                <X size={16} />
+                移除图层
+              </button>
+            </HeaderMenu>
+            <HeaderMenu label="数据">
+              <button onClick={openFiles} disabled={busy}>
+                <FolderOpen size={16} />
+                导入数据…
+              </button>
+              <button
+                onClick={() => openModal("database")}
+                disabled={!desktop || busy}
+              >
+                <Database size={16} />
+                PostGIS 数据源…
+              </button>
+              <hr />
+              <button
+                onClick={() => addLayers([createDemoLayer()])}
+                disabled={busy}
+              >
+                <Plus size={16} />
+                城市示例
+              </button>
+            </HeaderMenu>
+            <HeaderMenu label="视图">
+              <button
+                aria-pressed={layersOpen}
+                onClick={() => setLayersOpen((v) => !v)}
+              >
+                <Layers size={16} />
+                图层
+              </button>
+              <button
+                aria-pressed={tableOpen}
+                onClick={() => setTableOpen((v) => !v)}
+              >
+                <Table2 size={16} />
+                属性表
+              </button>
+              <button
+                aria-pressed={inspectorOpen}
+                onClick={() => setInspectorOpen((v) => !v)}
+              >
+                <Settings2 size={16} />
+                检查器
+              </button>
+              <hr />
+              <button
+                onClick={() => {
+                  setSettingCategory("appearance");
+                  openModal("settings");
+                }}
+              >
+                <Settings2 size={16} />
+                设置…
+              </button>
+            </HeaderMenu>
+          </nav>
+          <div className="toolbar" aria-label="地图工具">
+            <div className="tool-group">
+              {tools.map((item) => (
+                <IconButton
+                  key={item.value}
+                  label={item.label}
+                  disabled={
+                    !active || (item.value !== "select" && !editable) || busy
+                  }
+                  active={tool === item.value}
+                  onClick={() => setTool(item.value)}
+                >
+                  <item.icon size={18} />
+                </IconButton>
+              ))}
+              <IconButton
+                label="删除选中要素"
+                disabled={!selected || !editable || busy}
+                onClick={() => openModal("delete")}
+              >
+                <Trash2 size={18} />
+              </IconButton>
+            </div>
+            <div className="tool-group">
+              <IconButton
+                label="撤销"
+                disabled={!h?.past.length || !editable || busy}
+                onClick={() => history("undo")}
+              >
+                <Undo2 size={18} />
+              </IconButton>
+              <IconButton
+                label="重做"
+                disabled={!h?.future.length || !editable || busy}
+                onClick={() => history("redo")}
+              >
+                <Redo2 size={18} />
+              </IconButton>
+            </div>
+            <IconButton
+              label="捕捉当前图层顶点和边"
+              active={snapping}
+              disabled={!editable || busy}
+              onClick={() => setSnapping((v) => !v)}
+            >
+              <Magnet size={17} />
+            </IconButton>
+            {tool !== "select" && (
+              <div className="editing-tools">
+                <span>{tools.find((item) => item.value === tool)?.label}</span>
+                {tool !== "modify" && (
+                  <IconButton
+                    label="完成绘制"
+                    disabled={
+                      nodeCount <
+                      (tool === "Polygon" ? 3 : tool === "LineString" ? 2 : 1)
+                    }
+                    onClick={() => setFinishNonce((n) => n + 1)}
+                  >
+                    <Check size={16} />
+                  </IconButton>
+                )}
+                <IconButton
+                  label={tool === "modify" ? "结束顶点编辑" : "取消绘制"}
+                  onClick={() => setTool("select")}
+                >
+                  <X size={16} />
+                </IconButton>
+              </div>
+            )}
+          </div>
+          <div className="document-title" title={active?.name}>
+            {active?.name ?? ""}
             {active?.dirty && <span className="dirty-dot" title="未保存" />}
           </div>
           <div className="header-actions">
-            <button
-              onClick={() =>
-                task(async () =>
-                  desktop
-                    ? acceptFiles(await api.open())
-                    : input.current?.click(),
-                )
-              }
-              disabled={busy}
+            <IconButton
+              label="属性表"
+              active={tableOpen}
+              onClick={() => setTableOpen((v) => !v)}
             >
-              <FolderOpen size={16} />
-              打开
-            </button>
-            <button
-              onClick={() => setModal("database")}
-              disabled={!desktop || busy}
+              <Table2 size={16} />
+            </IconButton>
+            <IconButton
+              label="设置"
+              onClick={() => {
+                setSettingCategory("appearance");
+                openModal("settings");
+              }}
             >
-              <Database size={16} />
-              PostGIS
-            </button>
-            <IconButton label="底图设置" onClick={() => setModal("settings")}>
-              <Settings2 size={18} />
+              <Settings2 size={16} />
             </IconButton>
           </div>
         </header>
@@ -737,70 +1013,12 @@ export default function App() {
             e.target.value = "";
           }}
         />
-        <div className="toolbar">
-          <div className="tool-group">
-            {tools.map((item) => (
-              <IconButton
-                key={item.value}
-                label={item.label}
-                disabled={!active || !editable || busy}
-                active={tool === item.value}
-                onClick={() => setTool(item.value)}
-              >
-                <item.icon size={18} />
-              </IconButton>
-            ))}
-            <IconButton
-              label="删除选中要素"
-              disabled={!selected || !editable || busy}
-              onClick={() => {
-                edit(active!.features.filter((f) => f.id !== selectedId));
-                setSelectedId(undefined);
-              }}
-            >
-              <Trash2 size={18} />
-            </IconButton>
-          </div>
-          <div className="tool-group">
-            <IconButton
-              label="撤销"
-              disabled={!h?.past.length || busy}
-              onClick={() => history("undo")}
-            >
-              <Undo2 size={18} />
-            </IconButton>
-            <IconButton
-              label="重做"
-              disabled={!h?.future.length || busy}
-              onClick={() => history("redo")}
-            >
-              <Redo2 size={18} />
-            </IconButton>
-            <IconButton
-              label="缩放至图层"
-              disabled={!active}
-              onClick={() => setFitNonce((n) => n + 1)}
-            >
-              <LocateFixed size={18} />
-            </IconButton>
-          </div>
-          <div className="toolbar-spacer" />
-          <button
-            disabled={
-              !active || busy || (active.sourceKind === "postgis" && !editable)
-            }
-            onClick={save}
-          >
-            <Save size={16} />
-            {active?.sourceKind === "postgis" ? "提交修改" : "保存"}
-          </button>
-          <button disabled={!active || busy} onClick={() => setModal("export")}>
-            <Download size={16} />
-            导出 / 转换
-          </button>
-        </div>
-        <main className="workspace">
-          <aside className="layers-panel">
+        <main
+          className="workspace"
+          data-layers={layersOpen}
+          data-inspector={inspectorOpen}
+        >
+          <aside className="layers-panel" hidden={!layersOpen}>
             <div className="panel-heading">
               <span>图层</span>
               <span className="count">{layers.length}</span>
@@ -810,7 +1028,10 @@ export default function App() {
                 <div
                   key={l.id}
                   className={`layer-row ${l.id === activeId ? "selected" : ""}`}
-                  onClick={() => setActiveId(l.id)}
+                  onDoubleClick={() => {
+                    setActiveId(l.id);
+                    setFitNonce((n) => n + 1);
+                  }}
                 >
                   <IconButton
                     label={l.visible ? "隐藏图层" : "显示图层"}
@@ -826,70 +1047,95 @@ export default function App() {
                   >
                     {l.visible ? <Eye size={16} /> : <EyeOff size={16} />}
                   </IconButton>
-                  <input
-                    type="color"
-                    value={l.color}
-                    aria-label={`${l.name}颜色`}
-                    onChange={(e) =>
-                      setLayers((old) =>
-                        old.map((item) =>
-                          item.id === l.id
-                            ? { ...item, color: e.target.value }
-                            : item,
-                        ),
-                      )
-                    }
+                  <span
+                    className="layer-swatch"
+                    style={{ background: l.color }}
                   />
-                  <div className="layer-text">
+                  <button
+                    className="layer-text"
+                    onClick={() => {
+                      setActiveId(l.id);
+                      setInspectorOpen(true);
+                      setInspectorTab("layer");
+                    }}
+                  >
                     <strong title={l.name}>
                       {l.name}
                       {l.dirty ? " *" : ""}
                     </strong>
-                    <span>
-                      {l.sourceKind.toUpperCase()} ·{" "}
-                      {l.features.length.toLocaleString()} 要素
-                    </span>
-                  </div>
+                  </button>
+                  {(l.sourceKind === "shp" ||
+                    (l.sourceKind === "postgis" &&
+                      (!l.db?.keyColumns.length ||
+                        uncertainDocs.has(l.id)))) && (
+                    <LockKeyhole size={13} aria-label="只读图层" />
+                  )}
                 </div>
               ))}
             </div>
-            <div className="layer-footer">
-              <button onClick={() => addLayers([createDemoLayer()])}>
-                <Plus size={15} />
-                城市示例
-              </button>
-              <IconButton
-                label="移除图层"
-                disabled={!active}
-                onClick={() =>
-                  active?.dirty ? setModal("close") : closeLayer()
-                }
-              >
-                <X size={16} />
-              </IconButton>
-            </div>
-            {active && (
-              <div className="layer-meta">
-                <span>工作坐标系</span>
-                <strong>WGS84 · EPSG:4326</strong>
-                <span>来源</span>
-                <strong>
-                  {active.sourceKind === "shp"
-                    ? "Shapefile · 只读来源"
-                    : active.sourceKind}
-                </strong>
-                {active.warnings?.map((w, i) => (
-                  <p className="warning" key={i}>
-                    {w}
-                  </p>
-                ))}
+            {!layers.length && (
+              <div className="empty-source">
+                <button onClick={openFiles} disabled={busy}>
+                  <FolderOpen size={16} />
+                  打开文件…
+                </button>
+                <button
+                  onClick={() => openModal("database")}
+                  disabled={!desktop || busy}
+                >
+                  <Database size={16} />
+                  PostGIS 数据源…
+                </button>
+                <button
+                  onClick={() => addLayers([createDemoLayer()])}
+                  disabled={busy}
+                >
+                  <Plus size={16} />
+                  城市示例
+                </button>
               </div>
             )}
+            <div className="layer-footer">
+              <button className="quiet" onClick={openFiles} disabled={busy}>
+                <FolderOpen size={16} />
+                打开文件
+              </button>
+            </div>
+            <div className="basemap-picker">
+              <label htmlFor="basemap">底图</label>
+              <select
+                id="basemap"
+                aria-label="底图"
+                value={basemap}
+                onChange={(e) => changeBasemap(e.target.value)}
+              >
+                <option value="osm">OpenStreetMap</option>
+                <option value="tdt-vec">天地图 · 矢量</option>
+                <option value="tdt-img">天地图 · 影像</option>
+                <option value="none">无底图</option>
+              </select>
+              <IconButton
+                label="底图设置"
+                onClick={() => {
+                  setSettingCategory("map");
+                  openModal("settings");
+                }}
+              >
+                <Settings2 size={15} />
+              </IconButton>
+            </div>
           </aside>
           <section className="map-column">
             <div className="map-container">
               <MapView
-                disabled={busy || !editable}
+                disabled={busy}
+                editable={editable}
+                theme={theme}
+                annotations={annotations}
+                snapping={snapping}
+                finishNonce={finishNonce}
+                featureFitNonce={featureFitNonce}
+                onNodeCount={setNodeCount}
                 layers={layers}
                 activeId={activeId}
                 selectedId={selectedId}
@@ -897,55 +1143,67 @@ export default function App() {
                 basemap={basemap}
                 tdtKey={tdtKey}
                 fitNonce={fitNonce}
-                onSelect={setSelectedId}
+                onSelect={selectFeature}
                 onEdit={onGeometry}
                 onPosition={setPosition}
                 onBounds={setBounds}
               />
-              <div className="map-top-right">
-                <select
-                  aria-label="底图"
-                  value={basemap}
-                  onChange={(e) => {
-                    if (e.target.value.startsWith("tdt") && !tdtKey) {
-                      setModal("settings");
-                      return;
-                    }
-                    setBasemap(e.target.value);
-                  }}
+              <div className="map-fit">
+                <IconButton
+                  label="缩放至图层"
+                  disabled={!active}
+                  onClick={() => setFitNonce((n) => n + 1)}
                 >
-                  <option value="osm">OpenStreetMap</option>
-                  <option value="tdt-vec">天地图 · 矢量</option>
-                  <option value="tdt-img">天地图 · 影像</option>
-                  <option value="none">无底图</option>
-                </select>
+                  <LocateFixed size={16} />
+                </IconButton>
               </div>
-              {!layers.length && (
-                <div className="map-empty">
-                  <img className="brand-mark" src="/zgis.svg" alt="" />
-                  <h2>zGIS</h2>
-                  <button
-                    onClick={() =>
-                      desktop
-                        ? task(async () => acceptFiles(await api.open()))
-                        : input.current?.click()
-                    }
-                  >
-                    <FolderOpen size={16} />
-                    打开数据
-                  </button>
-                  <button
-                    className="quiet"
-                    onClick={() => addLayers([createDemoLayer()])}
-                  >
-                    城市示例
-                  </button>
-                </div>
-              )}
             </div>
             <section
               className={`attribute-panel ${tableOpen ? "" : "collapsed"}`}
+              hidden={!tableOpen}
+              style={{ height: tableHeight }}
             >
+              <div
+                className="table-resizer"
+                role="separator"
+                aria-label="调整属性表高度"
+                aria-orientation="horizontal"
+                aria-valuenow={tableHeight}
+                aria-valuemin={140}
+                aria-valuemax={600}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setTableHeight((h) =>
+                      Math.max(
+                        140,
+                        Math.min(600, h + (e.key === "ArrowUp" ? 20 : -20)),
+                      ),
+                    );
+                  }
+                }}
+                onPointerDown={(e) => {
+                  const target = e.currentTarget;
+                  target.setPointerCapture(e.pointerId);
+                }}
+                onPointerMove={(e) => {
+                  if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+                  const bottom =
+                    e.currentTarget.parentElement!.getBoundingClientRect()
+                      .bottom;
+                  const available =
+                    e.currentTarget
+                      .closest(".map-column")!
+                      .getBoundingClientRect().height - 180;
+                  setTableHeight(
+                    Math.max(140, Math.min(600, available, bottom - e.clientY)),
+                  );
+                }}
+                onPointerUp={(e) =>
+                  e.currentTarget.releasePointerCapture(e.pointerId)
+                }
+              />
               <header>
                 <button
                   className="quiet"
@@ -989,6 +1247,12 @@ export default function App() {
                     </div>
                   </>
                 )}
+                <IconButton
+                  label="收起属性表"
+                  onClick={() => setTableOpen(false)}
+                >
+                  <ChevronDown size={16} />
+                </IconButton>
               </header>
               {tableOpen && (
                 <div className="table-scroll">
@@ -996,10 +1260,40 @@ export default function App() {
                     <thead>
                       <tr>
                         <th className="index-cell">#</th>
-                        <th>几何</th>
+                        <th>
+                          几何{" "}
+                          <button
+                            className="quiet field-add"
+                            aria-label="添加字段"
+                            disabled={
+                              !active ||
+                              !editable ||
+                              busy ||
+                              active.sourceKind === "postgis"
+                            }
+                            onClick={() => openModal("field")}
+                          >
+                            <Plus size={13} />
+                          </button>
+                        </th>
                         {fields.map((field) => (
                           <th key={field} title={field}>
-                            {field}
+                            <HeaderMenu label={field}>
+                              <span className="field-info">
+                                {field} · {active?.features.length ?? 0} 条记录
+                              </span>
+                              <button
+                                disabled={
+                                  !editable ||
+                                  busy ||
+                                  active?.sourceKind === "postgis"
+                                }
+                                onClick={() => openModal("field")}
+                              >
+                                <Plus size={14} />
+                                添加字段
+                              </button>
+                            </HeaderMenu>
                           </th>
                         ))}
                       </tr>
@@ -1009,7 +1303,11 @@ export default function App() {
                         <tr
                           key={f.id}
                           className={selectedId === f.id ? "selected" : ""}
-                          onClick={() => setSelectedId(f.id)}
+                          onClick={() => selectFeature(f.id)}
+                          onDoubleClick={() => {
+                            selectFeature(f.id);
+                            setFeatureFitNonce((n) => n + 1);
+                          }}
                         >
                           <td className="index-cell">
                             {page * pageSize + index + 1}
@@ -1036,17 +1334,93 @@ export default function App() {
               )}
             </section>
           </section>
-          <aside className="inspector">
+          <aside className="inspector" hidden={!inspectorOpen}>
             <div className="panel-heading">
-              <span>要素属性</span>
-              {selected && (
-                <span className="count">
-                  {selected.geometry?.type ?? "空几何"}
-                </span>
-              )}
+              <span>{inspectorTab === "layer" ? "图层" : "要素"}</span>
+              <IconButton
+                label="关闭检查器"
+                onClick={() => setInspectorOpen(false)}
+              >
+                <X size={16} />
+              </IconButton>
             </div>
-            {selected ? (
+            <div className="inspector-tabs">
+              <button
+                className={inspectorTab === "layer" ? "active" : "quiet"}
+                onClick={() => setInspectorTab("layer")}
+              >
+                图层
+              </button>
+              <button
+                className={inspectorTab === "feature" ? "active" : "quiet"}
+                onClick={() => setInspectorTab("feature")}
+              >
+                要素
+              </button>
+            </div>
+            {inspectorTab === "layer" ? (
+              active ? (
+                <div className="inspector-body layer-details">
+                  <h3>{active.name}</h3>
+                  <span className="count">
+                    {active.features.length.toLocaleString()} 个要素
+                  </span>
+                  <h4>样式</h4>
+                  <label>
+                    颜色
+                    <input
+                      type="color"
+                      value={active.color}
+                      aria-label={`${active.name}颜色`}
+                      onChange={(e) =>
+                        setLayers((old) =>
+                          old.map((l) =>
+                            l.id === active.id
+                              ? { ...l, color: e.target.value }
+                              : l,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                  <details open>
+                    <summary>来源详情</summary>
+                    <dl>
+                      <dt>格式</dt>
+                      <dd>
+                        {active.sourceKind === "shp"
+                          ? "Shapefile · 只读"
+                          : active.sourceKind}
+                      </dd>
+                      <dt>来源 CRS</dt>
+                      <dd>{active.originalCrs}</dd>
+                      <dt>工作坐标</dt>
+                      <dd>WGS84 · EPSG:4326</dd>
+                      <dt>要素数量</dt>
+                      <dd>{active.features.length.toLocaleString()}</dd>
+                    </dl>
+                    {!editable && (
+                      <p className="form-note">
+                        {active.sourceKind === "shp"
+                          ? "Shapefile 来源只读，可调整样式、查看或导出。"
+                          : "当前数据库副本不可编辑，请核对主键及提交状态。"}
+                      </p>
+                    )}
+                    {active.warnings?.map((warning, index) => (
+                      <p className="warning" key={index}>
+                        {warning}
+                      </p>
+                    ))}
+                  </details>
+                </div>
+              ) : (
+                <div className="inspector-empty">未载入图层</div>
+              )
+            ) : selected ? (
               <div className="inspector-body">
+                <div className="feature-kind">
+                  {selected.geometry?.type ?? "空几何"}
+                </div>
                 <div className="property-fields">
                   {Object.entries(selected.properties).map(([key, value]) => (
                     <label key={key}>
@@ -1055,29 +1429,22 @@ export default function App() {
                         <input
                           type="checkbox"
                           aria-label={`属性 ${key}`}
-                          checked={value}
-                          disabled={!editable || busy}
+                          checked={Boolean(propertyDraft?.[key] ?? value)}
+                          disabled={!propertyDraft || !editable || busy}
                           onChange={(e) =>
-                            edit(
-                              active!.features.map((f) =>
-                                f.id === selected.id
-                                  ? {
-                                      ...f,
-                                      properties: {
-                                        ...f.properties,
-                                        [key]: e.target.checked,
-                                      },
-                                    }
-                                  : f,
-                              ),
+                            setPropertyDraft((draft) =>
+                              draft
+                                ? { ...draft, [key]: e.target.checked }
+                                : null,
                             )
                           }
                         />
                       ) : (
                         <input
                           aria-label={`属性 ${key}`}
-                          value={stringify(value)}
+                          value={stringify(propertyDraft?.[key] ?? value)}
                           disabled={
+                            !propertyDraft ||
                             !editable ||
                             busy ||
                             (typeof value === "object" && value !== null)
@@ -1091,23 +1458,16 @@ export default function App() {
                                 !Number.isFinite(Number(inputValue)))
                             )
                               return;
-                            edit(
-                              active.features.map((f) =>
-                                f.id === selected.id
-                                  ? {
-                                      ...f,
-                                      properties: {
-                                        ...f.properties,
-                                        [key]:
-                                          typeof value === "number" &&
-                                          inputValue !== "" &&
-                                          Number.isFinite(Number(inputValue))
-                                            ? Number(inputValue)
-                                            : inputValue,
-                                      },
-                                    }
-                                  : f,
-                              ),
+                            setPropertyDraft((draft) =>
+                              draft
+                                ? {
+                                    ...draft,
+                                    [key]:
+                                      typeof value === "number"
+                                        ? Number(inputValue)
+                                        : inputValue,
+                                  }
+                                : null,
                             );
                           }}
                         />
@@ -1115,66 +1475,56 @@ export default function App() {
                     </label>
                   ))}
                 </div>
-                <div className="new-field">
-                  <input
-                    aria-label="新字段名"
-                    placeholder="新字段名"
-                    value={newField}
-                    onChange={(e) => setNewField(e.target.value)}
-                  />
-                  <IconButton
-                    label="添加字段"
-                    disabled={
-                      !newField.trim() ||
-                      !editable ||
-                      busy ||
-                      active?.sourceKind === "postgis"
-                    }
-                    onClick={() => {
-                      if (fields.includes(newField.trim())) {
-                        setError("字段已存在，不能覆盖原值");
-                        return;
+                <div className="property-actions">
+                  {propertyDraft ? (
+                    <>
+                      <button
+                        disabled={!editable || busy}
+                        onClick={() => {
+                          edit(
+                            active!.features.map((f) =>
+                              f.id === selected.id
+                                ? { ...f, properties: propertyDraft }
+                                : f,
+                            ),
+                          );
+                          setPropertyDraft(null);
+                          setStatus("属性已更新");
+                        }}
+                      >
+                        <Check size={15} />
+                        应用
+                      </button>
+                      <button onClick={() => setPropertyDraft(null)}>
+                        取消
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="quiet"
+                      disabled={!editable || busy}
+                      onClick={() =>
+                        setPropertyDraft({ ...selected.properties })
                       }
-                      edit(
-                        active!.features.map((f) => ({
-                          ...f,
-                          properties: {
-                            ...f.properties,
-                            [newField.trim()]: "",
-                          },
-                        })),
-                      );
-                      setNewField("");
-                    }}
-                  >
-                    <Plus size={17} />
-                  </IconButton>
+                    >
+                      <Pencil size={15} />
+                      编辑
+                    </button>
+                  )}
                 </div>
-                <details>
-                  <summary>JSON 属性</summary>
-                  <textarea
-                    aria-label="JSON 属性"
-                    value={propertyText}
-                    onChange={(e) => setPropertyText(e.target.value)}
-                  />
-                  <button
-                    disabled={!editable || busy}
-                    onClick={applyProperties}
-                  >
-                    <Check size={14} />
-                    应用属性
-                  </button>
-                </details>
+                {!editable && (
+                  <p className="form-note">
+                    <LockKeyhole size={13} /> 当前来源只读
+                  </p>
+                )}
                 <details open>
-                  <summary>WKT · WGS84</summary>
-                  <textarea
-                    aria-label="WKT 几何"
-                    value={wktText}
-                    onChange={(e) => setWktText(e.target.value)}
-                  />
-                  <button disabled={!editable || busy} onClick={applyWkt}>
-                    <Check size={14} />
-                    应用几何
+                  <summary>高级编辑</summary>
+                  <button className="quiet" onClick={() => openModal("json")}>
+                    <FileJson size={15} />
+                    JSON 属性…
+                  </button>
+                  <button className="quiet" onClick={() => openModal("wkt")}>
+                    WKT 几何…
                   </button>
                 </details>
               </div>
@@ -1186,7 +1536,7 @@ export default function App() {
             )}
           </aside>
         </main>
-        {error && (
+        {error && !modal && (
           <div className="error-banner" role="alert">
             <span>{error}</span>
             <IconButton label="关闭错误" onClick={() => setError("")}>
@@ -1217,11 +1567,14 @@ export default function App() {
             {active?.features.length.toLocaleString() ?? 0} 要素
             {selected ? " · 已选 1" : ""}
           </span>
+          {tool !== "select" && tool !== "modify" && (
+            <span>{nodeCount} 个节点</span>
+          )}
           <div />
           <span>
             {position[0].toFixed(5)}, {position[1].toFixed(5)}
           </span>
-          <span>EPSG:3857</span>
+          <span>WGS84 · 视图 EPSG:3857</span>
           <span>{desktop ? "Windows 桌面" : "浏览器预览"}</span>
         </footer>
         {modal === "import" && (
@@ -1372,27 +1725,200 @@ export default function App() {
           </Modal>
         )}
         {modal === "settings" && (
-          <Modal title="底图设置" onClose={() => setModal(null)}>
+          <Modal title="设置" onClose={() => openModal(null)}>
+            <div className="settings-layout">
+              <nav aria-label="设置分类">
+                <button
+                  className={
+                    settingCategory === "appearance" ? "active" : "quiet"
+                  }
+                  onClick={() => setSettingCategory("appearance")}
+                >
+                  外观
+                </button>
+                <button
+                  className={settingCategory === "map" ? "active" : "quiet"}
+                  onClick={() => setSettingCategory("map")}
+                >
+                  地图
+                </button>
+              </nav>
+              <div className="form-grid settings-content">
+                {settingCategory === "appearance" ? (
+                  <label>
+                    主题
+                    <select
+                      aria-label="主题"
+                      value={theme}
+                      onChange={(e) =>
+                        setTheme(e.target.value as "light" | "dark")
+                      }
+                    >
+                      <option value="dark">深色</option>
+                      <option value="light">浅色</option>
+                    </select>
+                  </label>
+                ) : (
+                  <>
+                    <label>
+                      底图类型
+                      <select
+                        aria-label="底图类型"
+                        value={basemap}
+                        onChange={(e) => setBasemap(e.target.value)}
+                      >
+                        <option value="osm">OpenStreetMap</option>
+                        <option value="tdt-vec">天地图 · 矢量</option>
+                        <option value="tdt-img">天地图 · 影像</option>
+                        <option value="none">无底图</option>
+                      </select>
+                    </label>
+                    {basemap.startsWith("tdt") && (
+                      <>
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={annotations}
+                            onChange={(e) => setAnnotations(e.target.checked)}
+                          />
+                          显示注记
+                        </label>
+                        <label>
+                          天地图 tk
+                          <input
+                            aria-label="天地图 tk"
+                            type="password"
+                            value={tdtKey}
+                            autoComplete="off"
+                            onChange={(e) => setTdtKey(e.target.value)}
+                          />
+                        </label>
+                        <p className="form-note">tk 仅在本次运行保留。</p>
+                        {!tdtKey && (
+                          <p className="warning">填写 tk 后可载入天地图。</p>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </Modal>
+        )}
+        {(modal === "json" || modal === "wkt") && selected && (
+          <Modal
+            title={modal === "json" ? "JSON 属性" : "WKT 几何"}
+            onClose={() => openModal(null)}
+          >
+            <div className="editor-layout">
+              <div>
+                <label>
+                  {modal === "json" ? "属性内容" : "WGS84 · EPSG:4326"}
+                  <textarea
+                    aria-label={modal === "json" ? "JSON 属性" : "WKT 几何"}
+                    value={modal === "json" ? propertyText : wktText}
+                    readOnly={!editable || busy}
+                    onChange={(e) =>
+                      modal === "json"
+                        ? setPropertyText(e.target.value)
+                        : setWktText(e.target.value)
+                    }
+                  />
+                </label>
+              </div>
+              <aside>
+                <h3>{modal === "json" ? "属性摘要" : "几何摘要"}</h3>
+                <dl>
+                  <dt>图层</dt>
+                  <dd>{active?.name}</dd>
+                  <dt>要素</dt>
+                  <dd>{selected.id}</dd>
+                  <dt>{modal === "json" ? "当前字段" : "当前类型"}</dt>
+                  <dd>
+                    {modal === "json"
+                      ? Object.keys(selected.properties).length
+                      : (selected.geometry?.type ?? "空几何")}
+                  </dd>
+                  <dt>工作坐标</dt>
+                  <dd>WGS84</dd>
+                </dl>
+                {!editable && <p className="form-note">当前来源只读</p>}
+              </aside>
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => openModal(null)}>关闭</button>
+              <button
+                disabled={!editable || busy}
+                onClick={modal === "json" ? applyProperties : applyWkt}
+              >
+                <Check size={15} />
+                {modal === "json" ? "应用属性" : "应用几何"}
+              </button>
+            </div>
+          </Modal>
+        )}
+        {modal === "field" && (
+          <Modal title="添加字段" onClose={() => openModal(null)}>
             <div className="form-grid">
               <label>
-                天地图 tk
+                字段名
                 <input
-                  type="password"
-                  value={tdtKey}
-                  autoComplete="off"
-                  onChange={(e) => setTdtKey(e.target.value)}
+                  aria-label="新字段名"
+                  value={newField}
+                  onChange={(e) => setNewField(e.target.value)}
                 />
               </label>
               <p className="form-note">
-                tk
-                仅在本次运行保留。底图请求使用网络；本地要素不会上传到瓦片服务。
+                {active?.name} · {active?.features.length ?? 0}{" "}
+                个要素，初始值为空字符串。
               </p>
-              <div className="modal-actions">
-                <button onClick={() => setModal(null)}>
-                  <Check size={16} />
-                  完成
-                </button>
-              </div>
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => openModal(null)}>取消</button>
+              <button
+                disabled={
+                  !newField.trim() ||
+                  !editable ||
+                  busy ||
+                  active?.sourceKind === "postgis"
+                }
+                onClick={() => {
+                  const name = newField.trim();
+                  if (fields.includes(name)) {
+                    setError("字段已存在，不能覆盖原值");
+                    return;
+                  }
+                  edit(
+                    active!.features.map((f) => ({
+                      ...f,
+                      properties: { ...f.properties, [name]: "" },
+                    })),
+                  );
+                  setNewField("");
+                  openModal(null);
+                }}
+              >
+                添加字段
+              </button>
+            </div>
+          </Modal>
+        )}
+        {modal === "delete" && (
+          <Modal title="删除选中要素" onClose={() => openModal(null)}>
+            <p>删除当前选中的 1 个要素？</p>
+            <div className="modal-actions">
+              <button onClick={() => openModal(null)}>取消</button>
+              <button
+                className="danger"
+                disabled={!selected || !editable || busy}
+                onClick={() => {
+                  edit(active!.features.filter((f) => f.id !== selectedId));
+                  setSelectedId(undefined);
+                  openModal(null);
+                }}
+              >
+                删除
+              </button>
             </div>
           </Modal>
         )}
