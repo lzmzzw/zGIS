@@ -1177,3 +1177,9 @@ select[aria-invalid="true"] {
   color: var(--muted);
   margin-top: 4px;
 }
+/* AI tools share the existing desktop surfaces and theme tokens. */
+.agent-dock { position: absolute; right: 0; top: 52px; bottom: 30px; width: min(480px, 65vw); z-index: 25; background: var(--panel, #172126); border-left: 1px solid var(--border, #33434c); box-shadow: -8px 0 24px #0003; }
+.mcp-panel { display: grid; gap: 12px; max-width: 820px; }
+.mcp-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #0002; border-radius: 6px; }
+.mcp-audit { max-height: 180px; overflow: auto; font-size: 11px; }
+.mcp-panel ul { max-height: 100px; overflow: auto; }

@@ -1,0 +1,30 @@
+import { test, expect } from "@playwright/test";
+import { installDesktopMock } from "./desktop.mock";
+
+test("MCP controls, snapshot isolation and generated layers keep source intact", async ({ page }) => {
+  await installDesktopMock(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "城市示例", exact: true }).filter({ visible: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_workspace_sync").length)).toBeGreaterThan(0);
+  const snapshot = await page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_workspace_sync").at(-1)?.args);
+  const source = (snapshot!.layers as { id: string; name: string; features: unknown[] }[])[0];
+  expect(source.features).toHaveLength(4);
+  expect(JSON.stringify(snapshot)).not.toContain("connectionId");
+  await page.getByRole("button", { name: "空间分析 MCP", exact: true }).click();
+  await page.getByRole("button", { name: "启用 MCP", exact: true }).click();
+  await expect(page.getByLabel("MCP 访问令牌")).toHaveAttribute("type", "password");
+  await expect(page.getByRole("dialog")).toContainText("http://127.0.0.1:9999/mcp");
+  await page.getByRole("button", { name: "选择可读文件…", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("C:/owned-test/vector.geojson");
+  await page.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).click();
+  await page.evaluate(() => window.__ZG_TEST__.analysisResults.push({ id: "result-1", name: "空间筛选结果", features: [{ type: "Feature", id: "selected", geometry: { type: "Point", coordinates: [116, 40] }, properties: { name: "结果" } }] }));
+  await expect(page.locator(".layer-row")).toHaveCount(2);
+  await expect(page.locator(".layer-text").filter({ hasText: "空间筛选结果" })).toContainText("*");
+  await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_workspace_sync").at(-1)?.args.layers)).toHaveLength(2);
+  const final = await page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_workspace_sync").at(-1)?.args.layers as { features: unknown[] }[]);
+  expect(final[0].features).toEqual(source.features);
+  await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
+  await expect(page.getByLabel("Codex 空间分析助手")).toBeVisible();
+  await page.getByTitle("隐藏侧栏，保留会话").click();
+  await expect(page.getByLabel("Codex 空间分析助手")).toHaveCount(0);
+});

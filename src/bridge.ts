@@ -24,6 +24,15 @@ export interface DbConnection {
   sslMode: string;
 }
 export const api = {
+  mcpStatus: () => invoke<McpStatus>("gis_mcp_status"),
+  mcpEnable: (enabled: boolean) => invoke<McpStatus>("gis_mcp_set_enabled", { enabled }),
+  mcpSync: (layers: unknown[], activeLayerId?: string) =>
+    invoke("gis_workspace_sync", { layers, activeLayerId: activeLayerId ?? null }),
+  mcpResults: () => invoke<AnalysisLayer[]>("gis_results_drain"),
+  mcpAuthorizeFiles: () => invoke<string[]>("gis_authorize_files"),
+  mcpAuthorizeDirectory: () => invoke<string[]>("gis_authorize_directory"),
+  mcpRevoke: () => invoke("gis_revoke_access"),
+  mcpAudit: () => invoke<unknown[]>("gis_mcp_audit"),
   open: () => invoke<InputFile[]>("open_files"),
   save: (
     content: string,
@@ -79,6 +88,17 @@ export const api = {
       newTable: true,
     }),
 };
+export interface McpStatus {
+  enabled: boolean;
+  endpoint?: string | null;
+  token?: string | null;
+  authorizedPaths?: string[];
+}
+export interface AnalysisLayer {
+  id: string;
+  name: string;
+  features: unknown[];
+}
 export function download(content: string, name: string) {
   const url = URL.createObjectURL(
     new Blob([content], { type: "text/plain;charset=utf-8" }),

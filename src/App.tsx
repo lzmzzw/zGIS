@@ -37,7 +37,11 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Bot,
+  Plug,
 } from "lucide-react";
+import McpPanel from "./McpPanel";
+import AgentPanel from "./AgentPanel";
 import MapView, { type Tool } from "./MapView";
 import { ImportPanel, ExportPanel } from "./FilePanels";
 import {
@@ -58,6 +62,7 @@ import {
   geometryFromWkt,
   makeLayer,
   parseProperties,
+  importGeoJSON,
 } from "./domain";
 import type { DocumentLayer, GeoFeature, ImportOptions } from "./domain";
 import { parseInWorker, cancelParsing } from "./workers";
@@ -68,6 +73,7 @@ import {
   type InputFile,
   type DbLayer,
   type DbConnection,
+  type AnalysisLayer,
 } from "./bridge";
 
 const tools: { value: Tool; label: string; icon: typeof Pencil }[] = [
@@ -202,6 +208,7 @@ function HeaderMenu({
   );
 }
 export default function App() {
+  const [agentOpen, setAgentOpen] = useState(false);
   const [layers, setLayers] = useState<DocumentLayer[]>([]);
   const [activeId, setActiveId] = useState<string>();
   const [selectedId, setSelectedId] = useState<string>();
@@ -250,6 +257,7 @@ export default function App() {
     | "db-load"
     | "submit"
     | "settings"
+    | "mcp"
     | "close"
     | "quit"
     | "json"
@@ -285,6 +293,58 @@ export default function App() {
   const currentLayers = useRef(layers);
   currentLayers.current = layers;
   const active = layers.find((layer) => layer.id === activeId);
+  const mcpSyncQueue = useRef<Promise<unknown>>(Promise.resolve());
+  useEffect(() => {
+    if (!desktop || !recoveryReady) return;
+    const snapshot = layers.map((layer) => ({
+      id: layer.id, name: layer.name,
+      features: layer.features.map((feature) => ({
+        type: "Feature", id: feature.id,
+        geometry: feature.geometry, properties: feature.properties,
+      })),
+    }));
+    mcpSyncQueue.current = mcpSyncQueue.current.catch(() => {}).then(() =>
+      api.mcpSync(snapshot, activeId),
+    ).catch((reason) => setError(`空间分析图层同步失败：${errorText(reason)}`));
+  }, [layers, activeId, recoveryReady]);
+  const pendingAnalysis = useRef<AnalysisLayer[]>([]);
+  const analysisInFlight = useRef<Promise<void> | null>(null);
+  function importPendingAnalysis() {
+    if (!pendingAnalysis.current.length) return;
+    const added = pendingAnalysis.current.map((result) => makeLayer(
+      result.name,
+      importGeoJSON(JSON.stringify({ type: "FeatureCollection", features: result.features })),
+      "geojson", { dirty: true, warnings: ["空间分析结果副本，请核对后保存或导出。"] },
+    ));
+    pendingAnalysis.current = [];
+    const next = [...currentLayers.current, ...added];
+    currentLayers.current = next;
+    setLayers(next);
+    setActiveId(added.at(-1)?.id);
+    setLayersOpen(true);
+    setFitNonce((n) => n + 1);
+    setStatus(`已添加 ${added.length} 个空间分析结果图层`);
+  }
+  const importAnalysisRef = useRef(importPendingAnalysis);
+  importAnalysisRef.current = importPendingAnalysis;
+  useEffect(() => {
+    if (!desktop) return;
+    let alive = true;
+    const timer = window.setInterval(() => {
+      if (analysisInFlight.current || busyRef.current || exitPending.current) return;
+      analysisInFlight.current = (async () => {
+        try {
+          const incoming = await api.mcpResults();
+          if (incoming?.length) pendingAnalysis.current.push(...incoming);
+          // Save/close may begin while IPC is pending; keep drained data until safe.
+          if (alive && !busyRef.current && !exitPending.current) importAnalysisRef.current();
+        } catch (reason) {
+          if (alive) setError(`空间分析结果读取失败：${errorText(reason)}`);
+        } finally { analysisInFlight.current = null; }
+      })();
+    }, 1000);
+    return () => { alive = false; window.clearInterval(timer); };
+  }, []);
   const selected = active?.features.find(
     (feature) => feature.id === selectedId,
   );
@@ -374,9 +434,17 @@ export default function App() {
     snapshotQueue.current = next;
     return next;
   }
-  function requestExit() {
-    if (busyRef.current || !recoveryReady) return;
+  async function requestExit() {
+    if (busyRef.current || !recoveryReady || exitPending.current) return;
     exitPending.current = true;
+    try {
+      await analysisInFlight.current;
+      importAnalysisRef.current();
+    } catch (reason) {
+      exitPending.current = false;
+      setError(errorText(reason));
+      return;
+    }
     setError("");
     setExitActions(
       Object.fromEntries(
@@ -1142,6 +1210,10 @@ export default function App() {
             {active?.dirty && <span className="dirty-dot" title="未保存" />}
           </div>
           <div className="header-actions">
+            {desktop && <>
+              <IconButton label="空间分析 MCP" onClick={() => openModal("mcp")}><Plug size={16} /></IconButton>
+              <IconButton label="Codex Agent" active={agentOpen} onClick={() => setAgentOpen((v) => !v)}><Bot size={16} /></IconButton>
+            </>}
             <IconButton
               label="属性表"
               active={tableOpen}
@@ -1902,6 +1974,12 @@ export default function App() {
               onExport={() => void doExport()}
               onClose={() => openModal(null)}
             />
+          </Modal>
+        )}
+        {agentOpen && desktop && <div className="agent-dock"><AgentPanel onClose={() => setAgentOpen(false)} /></div>}
+        {modal === "mcp" && (
+          <Modal title="空间分析 MCP" onClose={() => setModal(null)}>
+            <McpPanel />
           </Modal>
         )}
         {modal === "settings" && (

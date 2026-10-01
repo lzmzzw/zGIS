@@ -12,6 +12,10 @@ use tauri::{Manager, State};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_postgres::{Client, NoTls};
 mod shapefile_export;
+mod spatial;
+mod gis_mcp;
+mod vector_files;
+mod codex_agent;
 
 #[tauri::command]
 async fn export_shapefile(
@@ -994,7 +998,23 @@ async fn export_database(
 pub fn run() {
     tauri::Builder::default()
         .manage(Backend::default())
+        .manage(gis_mcp::GisMcp::default())
+        .manage(codex_agent::CodexAgent::default())
         .invoke_handler(tauri::generate_handler![
+            gis_mcp::gis_mcp_status,
+            gis_mcp::gis_mcp_set_enabled,
+            gis_mcp::gis_workspace_sync,
+            gis_mcp::gis_results_drain,
+            gis_mcp::gis_authorize_files,
+            gis_mcp::gis_authorize_directory,
+            gis_mcp::gis_revoke_access,
+            gis_mcp::gis_mcp_audit,
+            codex_agent::agent_open,
+            codex_agent::agent_current,
+            codex_agent::agent_read,
+            codex_agent::agent_write,
+            codex_agent::agent_resize,
+            codex_agent::agent_close,
             export_shapefile,
             open_files,
             save_file,
@@ -1007,8 +1027,14 @@ pub fn run() {
             commit_changes,
             export_database
         ])
-        .run(tauri::generate_context!())
-        .expect("zGIS 启动失败");
+        .build(tauri::generate_context!())
+        .expect("zGIS 启动失败")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<codex_agent::CodexAgent>().shutdown();
+                app.state::<gis_mcp::GisMcp>().shutdown();
+            }
+        });
 }
 #[cfg(test)]
 mod tests {

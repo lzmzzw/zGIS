@@ -13,16 +13,23 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["arbitrary_precision"] }
 rfd = "0.15"
-tokio = { version = "1", features = ["sync", "time"] }
+tokio = { version = "1", features = ["sync", "time", "net", "io-util", "process", "rt-multi-thread"] }
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1"] }
 native-tls = "0.2"
 postgres-native-tls = "0.5"
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
-shapefile = "0.7"
-zip = { version = "2", default-features = false }
+shapefile = { version = "0.7", features = ["geo-types"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+geo = "0.32"
+geojson = { version = "0.24", features = ["geo-types"] }
+wkt = "0.14"
+csv = "1"
+dbase = { version = "0.6", features = ["encoding_rs"] }
+axum = "0.8"
+portable-pty = "0.9"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }

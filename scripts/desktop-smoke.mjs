@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
 import shp from "shpjs";
+import { mcpNativeSmoke } from "./mcp-native-smoke.mjs";
 const appPid = Number(process.argv[2]);
 if (!appPid) throw new Error("Pass the isolated zGIS test process ID");
 mkdirSync("output/desktop", { recursive: true });
@@ -186,6 +187,7 @@ await fileAction("移除图层");
 await page.getByRole("button", { name: "放弃并移除", exact: true }).click();
 await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 0);
 console.log("PASS: native SHP attribute/geometry editing, ZIP cancellation/save, independent Chinese/coordinate roundtrip and unchanged original group");
+await mcpNativeSmoke(page, nativeDialog, fileAction);
 assert.deepEqual(errors, []);
 console.log(
   "PASS: desktop WebView2, native open/save/export/cancel, source ID preservation, external-file conflict protection and immediate discarded-recovery clearing",

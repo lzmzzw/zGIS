@@ -11,10 +11,13 @@ Windows 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLaye
 - PostGIS 连接、元数据发现、geometry / WKT 文本读取、有主键图层事务编辑、冲突检测和新表导入。
 - OpenStreetMap、天地图矢量/影像及注记、无底图模式。
 - 自动恢复本地副本、逐图层退出处理、文件外部修改冲突保护。
+- 本机 MCP 空间查询、关联、拓扑检查、缓冲、裁剪和面合并；嵌入式 Codex CLI Agent。操作、工具与计算限制见 [空间分析说明](docs/spatial-mcp.md)。
 
 ## 运行与安装
 
 交付安装包在 `F:\Workspace\Deliverables\zGIS\zGIS_0.1.0_x64-setup.exe`。当前用户安装默认目录为 `%LOCALAPPDATA%\zGIS`，启动文件为 `zgis.exe`；可从开始菜单启动。卸载使用 Windows 应用管理或安装目录的 `uninstall.exe`。
+
+含 SHP 编辑、空间分析 MCP 和 Agent 的增量安装包为 `F:\Workspace\Deliverables\zGIS\zGIS_0.1.0_mcp-agent_x64-setup.exe`。已对该构建的 release EXE 完成原生测试，未自动替换旧安装版。
 
 依赖 Windows WebView2 Runtime。安装包使用 Tauri NSIS 引导方式，缺少 Runtime 时可能需要联网安装。当前构建未配置代码签名，不是已经签名的商业发布包。
 
@@ -70,6 +73,6 @@ pwsh -File scripts/build.ps1
 
 后端单测可执行 `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`，需先载入 `scripts/msvc-environment.ps1`。打包脚本显式载入 MSVC，防止 Git 的 link.exe 抢占。Cargo.lock 和 pnpm-lock.yaml 都提交，构建、截图与测试数据在 output/target，不提交。
 
-安装版验收执行 `pwsh -File scripts/installed-smoke.ps1`，先正常关闭现有 zGIS 会话。脚本暂存并最终还原原恢复文件，使用独立 WebView2 目录，仅操作生成的测试文件；验证原生打开、保存、导出、取消、外部修改保护，以及真实退出后跨进程恢复和放弃。WebView2 本地 CDP 仅测试时通过环境启用，不写入产品配置，常规启动不开调试端口。独立 WebView2 目录本身不隔离 Rust 恢复文件，不直接对用户运行中的实例执行底层 smoke。
+安装版验收执行 `pwsh -File scripts/installed-smoke.ps1`，先正常关闭现有 zGIS 会话。脚本暂存并最终还原原恢复文件，使用独立 WebView2 目录，仅操作生成的测试文件；验证原生打开、保存、导出、取消、外部修改保护，以及真实退出后跨进程恢复和放弃。MCP/Agent 测试还需要 PATH 中有已登录的 Codex CLI，验证鉴权、链式分析、文件授权和 `/mcp` 工具发现，不发起模型推理。可用 `-Executable` 指定新构建的 release EXE。WebView2 本地 CDP 仅测试时通过环境启用，不写入产品配置，常规启动不开调试端口。独立 WebView2 目录本身不隔离 Rust 恢复文件，不直接对用户运行中的实例执行底层 smoke。
 
 接口见 [src-tauri/IPC.md](src-tauri/IPC.md)。最初设计见 [zGIS技术方案](../../../Deliverables/zGIS/zGIS技术方案.md)，实现边界以本 README 为准。数据库的 AI 直接操作仍遵守工作台 DBX 入口，应用数据层不提供旁路工具。

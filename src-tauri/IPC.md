@@ -28,3 +28,16 @@ TLS `require` 和 `prefer` 均验证系统受信证书并要求加密；prefer �
 文件单个读写上限 100 MB；打开在阻塞任务线程执行，选择单个 SHP 自动带同目录同名 DBF/SHX/PRJ/CPG。路径只在后端句柄表管理，仅 csv/json/geojson 可保存和覆盖。覆盖前比较 SHA-256 指纹；同目录临时写入、sync、内容核验后调用 Windows ReplaceFileW。恢复数据保存在应用私有目录 recovery.json，首版只存最近一次快照。
 
 `export_shapefile` 将 WGS84 二维要素写成 SHP/SHX/DBF/PRJ/CPG ZIP。输出前检查单一几何类别、字段命名、类型、长度与数值精度；不静默截断或填充缺失属性。原生对话框选择 ZIP，拒绝已存在目标，临时写入与核验后以不覆盖方式提交单个 ZIP；不提供原 SHP 文件组覆盖接口。返回身份仅表示导出文件，不绑定到编辑图层的覆盖句柄。字段和几何限制见根 README 的“SHP 编辑与另存”。
+
+## 空间分析与 Agent
+
+- `gis_mcp_status` / `gis_mcp_set_enabled {enabled}`：返回 `{enabled,endpoint?,token?,authorizedPaths}`；token 仅供本次服务，不持久化。
+- `gis_workspace_sync {layers,activeLayerId}`：layers 为 `{id,name,features}`，只接受标准 GeoJSON Feature 快照。
+- `gis_results_drain`：消费待导入的 `{id,name,features}` 结果；前端暂存队列避免退出或繁忙期间丢失。
+- `gis_authorize_files` / `gis_authorize_directory`：原生对话框授权只读路径；`gis_revoke_access` 撤销并使缓存失效。
+- `gis_mcp_audit`：有界工具审计摘要。
+- `agent_open` / `agent_current`：`{sessionId,running}`；current 无会话时 null。
+- `agent_read {sessionId}`：`{data,sequence}`；`agent_write {sessionId,data}`、`agent_resize {sessionId,cols,rows}`、`agent_close {sessionId}`。
+- 事件 `zgis-agent-output {sessionId,data,sequence}` 与 `zgis-agent-exit {sessionId,running}`；先订阅后回放，按序号去重。启动与关闭按代次串行校验，取消中的启动不能发布会话。
+
+MCP 工具及计算边界见 [空间分析说明](../docs/spatial-mcp.md)。这些接口不提供任意文件写入、数据库提交或 shell 调用。

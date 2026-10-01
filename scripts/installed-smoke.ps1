@@ -28,7 +28,11 @@ try {
   if ((Get-Content -LiteralPath $recoveryPath -Raw) -ne '[]') { throw 'Discarded snapshot was not cleared.' }
   Write-Output 'PASS: installed binary, native dialogs and cross-process recovery/exit.'
 } finally {
-  if ($testProcess -and -not $testProcess.HasExited) { Stop-Process -Id $testProcess.Id }
+  if ($testProcess -and -not $testProcess.HasExited) {
+    # A failing test may still own a Codex PTY descendant; clean only this live test tree.
+    & taskkill.exe /PID $testProcess.Id /T /F | Out-Null
+    if (-not $testProcess.WaitForExit(10000)) { Stop-Process -Id $testProcess.Id }
+  }
   if ($recoveryIsolated) {
     if (Test-Path -LiteralPath $recoveryPath) { Remove-Item -LiteralPath $recoveryPath }
     if ($hadRecovery -and (Test-Path -LiteralPath $savedPath)) { Move-Item -LiteralPath $savedPath -Destination $recoveryPath }

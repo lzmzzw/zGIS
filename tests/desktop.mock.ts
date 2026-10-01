@@ -1,6 +1,9 @@
 import type { Page } from "@playwright/test";
 import type { GeoFeature } from "../src/domain";
 export interface DesktopTestState {
+  mcpEnabled: boolean;
+  mcpPaths: string[];
+  analysisResults: { id: string; name: string; features: unknown[] }[];
   calls: { command: string; args: Record<string, unknown> }[];
   commitError: string;
   queryError: string;
@@ -27,6 +30,9 @@ export async function installDesktopMock(
       const listeners = new Map<number, { event: string; handler: number }>();
       let next = 1;
       const state: DesktopTestState = {
+        mcpEnabled: false,
+        mcpPaths: [],
+        analysisResults: [],
         calls: [],
         commitError: "",
         queryError: "",
@@ -77,6 +83,15 @@ export async function installDesktopMock(
             args: Record<string, unknown> = {},
           ) => {
             state.calls.push({ command, args });
+            if (command === "gis_mcp_status" || command === "gis_mcp_set_enabled") {
+              if (command === "gis_mcp_set_enabled") state.mcpEnabled = Boolean(args.enabled);
+              return { enabled: state.mcpEnabled, endpoint: state.mcpEnabled ? "http://127.0.0.1:9999/mcp" : null, token: state.mcpEnabled ? "test-token" : null, authorizedPaths: state.mcpPaths };
+            }
+            if (command === "gis_mcp_audit") return [];
+            if (command === "gis_results_drain") return state.analysisResults.splice(0);
+            if (command === "gis_authorize_files" || command === "gis_authorize_directory") { state.mcpPaths = ["C:/owned-test/vector.geojson"]; return state.mcpPaths; }
+            if (command === "gis_revoke_access") { state.mcpPaths = []; return null; }
+            if (command === "agent_current") return null;
             if (command === "plugin:event|listen") {
               const id = next++;
               listeners.set(id, {
