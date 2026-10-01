@@ -21,6 +21,8 @@ native-tls = "0.2"
 postgres-native-tls = "0.5"
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
+shapefile = "0.7"
+zip = { version = "2", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }

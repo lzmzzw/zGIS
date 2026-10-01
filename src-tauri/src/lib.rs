@@ -11,6 +11,65 @@ use std::{
 use tauri::{Manager, State};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_postgres::{Client, NoTls};
+mod shapefile_export;
+
+#[tauri::command]
+async fn export_shapefile(
+    state: State<'_, Backend>,
+    features: Vec<Value>,
+    suggested_name: String,
+) -> Result<Option<SavedFile>, String> {
+    let files = state.files.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let stem = Path::new(&suggested_name)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let stem = if stem.is_empty() {
+            "layer".to_string()
+        } else {
+            stem
+        };
+        let bytes = shapefile_export::build_zip(&features, &stem)?;
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Shapefile ZIP", &["zip"])
+            .set_file_name(format!("{stem}.zip"))
+            .save_file()
+        else {
+            return Ok(None);
+        };
+        if !path
+            .extension()
+            .is_some_and(|x| x.to_string_lossy().eq_ignore_ascii_case("zip"))
+        {
+            return Err("SHP 另存仅允许 ZIP 文件；不会覆盖原 SHP 文件组".into());
+        }
+        let handles = files.lock().map_err(io_error)?;
+        let target = fs::canonicalize(&path).ok();
+        if handles.values().any(|h| {
+            h.path == path
+                || target
+                    .as_ref()
+                    .is_some_and(|t| fs::canonicalize(&h.path).ok().as_ref() == Some(t))
+        }) {
+            return Err("目标是已打开的来源文件，请选择新的 ZIP 文件名".into());
+        }
+        atomic_write_new(&path, &bytes)?;
+        let id = uuid::Uuid::new_v4().to_string();
+        Ok(Some(SavedFile {
+            source_id: id,
+            name: path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into(),
+            path: path.to_string_lossy().into(),
+        }))
+    })
+    .await
+    .map_err(io_error)?
+}
 
 const MAX_FILE: u64 = 100 * 1024 * 1024;
 #[derive(Default)]
@@ -147,6 +206,56 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
         let _ = fs::remove_file(temp);
     }
     result
+}
+/// Publish a new export without replacing an existing file, including races after the dialog.
+fn atomic_write_new(path: &Path, content: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    if path.exists() {
+        return Err("SHP 另存必须使用新 ZIP 文件名，不能覆盖已有文件".into());
+    }
+    let temp = path.with_file_name(format!(".zgis-{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+            .map_err(io_error)?;
+        file.write_all(content).map_err(io_error)?;
+        file.sync_all().map_err(io_error)?;
+        drop(file);
+        if fs::read(&temp).map_err(io_error)? != content {
+            return Err("写入核验失败".into());
+        }
+        publish_new(&temp, path)?;
+        Ok(())
+    })();
+    let _ = fs::remove_file(&temp);
+    result
+}
+fn publish_new(temp: &Path, path: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let source: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
+        let target: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        // No MOVEFILE_REPLACE_EXISTING: a target created after validation must survive.
+        let result = unsafe {
+            windows_sys::Win32::Storage::FileSystem::MoveFileExW(
+                source.as_ptr(),
+                target.as_ptr(),
+                0,
+            )
+        };
+        if result == 0 {
+            return Err(format!(
+                "新文件保存失败（目标可能已存在）：{}",
+                std::io::Error::last_os_error()
+            ));
+        }
+    }
+    #[cfg(not(windows))]
+    fs::hard_link(&temp, path).map_err(|e| format!("新文件保存失败（目标可能已存在）：{e}"))?;
+    Ok(())
 }
 #[cfg(windows)]
 fn replace_file(temp: &Path, path: &Path) -> Result<(), String> {
@@ -824,7 +933,9 @@ async fn commit_changes(
             return Err("提交行数异常，已回滚".into());
         }
     }
-    tx.commit().await.map_err(|_| "提交结果待核对：连接在事务完成时异常，请重新读取数据库，不要直接重复提交".to_string())?;
+    tx.commit().await.map_err(|_| {
+        "提交结果待核对：连接在事务完成时异常，请重新读取数据库，不要直接重复提交".to_string()
+    })?;
     Ok(json!({"committed":changes.len(),"reloadRequired":true}))
 }
 #[tauri::command]
@@ -874,7 +985,9 @@ async fn export_database(
         }
         tx.execute(&format!("INSERT INTO {target}(properties,geom) VALUES ($1,ST_SetSRID(ST_GeomFromGeoJSON($2::text),4326))"),&[&props,&geometry]).await.map_err(io_error)?;
     }
-    tx.commit().await.map_err(|_| "提交结果待核对：请确认目标表是否已创建，不要直接重复导入".to_string())?;
+    tx.commit()
+        .await
+        .map_err(|_| "提交结果待核对：请确认目标表是否已创建，不要直接重复导入".to_string())?;
     Ok(json!({"inserted":list.len(),"schema":schema,"table":table}))
 }
 
@@ -882,6 +995,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Backend::default())
         .invoke_handler(tauri::generate_handler![
+            export_shapefile,
             open_files,
             save_file,
             save_recovery,
@@ -964,6 +1078,27 @@ mod tests {
         atomic_write(&path, b"new").unwrap();
         assert_ne!(first, fingerprint(&path).unwrap());
         assert_eq!(fs::read(path).unwrap(), b"new");
+    }
+    #[test]
+    fn new_export_never_replaces_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new.zip");
+        atomic_write_new(&path, b"original").unwrap();
+        assert!(atomic_write_new(&path, b"replacement").is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+    #[test]
+    fn publish_rejects_target_created_after_validation() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join("pending.tmp");
+        let target = dir.path().join("new.zip");
+        assert!(!target.exists());
+        fs::write(&temp, b"new").unwrap();
+        fs::write(&target, b"created-by-another-process").unwrap();
+        assert!(publish_new(&temp, &target).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"created-by-another-process");
+        assert_eq!(fs::read(&temp).unwrap(), b"new");
     }
     #[test]
     fn missing_key_is_readonly() {

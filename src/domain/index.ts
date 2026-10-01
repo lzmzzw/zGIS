@@ -354,7 +354,7 @@ export async function importFiles(
     layers.push(
       makeLayer(base, importGeoJSON(JSON.stringify(result)), "shp", {
         originalCrs: decoder.decode(new Uint8Array(pick("prj")!.bytes)),
-        warnings: ["SHP 只读导入，编辑结果只能另存其他格式"],
+        warnings: ["SHP 可编辑；编辑结果另存新文件，不覆盖原 SHP 文件组"],
       }),
     );
   }

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { installDesktopMock } from "./desktop.mock";
 import { execFileSync } from "node:child_process";
 
 async function fileAction(page: Page, name: string) {
@@ -192,9 +193,7 @@ test("file parse errors remain in original window and export rejects non-point X
   await page.screenshot({ path: "output/smoke/export-summary.png" });
 });
 
-test("SHP ZIP is selectable and read only, save routes to conversion", async ({
-  page,
-}) => {
+test("SHP ZIP is editable and save routes to conversion", async ({ page }) => {
   execFileSync("node", ["scripts/create-fixtures.mjs"]);
   await page.goto("/");
   await page
@@ -208,20 +207,20 @@ test("SHP ZIP is selectable and read only, save routes to conversion", async ({
   ).toHaveValue("北京");
   await expect(
     page.getByRole("button", { name: "编辑", exact: true }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await expect(
     page.getByRole("button", { name: "新增点", exact: true }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await expect(
     page.getByRole("button", { name: "选择", exact: true }),
   ).toBeEnabled();
   await wktEditor(page);
   await expect(
     page.getByRole("textbox", { name: "WKT 几何", exact: true }),
-  ).toHaveAttribute("readonly", "");
+  ).not.toHaveAttribute("readonly", "");
   await expect(
     page.getByRole("button", { name: "应用几何", exact: true }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "关闭", exact: true })
@@ -400,4 +399,66 @@ test("single header, panels, theme persistence, resizing and canvas rendering", 
     ).toBeTruthy();
     await page.screenshot({ path: `output/smoke/redesign-${width}.png` });
   }
+});
+
+test("desktop SHP export preserves edits on cancellation, error and success", async ({
+  page,
+}) => {
+  execFileSync("node", ["scripts/create-fixtures.mjs"]);
+  await installDesktopMock(page);
+  await page.goto("/");
+  await page
+    .locator("input[type=file]")
+    .setInputFiles("output/smoke/fixtures/cities.zip");
+  await showTable(page);
+  await page.locator("tbody tr").first().click();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "属性 name", exact: true })
+    .fill("新北京");
+  await page.getByRole("button", { name: "应用", exact: true }).click();
+  await fileAction(page, "保存");
+  await expect(page.getByRole("combobox", { name: "输出格式" })).toHaveValue(
+    "shp",
+  );
+  await expect(page.getByRole("textbox", { name: "文件名" })).toHaveValue(
+    "cities.zip",
+  );
+  await page.evaluate(() => {
+    window.__ZG_TEST__.saveCancelled = true;
+  });
+  await page.getByRole("button", { name: "导出", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "导出", exact: true }),
+  ).toBeEnabled();
+  await page.evaluate(() => {
+    window.__ZG_TEST__.saveCancelled = false;
+    window.__ZG_TEST__.saveError = "字段名称不合法";
+  });
+  await page.getByRole("button", { name: "导出", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("字段名称不合法");
+  await page.evaluate(() => {
+    window.__ZG_TEST__.saveError = "";
+  });
+  await page.getByRole("button", { name: "导出", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const calls = await page.evaluate(() =>
+    window.__ZG_TEST__.calls.filter(
+      (call) => call.command === "export_shapefile",
+    ),
+  );
+  expect(calls).toHaveLength(3);
+  expect(calls[2].args.suggestedName).toBe("cities.zip");
+  expect((calls[2].args.features as { type: string }[])[0].type).toBe(
+    "Feature",
+  );
+  expect((calls[2].args.features as object[])[0]).not.toHaveProperty("id");
+  expect(
+    (calls[2].args.features as { properties: { name: string } }[])[0].properties
+      .name,
+  ).toBe("新北京");
+  await page.evaluate(() => window.__ZG_TEST__.requestClose());
+  await expect(page.getByRole("dialog")).toContainText("cities");
+  await expect(page.getByRole("dialog").getByRole("combobox")).toHaveCount(1);
 });

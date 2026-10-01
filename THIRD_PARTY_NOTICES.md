@@ -100,6 +100,7 @@
 - alloc-stdlib@0.2.4: BSD-3-Clause https://github.com/dropbox/rust-alloc-no-stdlib
 - android_system_properties@0.1.6: MIT OR Apache-2.0 https://github.com/nical/android_system_properties
 - anyhow@1.0.104: MIT OR Apache-2.0 https://github.com/dtolnay/anyhow
+- arbitrary@1.4.2: MIT OR Apache-2.0 https://github.com/rust-fuzz/arbitrary/
 - ashpd@0.11.1: MIT https://github.com/bilelmoussaoui/ashpd
 - async-broadcast@0.7.2: MIT OR Apache-2.0 https://github.com/smol-rs/async-broadcast
 - async-channel@2.5.0: Apache-2.0 OR MIT https://github.com/smol-rs/async-channel
@@ -172,11 +173,13 @@
 - darling@0.24.1: MIT https://github.com/TedDriggs/darling
 - darling_core@0.24.1: MIT https://github.com/TedDriggs/darling
 - darling_macro@0.24.1: MIT https://github.com/TedDriggs/darling
+- dbase@0.6.1: MIT https://github.com/tmontaigu/dbase-rs
 - dbus@0.9.12: Apache-2.0/MIT https://github.com/diwic/dbus-rs
 - defmt@1.1.1: MIT OR Apache-2.0 https://github.com/knurling-rs/defmt
 - defmt-macros@1.1.1: MIT OR Apache-2.0 https://github.com/knurling-rs/defmt
 - defmt-parser@1.0.0: MIT OR Apache-2.0 https://github.com/knurling-rs/defmt
 - deranged@0.5.8: MIT OR Apache-2.0 https://github.com/jhpratt/deranged
+- derive_arbitrary@1.4.2: MIT OR Apache-2.0 https://github.com/rust-fuzz/arbitrary
 - derive_more@2.1.1: MIT https://github.com/JelteF/derive_more
 - derive_more-impl@2.1.1: MIT https://github.com/JelteF/derive_more
 - digest@0.10.7: MIT OR Apache-2.0 https://github.com/RustCrypto/traits
@@ -437,6 +440,7 @@
 - servo_arc@0.4.3: MIT OR Apache-2.0 https://github.com/servo/stylo
 - sha2@0.10.9: MIT OR Apache-2.0 https://github.com/RustCrypto/hashes
 - sha2@0.11.0: MIT OR Apache-2.0 https://github.com/RustCrypto/hashes
+- shapefile@0.7.0: MIT https://github.com/tmontaigu/shapefile-rs
 - shlex@2.0.1: MIT OR Apache-2.0 https://github.com/comex/rust-shlex
 - signal-hook-registry@1.4.8: MIT OR Apache-2.0 https://github.com/vorner/signal-hook
 - simd-adler32@0.3.10: MIT https://github.com/mcountryman/simd-adler32
@@ -616,6 +620,7 @@
 - zerotrie@0.2.5: Unicode-3.0 https://github.com/unicode-org/icu4x
 - zerovec@0.11.8: Unicode-3.0 https://github.com/unicode-org/icu4x
 - zerovec-derive@0.11.6: Unicode-3.0 https://github.com/unicode-org/icu4x
+- zip@2.4.2: MIT https://github.com/zip-rs/zip2.git
 - zlib-rs@0.6.8: Zlib https://github.com/trifectatechfoundation/zlib-rs
 - zmij@1.0.23: MIT https://github.com/dtolnay/zmij
 - zvariant@5.15.0: MIT https://github.com/z-galaxy/zbus/

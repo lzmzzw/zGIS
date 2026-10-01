@@ -315,6 +315,7 @@ export function ExportPanel({
           : "");
   const formats: Record<string, string> = {
     geojson: "GeoJSON",
+    shp: "Shapefile · ZIP",
     wkt: "CSV · WKT",
     xy: "CSV · X/Y",
     postgis: "PostGIS · 新表",
@@ -335,7 +336,9 @@ export function ExportPanel({
               onChange={(event) => onMode(event.target.value)}
             >
               {Object.entries(formats)
-                .filter(([key]) => desktop || key !== "postgis")
+                .filter(
+                  ([key]) => desktop || (key !== "postgis" && key !== "shp"),
+                )
                 .map(([key, label]) => (
                   <option key={key} value={key}>
                     {label}
@@ -381,7 +384,7 @@ export function ExportPanel({
               <label>
                 保存位置<span>{desktop ? "导出时选择" : "浏览器下载"}</span>
               </label>
-              {mode !== "geojson" && (
+              {mode !== "geojson" && mode !== "shp" && (
                 <label>
                   目标坐标系
                   <select
@@ -422,7 +425,7 @@ export function ExportPanel({
             <dd>{formats[mode]}</dd>
             <dt>输出坐标</dt>
             <dd>
-              {mode === "geojson" || mode === "postgis"
+              {mode === "geojson" || mode === "postgis" || mode === "shp"
                 ? "WGS84 · EPSG:4326"
                 : crs}
             </dd>
@@ -434,6 +437,16 @@ export function ExportPanel({
           {mode === "postgis" ? (
             <p className="form-note">
               新建 id、properties、geom 三列，不覆盖已有表。
+            </p>
+          ) : mode === "shp" ? (
+            <p className="form-note">
+              另存 ZIP（SHP、SHX、DBF、PRJ、CPG），WGS84、UTF-8，须选择不存在的新文件。
+              每次仅支持一种几何族：Point、MultiPoint、线或面，Point 与
+              MultiPoint 不能混合。 DBF 字段名须为 ASCII 字母或下划线开头，最多 10
+              字符，可含数字和下划线；
+              属性仅支持文本、数值和布尔；空值、缺少字段、嵌套和类型冲突将提示错误。数值最多
+              15 位有效数字、8 位小数。文本不接受空字符串或首尾空格。
+              导出后保留工作副本和修改状态；退出时可保留恢复副本或另存 GeoJSON。
             </p>
           ) : mode !== "geojson" ? (
             <p className="form-note">

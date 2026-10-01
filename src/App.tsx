@@ -319,7 +319,11 @@ export default function App() {
     if (value === "export" && active)
       setExportFilename(
         active.name.replace(/\.[^.]+$/, "") +
-          (exportMode === "geojson" ? ".geojson" : ".csv"),
+          (exportMode === "shp"
+            ? ".zip"
+            : exportMode === "geojson"
+              ? ".geojson"
+              : ".csv"),
       );
     setError("");
     setModal(value);
@@ -616,6 +620,13 @@ export default function App() {
       return;
     }
     if (active.sourceKind === "shp") {
+      if (desktop) {
+        setExportMode("shp");
+        setExportFilename(active.name.replace(/\.[^.]+$/, "") + ".zip");
+        setError("");
+        setModal("export");
+        return;
+      }
       openModal("export");
       return;
     }
@@ -699,6 +710,17 @@ export default function App() {
           active.features,
         );
         setStatus("已创建目标表并写入");
+      } else if (exportMode === "shp") {
+        if (!desktop) throw new Error("SHP 导出仅在桌面版提供");
+        const name =
+          exportFilename.trim().replace(/\.(geojson|json|csv|shp|zip)$/i, "") +
+          ".zip";
+        const result = await api.exportShapefile(active.features, name);
+        if (!result) {
+          setStatus("已取消导出");
+          return;
+        }
+        setStatus("导出完成：SHP ZIP 已另存；工作副本和修改状态保留");
       } else {
         const content =
           exportMode === "geojson"
@@ -892,7 +914,6 @@ export default function App() {
   const h = active ? histories.current.get(active.id) : undefined;
   const editable =
     Boolean(active) &&
-    active?.sourceKind !== "shp" &&
     (active?.sourceKind !== "postgis" ||
       (Boolean(active.db?.keyColumns.length) &&
         !uncertainDocs.has(active.id!)));
@@ -1245,12 +1266,11 @@ export default function App() {
                           {l.dirty ? " *" : ""}
                         </strong>
                       </button>
-                      {(l.sourceKind === "shp" ||
-                        (l.sourceKind === "postgis" &&
-                          (!l.db?.keyColumns.length ||
-                            uncertainDocs.has(l.id)))) && (
-                        <LockKeyhole size={13} aria-label="只读图层" />
-                      )}
+                      {l.sourceKind === "postgis" &&
+                        (!l.db?.keyColumns.length ||
+                          uncertainDocs.has(l.id)) && (
+                          <LockKeyhole size={13} aria-label="只读图层" />
+                        )}
                     </div>
                   ))}
                 </div>
@@ -1621,7 +1641,7 @@ export default function App() {
                       <dt>格式</dt>
                       <dd>
                         {active.sourceKind === "shp"
-                          ? "Shapefile · 只读"
+                          ? "Shapefile · 可编辑 / 另存"
                           : active.sourceKind}
                       </dd>
                       <dt>来源 CRS</dt>
@@ -1633,9 +1653,7 @@ export default function App() {
                     </dl>
                     {!editable && (
                       <p className="form-note">
-                        {active.sourceKind === "shp"
-                          ? "Shapefile 来源只读，可调整样式、查看或导出。"
-                          : "当前数据库副本不可编辑，请核对主键及提交状态。"}
+                        当前数据库副本不可编辑，请核对主键及提交状态。
                       </p>
                     )}
                     {active.warnings?.map((warning, index) => (
@@ -1867,8 +1885,12 @@ export default function App() {
                 setExportMode(value);
                 setExportFilename((name) =>
                   name.replace(
-                    /\.(geojson|json|csv)$/i,
-                    value === "geojson" ? ".geojson" : ".csv",
+                    /\.(geojson|json|csv|zip)$/i,
+                    value === "shp"
+                      ? ".zip"
+                      : value === "geojson"
+                        ? ".geojson"
+                        : ".csv",
                   ),
                 );
                 setError("");

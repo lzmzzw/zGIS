@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
+import shp from "shpjs";
 const appPid = Number(process.argv[2]);
 if (!appPid) throw new Error("Pass the isolated zGIS test process ID");
 mkdirSync("output/desktop", { recursive: true });
@@ -144,6 +145,47 @@ const recovery = await page.evaluate(() =>
   window.__TAURI_INTERNALS__.invoke("load_recovery"),
 );
 assert.equal(recovery, "[]");
+// Edit an owned SHP fixture and verify the native ZIP through an independent reader.
+const originalGroup = Object.fromEntries(
+  ["shp", "shx", "dbf", "prj", "cpg"].map((ext) => [
+    ext, readFileSync(`output/smoke/fixtures/cities.${ext}`),
+  ]),
+);
+const shpOpening = nativeDialog("output/smoke/fixtures/cities.shp");
+await fileAction("打开文件…");
+await shpOpening;
+await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 2);
+await page.locator("tbody tr").first().click();
+await setName("北京编辑后");
+await page.getByRole("button", { name: "WKT 几何…", exact: true }).click();
+await page.getByRole("textbox", { name: "WKT 几何", exact: true }).fill("POINT (117 40)");
+await page.getByRole("button", { name: "应用几何", exact: true }).click();
+await page.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).first().click();
+await fileAction("保存");
+await page.getByLabel("输出格式").selectOption("shp");
+const shpCancelling = nativeDialog("", true);
+await page.getByRole("button", { name: "导出", exact: true }).click();
+await shpCancelling;
+await page.waitForFunction(() => document.querySelector(".statusbar")?.textContent?.includes("已取消导出"));
+assert.equal(await page.getByRole("dialog").count(), 1);
+rmSync("output/desktop/edited-shp.zip", { force: true });
+const shpSaving = nativeDialog("output/desktop/edited-shp.zip");
+await page.getByRole("button", { name: "导出", exact: true }).click();
+await shpSaving;
+await page.waitForFunction(() => document.querySelector(".statusbar")?.textContent?.includes("导出完成"));
+const zip = readFileSync("output/desktop/edited-shp.zip");
+const roundtrip = await shp(zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength));
+assert.equal(roundtrip.features.length, 2);
+assert.equal(roundtrip.features[0].properties.name, "北京编辑后");
+assert.equal(roundtrip.features[0].properties.code, "001");
+assert.deepEqual(roundtrip.features[0].geometry.coordinates, [117, 40]);
+for (const [ext, bytes] of Object.entries(originalGroup))
+  assert.deepEqual(readFileSync(`output/smoke/fixtures/cities.${ext}`), bytes);
+await page.screenshot({ path: "output/desktop/shp-edited-export.png" });
+await fileAction("移除图层");
+await page.getByRole("button", { name: "放弃并移除", exact: true }).click();
+await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 0);
+console.log("PASS: native SHP attribute/geometry editing, ZIP cancellation/save, independent Chinese/coordinate roundtrip and unchanged original group");
 assert.deepEqual(errors, []);
 console.log(
   "PASS: desktop WebView2, native open/save/export/cancel, source ID preservation, external-file conflict protection and immediate discarded-recovery clearing",

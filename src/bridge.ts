@@ -35,6 +35,18 @@ export const api = {
       "save_file",
       { content, suggestedName, sourceId, overwrite },
     ),
+  exportShapefile: (features: GeoFeature[], suggestedName: string) =>
+    invoke<{ sourceId: string; name: string; path: string } | null>(
+      "export_shapefile",
+      {
+        features: features.map(({ geometry, properties }) => ({
+          type: "Feature",
+          geometry,
+          properties,
+        })),
+        suggestedName,
+      },
+    ),
   recover: () => invoke<string | null>("load_recovery"),
   backup: (content: string) => invoke("save_recovery", { content }),
   connect: (config: DbConnection) =>
