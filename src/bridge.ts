@@ -44,7 +44,7 @@ export const api = {
       "save_file",
       { content, suggestedName, sourceId, overwrite },
     ),
-  exportShapefile: (features: GeoFeature[], suggestedName: string) =>
+  exportShapefile: (features: GeoFeature[], suggestedName: string, crs = "EPSG:4326") =>
     invoke<{ sourceId: string; name: string; path: string } | null>(
       "export_shapefile",
       {
@@ -54,6 +54,7 @@ export const api = {
           properties,
         })),
         suggestedName,
+        crs,
       },
     ),
   recover: () => invoke<string | null>("load_recovery"),

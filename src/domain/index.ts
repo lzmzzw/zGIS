@@ -17,6 +17,8 @@ export type {
   ImportOptions,
   InputFile,
 } from "./types";
+// CGCS2000: no survey-grade datum/epoch transformation is applied.
+proj4.defs("EPSG:4490", "+proj=longlat +ellps=GRS80 +no_defs +type=crs");
 const wkt = new WKT();
 let sequence = 0;
 const id = () => `feature-${Date.now()}-${++sequence}`;
@@ -81,10 +83,13 @@ function transformGeometry(
   if (!proj4.defs(from) || !proj4.defs(to))
     throw new Error(`未知坐标系：${from} → ${to}`);
   const copy = structuredClone(geometry);
-  const walk = (coords: unknown[]): unknown[] =>
-    typeof coords[0] === "number"
-      ? proj4(from, to, coords as number[])
-      : coords.map((c) => walk(c as unknown[]));
+  const walk = (coords: unknown[]): unknown[] => {
+    if (typeof coords[0] !== "number")
+      return coords.map((c) => walk(c as unknown[]));
+    if (to === "EPSG:3857" && Math.abs(coords[1] as number) > 85.0511287798066)
+      throw new Error("EPSG:3857 不支持超出 ±85.05112878° 的纬度");
+    return proj4(from, to, coords as number[]);
+  };
   (copy as Exclude<Geometry, { type: "GeometryCollection" }>).coordinates =
     walk(
       (copy as Exclude<Geometry, { type: "GeometryCollection" }>).coordinates,
@@ -139,7 +144,7 @@ export function importCsv(
   const xc = options.xColumn || find(["longitude", "lon", "lng", "x", "经度"]);
   const yc = options.yColumn || find(["latitude", "lat", "y", "纬度"]);
   if (options.geometryMode === "wkt" && !wc) throw new Error("请选择 WKT 列");
-  if (!wc && (!xc || !yc)) throw new Error("请选择 WKT 列或经纬度列");
+  if (!wc && (!xc || !yc)) throw new Error("请选择 WKT 列或 X/Y 坐标列");
   for (const column of wc ? [wc] : [xc!, yc!])
     if (!fields.includes(column)) throw new Error(`不存在列 ${column}`);
   if (!wc && xc === yc) throw new Error("X 和 Y 不能使用同一列");
@@ -154,7 +159,7 @@ export function importCsv(
         if (!row[xc!] && !row[yc!]) geometry = null;
         else {
           if (!row[xc!]?.trim() || !row[yc!]?.trim())
-            throw new Error("经纬度缺失");
+            throw new Error("X/Y 坐标缺失");
           geometry = transformGeometry(
             {
               type: "Point",
@@ -283,7 +288,7 @@ export function exportCsv(
     } else {
       if (options.wktColumn) delete row[options.wktColumn];
       if (geometry && geometry.type !== "Point")
-        throw new Error("经纬度 CSV 仅支持 Point；线面请导出 WKT");
+        throw new Error("X/Y CSV 仅支持 Point；线面请导出 WKT");
       row[options.xColumn ?? "longitude"] =
         geometry && geometry.type === "Point" ? geometry.coordinates[0] : "";
       row[options.yColumn ?? "latitude"] =

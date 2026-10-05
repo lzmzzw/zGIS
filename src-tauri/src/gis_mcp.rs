@@ -387,7 +387,7 @@ pub fn definitions() -> Vec<Value> {
         def(
             "load_vector_file",
             "读取用户会话授权的外部矢量文件并缓存，支持GeoJSON/CSV/SHP/ZIP；二维WGS84",
-            json!({"path":{"type":"string"},"crs":{"type":"string","enum":["EPSG:4326","EPSG:3857"]},"wktField":{"type":"string"},"xField":{"type":"string"},"yField":{"type":"string"}}),
+            json!({"path":{"type":"string"},"crs":{"type":"string","enum":["EPSG:4326","EPSG:4490","EPSG:3857"]},"wktField":{"type":"string"},"xField":{"type":"string"},"yField":{"type":"string"}}),
             &["path"],
         ),
         def(

@@ -22,6 +22,7 @@ async fn export_shapefile(
     state: State<'_, Backend>,
     features: Vec<Value>,
     suggested_name: String,
+    crs: Option<String>,
 ) -> Result<Option<SavedFile>, String> {
     let files = state.files.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -35,7 +36,7 @@ async fn export_shapefile(
         } else {
             stem
         };
-        let bytes = shapefile_export::build_zip(&features, &stem)?;
+        let bytes = shapefile_export::build_zip_crs(&features, &stem, crs.as_deref().unwrap_or("EPSG:4326"))?;
         let Some(path) = rfd::FileDialog::new()
             .add_filter("Shapefile ZIP", &["zip"])
             .set_file_name(format!("{stem}.zip"))

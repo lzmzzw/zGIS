@@ -9,6 +9,19 @@ import {
 } from "./domain";
 import { zipSync, strToU8 } from "fflate";
 describe("地理数据格式转换", () => {
+  it.each(["EPSG:4326", "EPSG:4490", "EPSG:3857"])("%s CSV 导出再导入保持工作坐标", (crs) => {
+    const features = importCsv("x,y\n116.4,39.9");
+    const result = importCsv(exportCsv(features, { mode: "xy", crs, xColumn: "x", yColumn: "y" }), { crs });
+    const coordinates = (result[0].geometry as { coordinates: number[] }).coordinates;
+    expect(coordinates[0]).toBeCloseTo(116.4, 8);
+    expect(coordinates[1]).toBeCloseTo(39.9, 8);
+    if (crs === "EPSG:3857") expect(exportCsv(features, { mode: "xy", crs })).toContain("12957588");
+  });
+  it("4490 WKT 导入和默认 4326 保持经纬度顺序", () => {
+    const text = 'wkt\n"POINT (116.4 39.9)"';
+    expect(importCsv(text, { crs: "EPSG:4490" })[0].geometry).toEqual(importCsv(text)[0].geometry);
+    expect(() => exportCsv(importCsv("x,y\n0,90"), { mode: "xy", crs: "EPSG:3857" })).toThrow("85.05112878");
+  });
   it("不同 CSV 独立识别坐标列并拒绝错误映射", async () => {
     const files = [
       { name: "a.csv", bytes: Array.from(strToU8("x,y\n1,2")) },

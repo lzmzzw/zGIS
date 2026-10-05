@@ -12,7 +12,7 @@ fn error(e: impl std::fmt::Display) -> String {
 fn array(v: &Value) -> Result<&Vec<Value>, String> {
     v.as_array().ok_or_else(|| "无效坐标数组".into())
 }
-fn point(v: &Value) -> Result<Point, String> {
+fn point(v: &Value, crs: &str) -> Result<Point, String> {
     let p = array(v)?;
     if p.len() != 2 {
         return Err("仅支持二维坐标，不允许静默丢弃 Z/M".into());
@@ -26,10 +26,14 @@ fn point(v: &Value) -> Result<Point, String> {
     {
         return Err("坐标必须为有效 WGS84 经纬度".into());
     }
+    if crs == "EPSG:3857" {
+        if y.abs() > 85.0511287798066 { return Err("EPSG:3857 不支持超出 ±85.05112878° 的纬度".into()); }
+        return Ok(Point::new(6378137.0 * x.to_radians(), 6378137.0 * (std::f64::consts::FRAC_PI_4 + y.to_radians() / 2.0).tan().ln()));
+    }
     Ok(Point::new(x, y))
 }
-fn points(v: &Value, ring: bool) -> Result<Vec<Point>, String> {
-    let p = array(v)?.iter().map(point).collect::<Result<Vec<_>, _>>()?;
+fn points(v: &Value, ring: bool, crs: &str) -> Result<Vec<Point>, String> {
+    let p = array(v)?.iter().map(|v| point(v, crs)).collect::<Result<Vec<_>, _>>()?;
     if p.len() < if ring { 4 } else { 2 } {
         return Err("线至少两点，面环至少四点".into());
     }
@@ -53,22 +57,22 @@ enum Geometry {
     Lines(Polyline),
     Areas(Polygon),
 }
-fn geometry(v: &Value) -> Result<Geometry, String> {
+fn geometry(v: &Value, crs: &str) -> Result<Geometry, String> {
     let c = &v["coordinates"];
     Ok(match v["type"].as_str().ok_or("缺少几何类型")? {
-        "Point" => Geometry::Single(point(c)?),
+        "Point" => Geometry::Single(point(c, crs)?),
         "MultiPoint" => {
-            let p = array(c)?.iter().map(point).collect::<Result<Vec<_>, _>>()?;
+            let p = array(c)?.iter().map(|v| point(v, crs)).collect::<Result<Vec<_>, _>>()?;
             if p.is_empty() {
                 return Err("不支持空几何".into());
             }
             Geometry::Points(Multipoint::new(p))
         }
-        "LineString" => Geometry::Lines(Polyline::new(points(c, false)?)),
+        "LineString" => Geometry::Lines(Polyline::new(points(c, false, crs)?)),
         "MultiLineString" => {
             let p = array(c)?
                 .iter()
-                .map(|v| points(v, false))
+                .map(|v| points(v, false, crs))
                 .collect::<Result<Vec<_>, _>>()?;
             if p.is_empty() {
                 return Err("不支持空几何".into());
@@ -88,7 +92,7 @@ fn geometry(v: &Value) -> Result<Geometry, String> {
                     return Err("不支持空面".into());
                 }
                 for (i, v) in r.iter().enumerate() {
-                    let pts = points(v, true)?;
+                    let pts = points(v, true, crs)?;
                     rings.push(if i == 0 {
                         PolygonRing::Outer(pts)
                     } else {
@@ -138,7 +142,17 @@ fn decimal(n: f64) -> Result<u8, String> {
     Err("数值需要超过 8 位小数，不能无损导出 DBF".into())
 }
 /// Validate before opening the save dialog; never truncate or coerce attribute data.
+#[cfg(test)]
 pub fn build_zip(features: &[Value], stem: &str) -> Result<Vec<u8>, String> {
+    build_zip_crs(features, stem, "EPSG:4326")
+}
+pub fn build_zip_crs(features: &[Value], stem: &str, crs: &str) -> Result<Vec<u8>, String> {
+    let prj = match crs {
+        "EPSG:4326" => PRJ,
+        "EPSG:4490" => r#"GEOGCS["China Geodetic Coordinate System 2000",DATUM["China_2000",SPHEROID["CGCS2000",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4490"]]"#,
+        "EPSG:3857" => r#"PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1],EXTENSION["PROJ4","+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"],AUTHORITY["EPSG","3857"]]"#,
+        _ => return Err("仅支持 EPSG:4326/4490/3857".into()),
+    };
     if features.is_empty() {
         return Err("没有可导出的要素".into());
     }
@@ -216,7 +230,7 @@ pub fn build_zip(features: &[Value], stem: &str) -> Result<Vec<u8>, String> {
     }
     let shapes = features
         .iter()
-        .map(|f| geometry(&f["geometry"]))
+        .map(|f| geometry(&f["geometry"], crs))
         .collect::<Result<Vec<_>, _>>()?;
     let family = |g: &Geometry| match g {
         Geometry::Single(_) => 0,
@@ -268,7 +282,7 @@ pub fn build_zip(features: &[Value], stem: &str) -> Result<Vec<u8>, String> {
         ("shp", shp),
         ("shx", shx),
         ("dbf", dbf),
-        ("prj", PRJ.as_bytes().to_vec()),
+        ("prj", prj.as_bytes().to_vec()),
         ("cpg", b"UTF-8".to_vec()),
     ] {
         zip.start_file(format!("{stem}.{ext}"), opts)

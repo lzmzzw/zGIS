@@ -785,7 +785,7 @@ export default function App() {
         const name =
           exportFilename.trim().replace(/\.(geojson|json|csv|shp|zip)$/i, "") +
           ".zip";
-        const result = await api.exportShapefile(active.features, name);
+        const result = await api.exportShapefile(active.features, name, exportCrs);
         if (!result) {
           setStatus("已取消导出");
           return;

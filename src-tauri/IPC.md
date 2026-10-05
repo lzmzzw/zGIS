@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `open_files` | 无 | `[{name,bytes:number[],sourceId}]`，取消返回空数组 |
 | `save_file` | `{sourceId?:string,suggestedName,content,overwrite}` | `{sourceId,name,path}|null`，取消返回 null |
-| `export_shapefile` | `{features:Feature[],suggestedName:string}` | `{sourceId,name,path}\|null`，取消返回 null；只保存新的 ZIP |
+| `export_shapefile` | `{features:Feature[],suggestedName:string,crs?:string}` | `{sourceId,name,path}\|null`，取消返回 null；只保存新的 ZIP |
 | `save_recovery` | `{content:string}`，合法 JSON | 无 |
 | `load_recovery` | 无 | `string|null` |
 | `connect_database` | `{config:{host,port,database,user,password,sslMode}}` | `connectionId` |
@@ -27,7 +27,7 @@ TLS `require` 和 `prefer` 均验证系统受信证书并要求加密；prefer �
 
 文件单个读写上限 100 MB；打开在阻塞任务线程执行，选择单个 SHP 自动带同目录同名 DBF/SHX/PRJ/CPG。路径只在后端句柄表管理，仅 csv/json/geojson 可保存和覆盖。覆盖前比较 SHA-256 指纹；同目录临时写入、sync、内容核验后调用 Windows ReplaceFileW。恢复数据保存在应用私有目录 recovery.json，首版只存最近一次快照。
 
-`export_shapefile` 将 WGS84 二维要素写成 SHP/SHX/DBF/PRJ/CPG ZIP。输出前检查单一几何类别、字段命名、类型、长度与数值精度；不静默截断或填充缺失属性。原生对话框选择 ZIP，拒绝已存在目标，临时写入与核验后以不覆盖方式提交单个 ZIP；不提供原 SHP 文件组覆盖接口。返回身份仅表示导出文件，不绑定到编辑图层的覆盖句柄。字段和几何限制见根 README 的“SHP 编辑与另存”。
+`export_shapefile` 将 WGS84 二维工作要素转换并写成 SHP/SHX/DBF/PRJ/CPG ZIP。`crs` 可选 EPSG:4326（省略时默认）、EPSG:4490、EPSG:3857，其他值拒绝；PRJ 与输出坐标一致，3857 拒绝超出有效纬度的输入。4490 采用近似经纬度转换，不含测绘级基准改正。输出前检查单一几何类别、字段命名、类型、长度与数值精度；不静默截断或填充缺失属性。原生对话框选择 ZIP，拒绝已存在目标，临时写入与核验后以不覆盖方式提交单个 ZIP；不提供原 SHP 文件组覆盖接口。返回身份仅表示导出文件，不绑定到编辑图层的覆盖句柄。字段和几何限制见根 README 的“SHP 编辑与另存”。
 
 ## 空间分析与 Agent
 

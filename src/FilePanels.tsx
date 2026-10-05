@@ -155,6 +155,7 @@ export function ImportPanel({
                   onChange={(event) => change("crs", event.target.value)}
                 >
                   <option>EPSG:4326</option>
+                  <option>EPSG:4490</option>
                   <option>EPSG:3857</option>
                 </select>
               </label>
@@ -384,7 +385,7 @@ export function ExportPanel({
               <label>
                 保存位置<span>{desktop ? "导出时选择" : "浏览器下载"}</span>
               </label>
-              {mode !== "geojson" && mode !== "shp" && (
+              {mode !== "geojson" && (
                 <label>
                   目标坐标系
                   <select
@@ -394,6 +395,7 @@ export function ExportPanel({
                     onChange={(event) => onCrs(event.target.value)}
                   >
                     <option>EPSG:4326</option>
+                    <option>EPSG:4490</option>
                     <option>EPSG:3857</option>
                   </select>
                 </label>
@@ -425,7 +427,7 @@ export function ExportPanel({
             <dd>{formats[mode]}</dd>
             <dt>输出坐标</dt>
             <dd>
-              {mode === "geojson" || mode === "postgis" || mode === "shp"
+              {mode === "geojson" || mode === "postgis"
                 ? "WGS84 · EPSG:4326"
                 : crs}
             </dd>
@@ -440,7 +442,7 @@ export function ExportPanel({
             </p>
           ) : mode === "shp" ? (
             <p className="form-note">
-              另存 ZIP（SHP、SHX、DBF、PRJ、CPG），WGS84、UTF-8，须选择不存在的新文件。
+              另存 ZIP（SHP、SHX、DBF、PRJ、CPG），按目标坐标系输出、UTF-8，须选择不存在的新文件。
               每次仅支持一种几何族：Point、MultiPoint、线或面，Point 与
               MultiPoint 不能混合。 DBF 字段名须为 ASCII 字母或下划线开头，最多 10
               字符，可含数字和下划线；

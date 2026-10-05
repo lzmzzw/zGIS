@@ -69,6 +69,13 @@ fn identify_prj(prj: &str) -> Result<&'static str, String> {
     if p == known {
         return Ok("EPSG:4326");
     }
+    if p.starts_with("GEOGCS[")
+        && (p.contains("DATUM[\"CHINA_2000\",") || p.contains("DATUM[\"D_CHINA_2000\","))
+        && p.contains("298.257222101")
+        && p.contains("PRIMEM[\"GREENWICH\",0")
+        && (p.ends_with("AUTHORITY[\"EPSG\",\"4490\"]]") || !p.contains("AUTHORITY[")) {
+        return Ok("EPSG:4490");
+    }
     // 只接受顶层 authority；内嵌地理坐标系的4326不能代表投影坐标系。
     let authority = if p.ends_with("AUTHORITY[\"EPSG\",\"4326\"]]") {
         Some("EPSG:4326")
@@ -89,7 +96,7 @@ fn identify_prj(prj: &str) -> Result<&'static str, String> {
             }
         }
     }
-    Err("PRJ无法严格识别为EPSG:4326/3857，请明确指定已核实的crs或预先转换".into())
+    Err("PRJ无法严格识别为EPSG:4326/4490/3857，请明确指定已核实的crs或预先转换".into())
 }
 pub fn authorized(path: &Path, grants: &[PathBuf]) -> Result<PathBuf, String> {
     if path.components().any(|c| {
@@ -134,7 +141,7 @@ pub fn load(path: &str, args: &Value, grants: &[PathBuf]) -> Result<Vec<Value>, 
     {
         "json" | "geojson" => {
             if args["crs"].as_str().is_some_and(|c| c != "EPSG:4326") {
-                return Err("GeoJSON固定为RFC7946 WGS84，不能指定EPSG:3857".into());
+                return Err("GeoJSON固定为RFC7946 WGS84，不能指定其他坐标系".into());
             }
             let mut v: Value = serde_json::from_slice(&bytes).map_err(|_| "无效GeoJSON")?;
             preserve_property_numbers(&mut v);
@@ -423,8 +430,8 @@ fn reject_lossy_dbf_numbers(bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 fn transform(features: &mut [Value], crs: &str) -> Result<(), String> {
-    if !["EPSG:4326", "EPSG:3857"].contains(&crs) {
-        return Err("仅支持EPSG:4326/3857".into());
+    if !["EPSG:4326", "EPSG:4490", "EPSG:3857"].contains(&crs) {
+        return Err("仅支持EPSG:4326/4490/3857".into());
     }
     if crs == "EPSG:3857" {
         fn walk(v: &mut Value) {
@@ -482,6 +489,37 @@ pub fn validate_geometry(g: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn three_crs_shapefile_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let feature = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[116.4,39.9]},"properties":{"name":"北京"}});
+        for crs in ["EPSG:4326", "EPSG:4490", "EPSG:3857"] {
+            let bytes = crate::shapefile_export::build_zip_crs(&[feature.clone()], "points", crs).unwrap();
+            let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+            let mut prj = String::new();
+            archive.by_name("points.prj").unwrap().read_to_string(&mut prj).unwrap();
+            assert_eq!(identify_prj(&prj).unwrap(), crs);
+            let mut shape_bytes = Vec::new();
+            archive.by_name("points.shp").unwrap().read_to_end(&mut shape_bytes).unwrap();
+            let shapes = shapefile::ShapeReader::new(std::io::Cursor::new(shape_bytes)).unwrap().read().unwrap();
+            if let shapefile::Shape::Point(point) = &shapes[0] {
+                if crs == "EPSG:3857" {
+                    assert!((point.x - 12957588.728337).abs() < 0.001);
+                    assert!((point.y - 4851421.175183).abs() < 0.001);
+                } else { assert_eq!((point.x, point.y), (116.4, 39.9)); }
+            } else { panic!("Expected point"); }
+            let path = dir.path().join("points.zip");
+            fs::write(&path, bytes).unwrap();
+            let out = load(path.to_str().unwrap(), &json!({}), &[dir.path().canonicalize().unwrap()]).unwrap();
+            let xy = &out[0]["geometry"]["coordinates"];
+            assert!((xy[0].as_f64().unwrap() - 116.4).abs() < 1e-8);
+            assert!((xy[1].as_f64().unwrap() - 39.9).abs() < 1e-8);
+        }
+        assert!(crate::shapefile_export::build_zip_crs(&[feature], "points", "EPSG:9999").is_err());
+        let polar = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[0,90]},"properties":{}});
+        assert!(crate::shapefile_export::build_zip_crs(&[polar], "points", "EPSG:3857").is_err());
+        assert_eq!(csv_features(b"x,y\n116.4,39.9", &json!({"crs":"EPSG:4490"})).unwrap()[0]["geometry"]["coordinates"], json!([116.4,39.9]));
+    }
     #[test]
     fn rejects_ambiguous_prj_csv_and_geojson_crs() {
         assert!(identify_prj(
