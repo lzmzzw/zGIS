@@ -38,11 +38,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Bot,
-  Plug,
   Minus,
   Square,
 } from "lucide-react";
-import McpPanel from "./McpPanel";
+import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
 import MapView, { type Tool } from "./MapView";
 import { ImportPanel, ExportPanel } from "./FilePanels";
@@ -226,7 +225,7 @@ export default function App() {
       return "dark";
     }
   });
-  const [settingCategory, setSettingCategory] = useState<"appearance" | "map">(
+  const [settingCategory, setSettingCategory] = useState<SettingsCategory>(
     "appearance",
   );
   const [annotations, setAnnotations] = useState(true);
@@ -261,7 +260,6 @@ export default function App() {
     | "db-load"
     | "submit"
     | "settings"
-    | "mcp"
     | "close"
     | "quit"
     | "json"
@@ -1063,7 +1061,7 @@ export default function App() {
           }}
         >
           <img className="brand-mark" src="/zgis.svg" alt="zGIS" />
-          <nav className="header-menus" aria-label="主菜单">
+          <nav className="header-menus" aria-label="主菜单" hidden={modal === "settings"}>
             <HeaderMenu label="文件">
               <button onClick={openFiles} disabled={busy}>
                 <FolderOpen size={16} />
@@ -1155,16 +1153,6 @@ export default function App() {
                 <Settings2 size={16} />
                 检查器
               </button>
-              <hr />
-              <button
-                onClick={() => {
-                  setSettingCategory("appearance");
-                  openModal("settings");
-                }}
-              >
-                <Settings2 size={16} />
-                设置…
-              </button>
             </HeaderMenu>
           </nav>
           <div
@@ -1175,19 +1163,21 @@ export default function App() {
             {active?.dirty && <span className="dirty-dot" title="未保存" />}
           </div>
           <div className="header-actions">
-            {desktop && <>
-              <IconButton label="空间分析 MCP" onClick={() => openModal("mcp")}><Plug size={16} /></IconButton>
+            {desktop && modal !== "settings" && <>
               <IconButton label="Codex Agent" active={agentOpen} onClick={() => setAgentOpen((v) => !v)}><Bot size={16} /></IconButton>
             </>}
             <IconButton
               label="属性表"
               active={tableOpen}
+              disabled={modal === "settings"}
               onClick={() => setTableOpen((v) => !v)}
             >
               <Table2 size={16} />
             </IconButton>
             <IconButton
               label="设置"
+              active={modal === "settings"}
+              disabled={busy}
               onClick={() => {
                 setSettingCategory("appearance");
                 openModal("settings");
@@ -1223,6 +1213,7 @@ export default function App() {
           }}
         />
         <main
+          hidden={modal === "settings"}
           className="workspace"
           data-layers={layersOpen}
           data-inspector={inspectorOpen}
@@ -1358,15 +1349,6 @@ export default function App() {
                 <option value="tdt-img">天地图 · 影像</option>
                 <option value="none">无底图</option>
               </select>
-              <IconButton
-                label="底图设置"
-                onClick={() => {
-                  setSettingCategory("map");
-                  openModal("settings");
-                }}
-              >
-                <Settings2 size={15} />
-              </IconButton>
             </div>
           </aside>
           <section className="map-column">
@@ -1915,7 +1897,7 @@ export default function App() {
             </IconButton>
           </div>
         )}
-        <footer className="statusbar">
+        <footer className="statusbar" hidden={modal === "settings"}>
           <span>
             {busy ? (
               <LoaderCircle className="spin" size={13} />
@@ -2020,93 +2002,15 @@ export default function App() {
             />
           </Modal>
         )}
-        {agentOpen && desktop && <div className="agent-dock"><AgentPanel onClose={() => setAgentOpen(false)} /></div>}
-        {modal === "mcp" && (
-          <Modal title="空间分析 MCP" onClose={() => setModal(null)}>
-            <McpPanel />
-          </Modal>
-        )}
-        {modal === "settings" && (
-          <Modal title="设置" onClose={() => openModal(null)}>
-            <div className="settings-layout">
-              <nav aria-label="设置分类">
-                <button
-                  className={
-                    settingCategory === "appearance" ? "active" : "quiet"
-                  }
-                  onClick={() => setSettingCategory("appearance")}
-                >
-                  外观
-                </button>
-                <button
-                  className={settingCategory === "map" ? "active" : "quiet"}
-                  onClick={() => setSettingCategory("map")}
-                >
-                  地图
-                </button>
-              </nav>
-              <div className="form-grid settings-content">
-                {settingCategory === "appearance" ? (
-                  <label>
-                    主题
-                    <select
-                      aria-label="主题"
-                      value={theme}
-                      onChange={(e) =>
-                        setTheme(e.target.value as "light" | "dark")
-                      }
-                    >
-                      <option value="dark">深色</option>
-                      <option value="light">浅色</option>
-                    </select>
-                  </label>
-                ) : (
-                  <>
-                    <label>
-                      底图类型
-                      <select
-                        aria-label="底图类型"
-                        value={basemap}
-                        onChange={(e) => setBasemap(e.target.value)}
-                      >
-                        <option value="osm">OpenStreetMap</option>
-                        <option value="tdt-vec">天地图 · 矢量</option>
-                        <option value="tdt-img">天地图 · 影像</option>
-                        <option value="none">无底图</option>
-                      </select>
-                    </label>
-                    {basemap.startsWith("tdt") && (
-                      <>
-                        <label className="checkbox-label">
-                          <input
-                            type="checkbox"
-                            checked={annotations}
-                            onChange={(e) => setAnnotations(e.target.checked)}
-                          />
-                          显示注记
-                        </label>
-                        <label>
-                          天地图 tk
-                          <input
-                            aria-label="天地图 tk"
-                            type="password"
-                            value={tdtKey}
-                            autoComplete="off"
-                            onChange={(e) => setTdtKey(e.target.value)}
-                          />
-                        </label>
-                        <p className="form-note">tk 仅在本次运行保留。</p>
-                        {!tdtKey && (
-                          <p className="warning">填写 tk 后可载入天地图。</p>
-                        )}
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          </Modal>
-        )}
+        {agentOpen && desktop && <div className="agent-dock" hidden={modal === "settings"}><AgentPanel onClose={() => setAgentOpen(false)} /></div>}
+        {modal === "settings" && <SettingsPage
+          category={settingCategory} onCategory={setSettingCategory}
+          theme={theme} onTheme={setTheme}
+          basemap={basemap} onBasemap={setBasemap}
+          annotations={annotations} onAnnotations={setAnnotations}
+          tdtKey={tdtKey} onTdtKey={setTdtKey}
+          error={error} onClose={() => openModal(null)}
+        />}
         {(modal === "json" || modal === "wkt") && selected && (
           <Modal
             title={modal === "json" ? "JSON 属性" : "WKT 几何"}

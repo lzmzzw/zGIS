@@ -381,25 +381,20 @@ test("single header, panels, theme persistence, resizing and canvas rendering", 
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByLabel("主题", { exact: true }).selectOption("light");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "关闭", exact: true })
-    .click();
+  await page.getByRole("button", { name: "返回地图", exact: true }).click();
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  await page.getByRole("button", { name: "底图设置", exact: true }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("navigation", { name: "设置分类" }).getByRole("button", {name:"地图",exact:true}).click();
   await page.getByLabel("底图类型", { exact: true }).selectOption("tdt-vec");
-  await expect(page.getByRole("dialog")).toContainText(
+  await expect(page.getByRole("main", {name:"后台设置"})).toContainText(
     "填写 tk 后可载入天地图",
   );
   await page.getByLabel("显示注记", { exact: true }).uncheck();
   await page.getByLabel("底图类型", { exact: true }).selectOption("osm");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "关闭", exact: true })
-    .click();
+  await page.getByRole("button", { name: "返回地图", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "底图设置", exact: true }),
+    page.getByRole("button", { name: "设置", exact: true }),
   ).toBeFocused();
   await page
     .getByRole("button", { name: "城市示例", exact: true })
@@ -414,10 +409,7 @@ test("single header, panels, theme persistence, resizing and canvas rendering", 
   await page.screenshot({ path: "output/smoke/redesign-light.png" });
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByLabel("主题", { exact: true }).selectOption("dark");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "关闭", exact: true })
-    .click();
+  await page.getByRole("button", { name: "返回地图", exact: true }).click();
   await page.screenshot({ path: "output/smoke/redesign-dark.png" });
   await page.getByLabel("底图", { exact: true }).selectOption("none");
   await page.waitForTimeout(250);

@@ -16,6 +16,7 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   const opening = nativeDialog('output/smoke/fixtures/native.geojson');
   await fileAction('打开文件…'); await opening;
   await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1);
+  await page.getByRole('button', {name:'设置',exact:true}).click();
   await page.getByRole('button', {name:'空间分析 MCP',exact:true}).click();
   await page.getByRole('button', {name:'启用 MCP',exact:true}).click();
   await page.getByRole('button', {name:'停止 MCP',exact:true}).waitFor();
@@ -58,7 +59,7 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   const loaded = await call('load_vector_file',{path,crs:'EPSG:4326'});
   assert.equal(loaded.featureCount,2);
   assert.match(JSON.stringify(await call('read_result',{resultId:loaded.resultId})),/北京/);
-  await page.getByRole('dialog').getByRole('button',{name:'关闭',exact:true}).first().click();
+  await page.getByRole('button',{name:'返回地图',exact:true}).click();
   await page.getByRole('button',{name:'Codex Agent',exact:true}).click();
   await page.getByRole('button',{name:'连接 Codex',exact:true}).click();
   await page.getByRole('button',{name:'停止会话',exact:true}).waitFor({state:'visible'});
@@ -82,10 +83,11 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
     const text = plain(value.data);
     return /zgis/.test(text) && /spatial_query|14\s*tools|tools:\s*14/i.test(text);
   }, {sessionId:agent.sessionId});
+  await page.getByRole('button',{name:'设置',exact:true}).click();
   await page.getByRole('button',{name:'空间分析 MCP',exact:true}).click();
   await page.getByRole('button',{name:'停止 MCP',exact:true}).click();
   await waitIPC('agent_current', value => !value?.running);
-  await page.getByRole('dialog').getByRole('button',{name:'关闭',exact:true}).first().click();
+  await page.getByRole('button',{name:'返回地图',exact:true}).click();
   await page.getByTitle('隐藏侧栏，保留会话').click();
   await fileAction('移除图层');
   await page.getByRole('button',{name:'放弃并移除',exact:true}).click();
