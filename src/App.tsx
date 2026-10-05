@@ -72,6 +72,8 @@ import {
   api,
   desktop,
   download,
+  onFilesDropped,
+  type DroppedFiles,
   type InputFile,
   type DbLayer,
   type DbConnection,
@@ -409,6 +411,26 @@ export default function App() {
     });
     if (files.length) await acceptFiles(files);
   }
+  const droppedHandler = useRef<(payload: DroppedFiles) => void>(() => {});
+  droppedHandler.current = (payload) => {
+    if (payload.error) { setError(payload.error); setStatus("拖入失败"); return; }
+    if (busyRef.current || modal || !recoveryReady || exitPending.current) {
+      setError("当前操作尚未完成，请关闭面板或等待后重新拖入文件");
+      return;
+    }
+    void importSelected(payload.files);
+  };
+  useEffect(() => {
+    if (!desktop) return;
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+    void onFilesDropped((payload) => {
+      if (!disposed) droppedHandler.current(payload);
+    }).then((unlisten) => {
+      if (disposed) unlisten(); else cleanup = unlisten;
+    }).catch((reason) => { if (!disposed) setError(`文件拖入监听失败：${errorText(reason)}`); });
+    return () => { disposed = true; cleanup?.(); };
+  }, []);
   function openSources() {
     setLayersOpen(true);
     setSourceTab("sources");

@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { GeoFeature } from "./domain/types";
 export const desktop = isTauri();
 export interface InputFile {
@@ -6,6 +7,9 @@ export interface InputFile {
   bytes: number[];
   sourceId?: string;
 }
+export interface DroppedFiles { files: InputFile[]; error: string | null; }
+export const onFilesDropped = (handler: (payload: DroppedFiles) => void) =>
+  listen<DroppedFiles>("gis-files-dropped", (event) => handler(event.payload));
 export interface DbLayer {
   schema: string;
   table: string;

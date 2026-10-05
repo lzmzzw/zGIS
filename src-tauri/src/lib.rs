@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_postgres::{Client, NoTls};
 mod shapefile_export;
@@ -101,7 +101,7 @@ fn table_sql(schema: &str, table: &str) -> Result<String, String> {
 fn io_error(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenFile {
     name: String,
@@ -155,33 +155,71 @@ fn open_files_blocking(
         )
         .pick_files()
         .unwrap_or_default();
+    read_selected_files(paths, files)
+}
+// Paths come only from a native dialog or the window's OS drag/drop callback.
+fn read_selected_files(
+    paths: Vec<PathBuf>,
+    files: &Mutex<HashMap<String, FileHandle>>,
+) -> Result<Vec<OpenFile>, String> {
+    if paths.len() > 100 { return Err("每次最多导入 100 个文件".into()); }
+    let mut unique = Vec::new();
+    for path in paths {
+        let path = fs::canonicalize(path).map_err(io_error)?;
+        if !path.is_file() { return Err("请拖入矢量文件，不支持目录".into()); }
+        if path.components().any(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case("_credentials")) {
+            return Err("不能导入凭据目录中的文件".into());
+        }
+        let extension = path.extension().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+        if !["geojson", "json", "csv", "shp", "shx", "dbf", "prj", "cpg", "zip"].contains(&extension.as_str()) {
+            return Err("仅支持 GeoJSON、CSV、SHP 文件组和 ZIP".into());
+        }
+        if !unique.contains(&path) { unique.push(path); }
+    }
     let mut out = Vec::new();
-    let mut handles = files.lock().map_err(io_error)?;
-    for path in shapefile_group(paths)? {
-        if fs::metadata(&path).map_err(io_error)?.len() > MAX_FILE {
-            return Err("单文件不能超过 100 MB".into());
+    let mut pending = Vec::new();
+    let mut total = 0u64;
+    for path in shapefile_group(unique)? {
+        let size = fs::metadata(&path).map_err(io_error)?.len();
+        total = total.checked_add(size).ok_or("文件过大")?;
+        if size > MAX_FILE || total > MAX_FILE {
+            return Err("单次导入文件总大小不能超过 100 MB".into());
         }
         let bytes = fs::read(&path).map_err(io_error)?;
+        if bytes.len() as u64 > MAX_FILE || bytes.len() as u64 > size {
+            return Err("读取时文件发生变化，请重试".into());
+        }
         let id = uuid::Uuid::new_v4().to_string();
-        handles.insert(
-            id.clone(),
-            FileHandle {
-                path: path.clone(),
-                hash: Sha256::digest(&bytes).to_vec(),
-            },
-        );
+        pending.push((id.clone(), FileHandle { path: path.clone(), hash: Sha256::digest(&bytes).to_vec() }));
         out.push(OpenFile {
-            name: path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into(),
+            name: path.file_name().unwrap_or_default().to_string_lossy().into(),
             bytes,
             source_id: id,
         });
     }
+    files.lock().map_err(io_error)?.extend(pending);
     Ok(out)
 }
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DroppedFiles {
+    files: Vec<OpenFile>,
+    error: Option<String>,
+}
+fn handle_drop(window: &tauri::Window, paths: Vec<PathBuf>) {
+    let handles = window.state::<Backend>().files.clone();
+    let window = window.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = tauri::async_runtime::spawn_blocking(move || read_selected_files(paths, &handles)).await;
+        let payload = match result {
+            Ok(Ok(files)) => DroppedFiles { files, error: None },
+            Ok(Err(error)) => DroppedFiles { files: vec![], error: Some(error) },
+            Err(error) => DroppedFiles { files: vec![], error: Some(io_error(error)) },
+        };
+        let _ = window.emit("gis-files-dropped", payload);
+    });
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SavedFile {
@@ -1011,6 +1049,11 @@ async fn export_database(
 pub fn run() {
     tauri::Builder::default()
         .manage(Backend::default())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                handle_drop(window, paths.clone());
+            }
+        })
         .manage(gis_mcp::GisMcp::default())
         .manage(codex_agent::CodexAgent::default())
         .invoke_handler(tauri::generate_handler![
@@ -1052,6 +1095,41 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn selected_files_register_deduplicated_native_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.geojson");
+        fs::write(&path, b"{}").unwrap();
+        let handles = Mutex::new(HashMap::new());
+        let opened = read_selected_files(vec![path.clone(), path.clone()], &handles).unwrap();
+        assert_eq!(opened.len(), 1);
+        let registered = handles.lock().unwrap();
+        assert_eq!(registered[&opened[0].source_id].path, fs::canonicalize(path).unwrap());
+        assert_eq!(registered[&opened[0].source_id].hash, Sha256::digest(b"{}").to_vec());
+    }
+    #[test]
+    fn selected_files_failure_does_not_register_partial_batch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.geojson");
+        fs::write(&path, b"{}").unwrap();
+        let bad = dir.path().join("a.exe"); fs::write(&bad, b"x").unwrap();
+        let handles = Mutex::new(HashMap::new());
+        assert!(read_selected_files(vec![path, bad], &handles).is_err());
+        assert!(read_selected_files(vec![dir.path().to_path_buf()], &handles).is_err());
+        let credentials = dir.path().join("_credentials"); fs::create_dir(&credentials).unwrap();
+        let secret = credentials.join("private.json"); fs::write(&secret, b"{}").unwrap();
+        assert!(read_selected_files(vec![secret], &handles).is_err());
+        assert!(handles.lock().unwrap().is_empty());
+    }
+    #[test]
+    fn selected_shp_includes_companions_once() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["a.shp", "a.dbf", "a.prj", "b.dbf"] { fs::write(dir.path().join(name), b"x").unwrap(); }
+        let handles = Mutex::new(HashMap::new());
+        let files = read_selected_files(vec![dir.path().join("a.shp"), dir.path().join("a.dbf")], &handles).unwrap();
+        assert_eq!(files.len(), 3);
+        assert!(!files.iter().any(|f| f.name == "b.dbf"));
+    }
     #[test]
     fn changes_accept_kind_specific_payloads() {
         let insert: Change = serde_json::from_value(

@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import type { GeoFeature } from "../src/domain";
 export interface DesktopTestState {
+  dropFiles: (files: {name:string;bytes:number[];sourceId?:string}[], error?:string) => Promise<void>;
   mcpEnabled: boolean;
   mcpPaths: string[];
   analysisResults: { id: string; name: string; features: unknown[] }[];
@@ -50,6 +51,11 @@ export async function installDesktopMock(
             baseline: "baseline-1",
           },
         ],
+        dropFiles: async (files, error = "") => {
+          for (const [id, listener] of listeners)
+            if (listener.event === "gis-files-dropped")
+              await callbacks.get(listener.handler)?.({ event: listener.event, id, payload: {files, error: error || null} });
+        },
         requestClose: async () => {
           for (const [id, listener] of listeners)
             if (listener.event === "tauri://close-requested")
