@@ -360,9 +360,6 @@ export function ExportPanel({
                 ))}
             </select>
           </label>
-          {mode === "geojson" && crs !== "EPSG:4326" && (
-            <p className="form-note">输出含 crs 标记的传统 GeoJSON；仅接受 RFC 7946 的软件可能不支持此文件。</p>
-          )}
           {mode === "postgis" ? (
             <>
               <label>
