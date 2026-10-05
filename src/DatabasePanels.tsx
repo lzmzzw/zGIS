@@ -79,7 +79,7 @@ export function SourcePanel({
                     <small>
                       {layer.geometryColumn || "选择 WKT 列"} ·{" "}
                       {layer.geometryKind === "geometry"
-                        ? `EPSG:${layer.srid}`
+                        ? `EPSG:${layer.srid || 4326}`
                         : "WKT"}
                     </small>
                   </span>
@@ -300,14 +300,16 @@ export function LoadPanel({
               </label>
               <label>
                 来源 SRID
-                <input
+                <select
                   aria-label="来源 SRID"
-                  type="number"
-                  min={1}
                   disabled={busy}
                   value={srid}
                   onChange={(event) => onSrid(Number(event.target.value))}
-                />
+                >
+                  <option value={4326}>EPSG:4326 · WGS84</option>
+                  <option value={4490}>EPSG:4490 · CGCS2000</option>
+                  <option value={3857}>EPSG:3857 · Web Mercator</option>
+                </select>
               </label>
             </>
           )}
@@ -346,7 +348,7 @@ export function LoadPanel({
             </dd>
             <dt>来源坐标</dt>
             <dd>
-              EPSG:{layer.geometryKind === "geometry" ? layer.srid : srid}
+              EPSG:{layer.geometryKind === "geometry" ? layer.srid || 4326 : srid}
             </dd>
             <dt>读取范围</dt>
             <dd>

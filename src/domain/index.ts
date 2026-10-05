@@ -195,7 +195,23 @@ export function parseProperties(text: string): Record<string, unknown> {
     throw new Error("属性必须是 JSON 对象");
   return result as Record<string, unknown>;
 }
-export function importGeoJSON(text: string): GeoFeature[] {
+export function geoJsonCrs(text: string, explicit?: string): string {
+  const data = parse(text) as { crs?: { type?: string; properties?: { name?: string } } };
+  let declared: string | undefined;
+  if (data.crs !== undefined) {
+    const name = data.crs?.type === "name" ? data.crs.properties?.name : undefined;
+    const code = typeof name === "string" ? name.match(/^(?:EPSG:|urn:ogc:def:crs:EPSG:(?:[^:]*):|https?:\/\/www\.opengis\.net\/def\/crs\/EPSG\/0\/)(4326|4490|3857)$/i)?.[1] : undefined;
+    if (code) declared = `EPSG:${code}`;
+    else if (name === "urn:ogc:def:crs:OGC:1.3:CRS84" || name === "OGC:CRS84") declared = "EPSG:4326";
+    else throw new Error("GeoJSON 坐标系标记无效或不支持；仅支持 EPSG:4326/4490/3857");
+  }
+  if (explicit && declared && explicit !== declared) throw new Error("指定坐标系与 GeoJSON crs 标记冲突");
+  const crs = explicit ?? declared ?? "EPSG:4326";
+  if (!["EPSG:4326", "EPSG:4490", "EPSG:3857"].includes(crs)) throw new Error("不支持的 GeoJSON 坐标系");
+  return crs;
+}
+export function importGeoJSON(text: string, explicitCrs?: string): GeoFeature[] {
+  const crs = geoJsonCrs(text, explicitCrs);
   const data = parse(text) as {
     type: string;
     features?: Array<{
@@ -207,7 +223,7 @@ export function importGeoJSON(text: string): GeoFeature[] {
     properties?: Record<string, unknown>;
     id?: unknown;
   };
-  if ("crs" in data) throw new Error("非标准 GeoJSON crs：请先转换为 WGS84");
+
   const records =
     data.type === "FeatureCollection"
       ? data.features
@@ -218,7 +234,7 @@ export function importGeoJSON(text: string): GeoFeature[] {
           : undefined;
   if (!records) throw new Error("无效或不支持的 GeoJSON");
   return records.map((record) => {
-    const geometry = plain(record.geometry ?? null, true) as Geometry | null;
+    const geometry = transformGeometry(plain(record.geometry ?? null, true) as Geometry | null, crs, "EPSG:4326");
     assertGeometry(geometry);
     if (
       record.properties &&
@@ -241,15 +257,17 @@ export function importGeoJSON(text: string): GeoFeature[] {
     };
   });
 }
-export function exportGeoJSON(features: GeoFeature[]): string {
+export function exportGeoJSON(features: GeoFeature[], crs = "EPSG:4326"): string {
+  if (!["EPSG:4326", "EPSG:4490", "EPSG:3857"].includes(crs)) throw new Error("不支持的 GeoJSON 坐标系");
   features.forEach((f) => assertGeometry(f.geometry));
   return JSON.stringify(
     {
       type: "FeatureCollection",
+      ...(crs !== "EPSG:4326" ? { crs: { type: "name", properties: { name: `urn:ogc:def:crs:EPSG::${crs.split(":")[1]}` } } } : {}),
       features: features.map((f) => ({
         type: "Feature",
         ...(f.sourceFeatureId !== undefined ? { id: f.sourceFeatureId } : {}),
-        geometry: f.geometry,
+        geometry: transformGeometry(f.geometry, "EPSG:4326", crs),
         properties: f.properties,
       })),
     },
@@ -371,7 +389,8 @@ export async function importFiles(
       );
     if (/\.(geojson|json)$/i.test(file.name))
       layers.push(
-        makeLayer(file.name, importGeoJSON(text()), "geojson", {
+        makeLayer(file.name, importGeoJSON(text(), fileOptions.crs), "geojson", {
+          originalCrs: geoJsonCrs(text(), fileOptions.crs),
           sourceId: file.sourceId,
           warnings: ["高精度数值属性以文本保存，导出时保持文本类型"],
         }),

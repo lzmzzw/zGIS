@@ -20,7 +20,7 @@ export function ImportPanel({
 }) {
   const [fileIndex, setFileIndex] = useState(0);
   const [configurations, setConfigurations] = useState<ImportOptions[]>(() =>
-    files.map(() => ({ encoding: "utf-8", crs: "EPSG:4326" })),
+    files.map((file) => ({ encoding: "utf-8", crs: /\.(geojson|json)$/i.test(file.name) ? undefined : "EPSG:4326" })),
   );
   const [preview, setPreview] = useState<CsvPreview>();
   const [loading, setLoading] = useState(true);
@@ -161,6 +161,19 @@ export function ImportPanel({
               </label>
             </>
           )}
+          {files.map((item, index) => /\.(geojson|json)$/i.test(item.name) && (
+            <label key={index}>
+              {item.name} · 来源坐标系
+              <select aria-label={`${item.name} 来源坐标系`} value={configurations[index]?.crs ?? ""} disabled={busy}
+                onChange={(event) => {
+                  onChange();
+                  setConfigurations(old => old.map((config, i) => i === index ? { ...config, crs: event.target.value || undefined } : config));
+                }}>
+                <option value="">按文件标记；无标记默认 EPSG:4326</option>
+                <option>EPSG:4326</option><option>EPSG:4490</option><option>EPSG:3857</option>
+              </select>
+            </label>
+          ))}
           {issue && (
             <p id="import-validation" role="alert" className="inline-error">
               {issue}
@@ -256,7 +269,7 @@ export function ImportPanel({
           ) : (
             <Check size={15} />
           )}
-          {file ? "导入" : "重试导入"}
+          {file || !error ? "导入" : "重试导入"}
         </button>
       </div>
     </>
@@ -347,6 +360,9 @@ export function ExportPanel({
                 ))}
             </select>
           </label>
+          {mode === "geojson" && crs !== "EPSG:4326" && (
+            <p className="form-note">输出含 crs 标记的传统 GeoJSON；仅接受 RFC 7946 的软件可能不支持此文件。</p>
+          )}
           {mode === "postgis" ? (
             <>
               <label>
@@ -385,7 +401,7 @@ export function ExportPanel({
               <label>
                 保存位置<span>{desktop ? "导出时选择" : "浏览器下载"}</span>
               </label>
-              {mode !== "geojson" && (
+              {mode !== "postgis" && (
                 <label>
                   目标坐标系
                   <select
@@ -427,7 +443,7 @@ export function ExportPanel({
             <dd>{formats[mode]}</dd>
             <dt>输出坐标</dt>
             <dd>
-              {mode === "geojson" || mode === "postgis"
+              {mode === "postgis"
                 ? "WGS84 · EPSG:4326"
                 : crs}
             </dd>
@@ -436,6 +452,9 @@ export function ExportPanel({
               {mode === "postgis" ? `${schema}.${table || "…"}` : filename}
             </dd>
           </dl>
+          {mode === "geojson" && crs !== "EPSG:4326" && (
+            <p className="form-note">输出含 crs 标记的传统 GeoJSON；仅接受 RFC 7946 的软件可能不支持此文件。</p>
+          )}
           {mode === "postgis" ? (
             <p className="form-note">
               新建 id、properties、geom 三列，不覆盖已有表。

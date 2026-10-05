@@ -11,7 +11,7 @@
 | `load_recovery` | 无 | `string|null` |
 | `connect_database` | `{config:{host,port,database,user,password,sslMode}}` | `connectionId` |
 | `discover_layers` | `{connectionId}` | `Layer[]` |
-| `query_layer` | `{connectionId,schema,table,geometryColumn,geometryKind,srid,limit,bbox?:number[]}` | `{features,srid,truncated}` |
+| `query_layer` | `{connectionId,schema,table,geometryColumn,geometryKind,srid?:number,limit,bbox?:number[]}` | `{features,srid,truncated}` |
 | `commit_changes` | `{connectionId,layer,changes}` | `{committed,reloadRequired:true}` |
 | `export_database` | `{connectionId,schema,table,features,newTable:true}` | `{inserted,schema,table}` |
 
@@ -41,3 +41,9 @@ TLS `require` 和 `prefer` 均验证系统受信证书并要求加密；prefer �
 - 事件 `zgis-agent-output {sessionId,data,sequence}` 与 `zgis-agent-exit {sessionId,running}`；先订阅后回放，按序号去重。启动与关闭按代次串行校验，取消中的启动不能发布会话。
 
 MCP 工具及计算边界见 [空间分析说明](../docs/spatial-mcp.md)。这些接口不提供任意文件写入、数据库提交或 shell 调用。
+
+### 默认与来源坐标系
+
+`query_layer.srid` 省略时默认 4326。文本 WKT 按所选 4326/4490/3857 解析后转换到 WGS84；几何提交转换回来源。geometry 列声明 SRID=0 时，仅对实际 SRID=0 的记录在查询表达式中赋予 4326，保留已有非零 SRID；地图范围过滤在 4326 中比较。读取不会持久化重标记，后续几何修改以有效来源 SRID（缺失时 4326）写回。
+
+外部 GeoJSON 支持命名 `crs` 的 EPSG 标记；无标记默认 4326，显式来源与标记冲突或未知标记拒绝。内部同步和数据库传入的工作 GeoJSON 仍为 4326。

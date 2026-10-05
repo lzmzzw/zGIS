@@ -9,6 +9,29 @@ import {
 } from "./domain";
 import { zipSync, strToU8 } from "fflate";
 describe("地理数据格式转换", () => {
+  it.each(["EPSG:4326", "EPSG:4490", "EPSG:3857"])("%s GeoJSON 坐标与标记往返，保留属性和 ID", async (crs) => {
+    const features = importGeoJSON('{"type":"Feature","id":"point-1","geometry":{"type":"Point","coordinates":[116.4,39.9]},"properties":{"id":9007199254740993}}');
+    const output = exportGeoJSON(features, crs);
+    const document = JSON.parse(output);
+    expect(Boolean(document.crs)).toBe(crs !== "EPSG:4326");
+    if (crs === "EPSG:3857") expect(document.features[0].geometry.coordinates[0]).toBeCloseTo(12957588.728337, 4);
+    const [layer] = await importFiles([{ name: "point.geojson", bytes: Array.from(strToU8(output)) }]);
+    expect(layer.originalCrs).toBe(crs);
+    const restored = layer.features[0];
+    const xy = (restored.geometry as { coordinates: number[] }).coordinates;
+    expect(xy[0]).toBeCloseTo(116.4, 8);
+    expect(xy[1]).toBeCloseTo(39.9, 8);
+    expect(restored.sourceFeatureId).toBe("point-1");
+    expect(restored.properties.id).toBe("9007199254740993");
+  });
+  it("无标记 GeoJSON 可显式指定来源，未知和冲突标记拒绝", () => {
+    const projected = '{"type":"Feature","geometry":{"type":"Point","coordinates":[111319.49079327357,0]},"properties":{}}';
+    expect((importGeoJSON(projected, "EPSG:3857")[0].geometry as { coordinates: number[] }).coordinates[0]).toBeCloseTo(1, 8);
+    const tagged = exportGeoJSON(importCsv("x,y\n1,2"), "EPSG:4490");
+    expect(() => importGeoJSON(tagged, "EPSG:4326")).toThrow("冲突");
+    expect(() => importGeoJSON(tagged.replace("4490", "9999"))).toThrow("不支持");
+    expect(() => exportGeoJSON([], "EPSG:9999")).toThrow("不支持");
+  });
   it.each(["EPSG:4326", "EPSG:4490", "EPSG:3857"])("%s CSV 导出再导入保持工作坐标", (crs) => {
     const features = importCsv("x,y\n116.4,39.9");
     const result = importCsv(exportCsv(features, { mode: "xy", crs, xColumn: "x", yColumn: "y" }), { crs });

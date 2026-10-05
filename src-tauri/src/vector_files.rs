@@ -140,21 +140,32 @@ pub fn load(path: &str, args: &Value, grants: &[PathBuf]) -> Result<Vec<Value>, 
         .as_str()
     {
         "json" | "geojson" => {
-            if args["crs"].as_str().is_some_and(|c| c != "EPSG:4326") {
-                return Err("GeoJSON固定为RFC7946 WGS84，不能指定其他坐标系".into());
-            }
             let mut v: Value = serde_json::from_slice(&bytes).map_err(|_| "无效GeoJSON")?;
             preserve_property_numbers(&mut v);
-            if v.get("crs").is_some() {
-                return Err("GeoJSON必须是RFC7946 WGS84，不支持crs成员".into());
+            let declared = if let Some(crs) = v.get("crs") {
+                let name = if crs["type"] == "name" { crs["properties"]["name"].as_str() } else { None };
+                let name = name.ok_or("GeoJSON坐标系标记无效或不支持")?.to_ascii_uppercase();
+                let code = name.strip_prefix("EPSG:")
+                    .or_else(|| name.strip_prefix("URN:OGC:DEF:CRS:EPSG:").and_then(|tail| tail.split_once(':').filter(|(_, code)| !code.contains(':')).map(|(_, code)| code)))
+                    .or_else(|| name.strip_prefix("HTTP://WWW.OPENGIS.NET/DEF/CRS/EPSG/0/"))
+                    .or_else(|| name.strip_prefix("HTTPS://WWW.OPENGIS.NET/DEF/CRS/EPSG/0/"));
+                Some(match code {
+                    Some("4326") => "EPSG:4326", Some("4490") => "EPSG:4490", Some("3857") => "EPSG:3857",
+                    _ if name == "URN:OGC:DEF:CRS:OGC:1.3:CRS84" || name == "OGC:CRS84" => "EPSG:4326",
+                    _ => return Err("GeoJSON坐标系标记无效或不支持".into()),
+                })
+            } else { None };
+            if let (Some(explicit), Some(declared)) = (args["crs"].as_str(), declared) {
+                if explicit != declared { return Err("指定坐标系与GeoJSON crs标记冲突".into()); }
             }
-            match v["type"].as_str() {
-                Some("FeatureCollection") => {
-                    v["features"].as_array().ok_or("缺少features")?.clone()
-                }
-                Some("Feature") => vec![v],
+            let crs = args["crs"].as_str().or(declared).unwrap_or("EPSG:4326");
+            let mut out = match v["type"].as_str() {
+                Some("FeatureCollection") => v["features"].as_array().ok_or("缺少features")?.clone(),
+                Some("Feature") => vec![v.clone()],
                 _ => return Err("需要Feature或FeatureCollection".into()),
-            }
+            };
+            transform(&mut out, crs)?;
+            out
         }
         "csv" => csv_features(&bytes, args)?,
         "shp" => {
@@ -490,6 +501,25 @@ pub fn validate_geometry(g: &Value) -> Result<(), String> {
 mod tests {
     use super::*;
     #[test]
+    fn geojson_crs_metadata_and_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("point.geojson");
+        let grants = [dir.path().canonicalize().unwrap()];
+        for crs in ["EPSG:4326", "EPSG:4490", "EPSG:3857"] {
+            let xy = if crs == "EPSG:3857" { json!([111319.49079327357,0]) } else { json!([1,0]) };
+            let mut document = json!({"type":"Feature","geometry":{"type":"Point","coordinates":xy},"properties":{},"crs":{"type":"name","properties":{"name":format!("urn:ogc:def:crs:EPSG::{}", &crs[5..])}}});
+            fs::write(&path, document.to_string()).unwrap();
+            let out = load(path.to_str().unwrap(), &json!({}), &grants).unwrap();
+            assert!((out[0]["geometry"]["coordinates"][0].as_f64().unwrap() - 1.0).abs() < 1e-8);
+            if crs != "EPSG:4326" { assert!(load(path.to_str().unwrap(), &json!({"crs":"EPSG:4326"}), &grants).is_err()); }
+            document.as_object_mut().unwrap().remove("crs");
+            fs::write(&path, document.to_string()).unwrap();
+            assert!((load(path.to_str().unwrap(), &json!({"crs":crs}), &grants).unwrap()[0]["geometry"]["coordinates"][0].as_f64().unwrap() - 1.0).abs() < 1e-8);
+        }
+        fs::write(&path, r#"{"type":"FeatureCollection","features":[],"crs":{"type":"name","properties":{"name":"EPSG:9999"}}}"#).unwrap();
+        assert!(load(path.to_str().unwrap(), &json!({}), &grants).is_err());
+    }
+    #[test]
     fn three_crs_shapefile_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let feature = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[116.4,39.9]},"properties":{"name":"北京"}});
@@ -534,7 +564,7 @@ mod tests {
         fs::write(&p, r#"{"type":"FeatureCollection","features":[]}"#).unwrap();
         assert!(load(
             p.to_str().unwrap(),
-            &json!({"crs":"EPSG:3857"}),
+            &json!({"crs":"EPSG:9999"}),
             &[p.canonicalize().unwrap()]
         )
         .is_err());

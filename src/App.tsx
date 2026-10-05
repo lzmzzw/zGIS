@@ -594,7 +594,7 @@ export default function App() {
   async function acceptFiles(files: InputFile[]) {
     if (!files.length) return;
     setPendingFiles(files);
-    if (files.some((f) => /\.csv$/i.test(f.name))) {
+    if (files.some((f) => /\.(csv|geojson|json)$/i.test(f.name))) {
       openModal("import");
     } else await importSelected(files);
   }
@@ -794,7 +794,7 @@ export default function App() {
       } else {
         const content =
           exportMode === "geojson"
-            ? exportGeoJSON(active.features)
+            ? exportGeoJSON(active.features, exportCrs)
             : exportCsv(active.features, {
                 ...active.csvConfig,
                 mode: exportMode === "xy" ? "xy" : "wkt",
@@ -841,7 +841,7 @@ export default function App() {
         geometryKind: info.geometryColumn
           ? info.geometryKind
           : ("wkt" as const),
-        srid: info.geometryKind === "wkt" ? dbSrid : info.srid,
+        srid: info.geometryKind === "wkt" ? dbSrid : info.srid || 4326,
       };
       if (!layer.geometryColumn) throw new Error("请选择 WKT 文本列");
       const bbox =

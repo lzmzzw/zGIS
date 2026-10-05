@@ -61,6 +61,7 @@ test("native open continues into worker import after dialog busy state", async (
     .getByRole("button", { name: "打开文件…", exact: true })
     .filter({ visible: true })
     .click();
+  await page.getByRole("button", { name: "导入", exact: true }).click();
   await expect(page.locator(".layer-row")).toContainText("native.geojson");
 });
 

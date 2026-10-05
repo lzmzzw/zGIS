@@ -1,6 +1,27 @@
 import { test, expect, type Page } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+
+test("GeoJSON metadata import, default 4326 export and explicit projected export", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({
+    name: "mercator.geojson", mimeType: "application/json",
+    buffer: Buffer.from('{"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[111319.49079327357,0]},"properties":{}}]}'),
+  });
+  await page.getByRole("button", { name: "导入", exact: true }).click();
+  await expect(page.locator(".layer-text")).toContainText("mercator.geojson");
+  await fileAction(page, "导出 / 转换");
+  await expect(page.getByLabel("目标坐标系")).toHaveValue("EPSG:4326");
+  await page.getByLabel("目标坐标系").selectOption("EPSG:3857");
+  await expect(page.getByRole("dialog")).toContainText("传统 GeoJSON");
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出", exact: true }).click();
+  const file = await downloaded;
+  const data = JSON.parse(readFileSync((await file.path())!, "utf-8"));
+  expect(data.crs.properties.name).toBe("urn:ogc:def:crs:EPSG::3857");
+  expect(data.features[0].geometry.coordinates[0]).toBeCloseTo(111319.49079327357, 5);
+});
 
 async function fileAction(page: Page, name: string) {
   await page
@@ -167,6 +188,7 @@ test("file parse errors remain in original window and export rejects non-point X
     buffer: Buffer.from('{"type":"Point","coordinates":[116,40,10]}'),
   });
   await expect(page.getByRole("dialog")).toContainText("三维.geojson");
+  await page.getByRole("button", { name: "导入", exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
     "二维",
   );
@@ -181,6 +203,7 @@ test("file parse errors remain in original window and export rejects non-point X
       '{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[116,40],[117,41]]},"properties":{"name":"道路"}}]}',
     ),
   });
+  await page.getByRole("button", { name: "导入", exact: true }).click();
   await expect(page.locator(".layer-text")).toContainText("道路.geojson");
   await fileAction(page, "导出 / 转换");
   await page.getByLabel("输出格式").selectOption("xy");

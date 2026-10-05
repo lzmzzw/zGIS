@@ -139,6 +139,14 @@ export async function installDesktopMock(
             if (command === "connect_database") return "test-connection";
             if (command === "discover_layers")
               return [
+                  {
+                    schema: "public", table: "wkt_points", geometryColumn: "", geometryKind: "wkt", srid: 4326,
+                    keyColumns: ["id"], columns: [{ name: "location", type: "text", nullable: true }],
+                  },
+                  {
+                    schema: "public", table: "unassigned", geometryColumn: "geom", geometryKind: "geometry", srid: 0,
+                    keyColumns: ["id"], columns: [],
+                  },
                 {
                   schema: "public",
                   table: "roads",

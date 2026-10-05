@@ -561,17 +561,18 @@ async fn validated(client: &Client, requested: &Layer) -> Result<Layer, String> 
     if layer.geometry_kind == "wkt" {
         layer.srid = requested.srid;
     }
-    if layer.srid <= 0 {
+    if layer.srid < 0 {
         return Err("需要明确且有效的 SRID".into());
     }
     Ok(layer)
 }
+fn effective_srid(layer: &Layer) -> i32 { if layer.srid == 0 { 4326 } else { layer.srid } }
 fn geometry_expr(layer: &Layer) -> Result<String, String> {
     let col = ident(&layer.geometry_column)?;
     Ok(if layer.geometry_kind == "geometry" {
-        col
+        if layer.srid == 0 { format!("CASE WHEN ST_SRID({col})=0 THEN ST_SetSRID({col},4326) ELSE {col} END") } else { col }
     } else {
-        format!("ST_GeomFromText(NULLIF({col},''),{})", layer.srid)
+        format!("ST_GeomFromText(NULLIF({col},''),{})", effective_srid(layer))
     })
 }
 fn record_expr(layer: &Layer) -> Result<String, String> {
@@ -602,7 +603,7 @@ async fn query_layer(
     table: String,
     geometry_column: String,
     geometry_kind: String,
-    srid: i32,
+    srid: Option<i32>,
     limit: i64,
     bbox: Option<Vec<f64>>,
 ) -> Result<Value, String> {
@@ -615,7 +616,7 @@ async fn query_layer(
             table,
             geometry_column,
             geometry_kind,
-            srid,
+            srid: srid.unwrap_or(4326),
             key_columns: vec![],
             columns: vec![],
         },
@@ -625,16 +626,17 @@ async fn query_layer(
     let geom = geometry_expr(&layer)?;
     let bbox = validate_bbox(bbox)?;
     let filter = if bbox.is_some() && layer.geometry_kind == "geometry" {
-        format!(
-            " WHERE {geom} && ST_Transform(ST_MakeEnvelope($2,$3,$4,$5,4326),{})",
-            layer.srid
-        )
+        if layer.srid == 0 {
+            format!(" WHERE ST_Transform(({geom}),4326) && ST_MakeEnvelope($2,$3,$4,$5,4326)")
+        } else {
+            format!(" WHERE {geom} && ST_Transform(ST_MakeEnvelope($2,$3,$4,$5,4326),{})", layer.srid)
+        }
     } else {
         String::new()
     };
     let ordering = order_by(&layer)?;
     let sql = format!(
-        "SELECT {}, ST_AsGeoJSON(ST_Transform({geom},4326))::jsonb FROM {}{filter}{ordering} LIMIT $1",
+        "SELECT {}, ST_AsGeoJSON(ST_Transform(({geom}),4326))::jsonb FROM {}{filter}{ordering} LIMIT $1",
         record_expr(&layer)?,
         table_sql(&layer.schema, &layer.table)?
     );
@@ -672,7 +674,7 @@ async fn query_layer(
         };
         features.push(json!({"id":id,"geometry":row.get::<_,Option<Value>>(1),"properties":properties,"dbKey":key,"baseline":baseline}));
     }
-    Ok(json!({"features":features,"srid":layer.srid,"truncated":truncated}))
+    Ok(json!({"features":features,"srid":effective_srid(&layer),"truncated":truncated}))
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -894,12 +896,12 @@ async fn commit_changes(
             let geo = if layer.geometry_kind == "geometry" {
                 format!(
                     "ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON($3::text),4326),{})",
-                    layer.srid
+                    effective_srid(&layer)
                 )
             } else {
                 format!(
                     "ST_AsText(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON($3::text),4326),{}))",
-                    layer.srid
+                    effective_srid(&layer)
                 )
             };
             expressions.push(geo);
@@ -1139,5 +1141,22 @@ mod tests {
             columns: vec![],
         };
         assert!(key_where(&layer).is_err());
+    }
+    #[test]
+    fn unspecified_geometry_and_wkt_use_4326_without_relabeling_known_srid() {
+        let mut layer = Layer {
+            schema: "s".into(), table: "t".into(), geometry_column: "g".into(),
+            geometry_kind: "geometry".into(), srid: 0, key_columns: vec![], columns: vec![],
+        };
+        assert_eq!(effective_srid(&layer), 4326);
+        assert_eq!(geometry_expr(&layer).unwrap(), "CASE WHEN ST_SRID(\"g\")=0 THEN ST_SetSRID(\"g\",4326) ELSE \"g\" END");
+        for srid in [4326, 4490, 3857] {
+            layer.srid = srid;
+            assert_eq!(effective_srid(&layer), srid);
+            assert_eq!(geometry_expr(&layer).unwrap(), "\"g\"");
+            layer.geometry_kind = "wkt".into();
+            assert_eq!(geometry_expr(&layer).unwrap(), format!("ST_GeomFromText(NULLIF(\"g\",''),{srid})"));
+            layer.geometry_kind = "geometry".into();
+        }
     }
 }

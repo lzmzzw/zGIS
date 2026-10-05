@@ -1,5 +1,25 @@
 import { test, expect, type Page } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
+test("PostGIS text WKT defaults to 4326 and passes all three source SRIDs", async ({ page }) => {
+  await installDesktopMock(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "PostGIS 数据源…", exact: true }).filter({ visible: true }).click();
+  await page.getByLabel("数据库", { exact: true }).fill("test");
+  await page.getByLabel("用户", { exact: true }).fill("tester");
+  await page.getByRole("button", { name: "连接", exact: true }).click();
+  for (const srid of [4326, 4490, 3857]) {
+    await page.getByRole("button", { name: "数据源", exact: true }).click();
+    await page.locator(".source-table").filter({ hasText: "public.wkt_points" }).dblclick();
+    await expect(page.getByLabel("来源 SRID")).toHaveValue("4326");
+    await page.getByLabel("WKT 文本列").selectOption("location");
+    await page.getByLabel("来源 SRID").selectOption(String(srid));
+    await page.getByRole("button", { name: "载入", exact: true }).click();
+    const query = await page.evaluate(() => window.__ZG_TEST__.calls.filter(call => call.command === "query_layer").at(-1)?.args);
+    expect(query?.srid).toBe(srid);
+    expect(query?.geometryKind).toBe("wkt");
+    expect(query?.geometryColumn).toBe("location");
+  }
+});
 async function loadSource(page: Page, table = "roads") {
   await installDesktopMock(page);
   await page.goto("/");
@@ -25,6 +45,12 @@ async function loadSource(page: Page, table = "roads") {
     .click();
   await page.locator(".attribute-panel tbody tr").first().click();
 }
+test("PostGIS geometry with no SRID defaults to 4326", async ({ page }) => {
+  await loadSource(page, "unassigned");
+  const query = await page.evaluate(() => window.__ZG_TEST__.calls.find(call => call.command === "query_layer")?.args);
+  expect(query?.srid).toBe(4326);
+  expect(query?.geometryKind).toBe("geometry");
+});
 test("source loading, explicit submit counts and conflict details retain edits", async ({
   page,
 }) => {
