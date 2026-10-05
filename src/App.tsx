@@ -39,6 +39,8 @@ import {
   ChevronRight,
   Bot,
   Plug,
+  Minus,
+  Square,
 } from "lucide-react";
 import McpPanel from "./McpPanel";
 import AgentPanel from "./AgentPanel";
@@ -1026,10 +1028,6 @@ export default function App() {
     <ErrorContext.Provider value={error}>
       <div className="app">
         <header className="app-header">
-          <div className="brand">
-            <img className="brand-mark" src="/zgis.svg" alt="" />
-            <strong>zGIS</strong>
-          </div>
           <nav className="header-menus" aria-label="主菜单">
             <HeaderMenu label="文件">
               <button onClick={openFiles} disabled={busy}>
@@ -1134,78 +1132,17 @@ export default function App() {
               </button>
             </HeaderMenu>
           </nav>
-          <div className="toolbar" aria-label="地图工具">
-            <div className="tool-group">
-              {tools.map((item) => (
-                <IconButton
-                  key={item.value}
-                  label={item.label}
-                  disabled={
-                    !active || (item.value !== "select" && !editable) || busy
-                  }
-                  active={tool === item.value}
-                  onClick={() => setTool(item.value)}
-                >
-                  <item.icon size={18} />
-                </IconButton>
-              ))}
-              <IconButton
-                label="删除选中要素"
-                disabled={!selected || !editable || busy}
-                onClick={() => openModal("delete")}
-              >
-                <Trash2 size={18} />
-              </IconButton>
-            </div>
-            <div className="tool-group">
-              <IconButton
-                label="撤销"
-                disabled={!h?.past.length || !editable || busy}
-                onClick={() => history("undo")}
-              >
-                <Undo2 size={18} />
-              </IconButton>
-              <IconButton
-                label="重做"
-                disabled={!h?.future.length || !editable || busy}
-                onClick={() => history("redo")}
-              >
-                <Redo2 size={18} />
-              </IconButton>
-            </div>
-            <IconButton
-              label="捕捉当前图层顶点和边"
-              active={snapping}
-              disabled={!editable || busy}
-              onClick={() => setSnapping((v) => !v)}
-            >
-              <Magnet size={17} />
-            </IconButton>
-            {tool !== "select" && (
-              <div className="editing-tools">
-                <span>{tools.find((item) => item.value === tool)?.label}</span>
-                {tool !== "modify" && (
-                  <IconButton
-                    label="完成绘制"
-                    disabled={
-                      nodeCount <
-                      (tool === "Polygon" ? 3 : tool === "LineString" ? 2 : 1)
-                    }
-                    onClick={() => setFinishNonce((n) => n + 1)}
-                  >
-                    <Check size={16} />
-                  </IconButton>
-                )}
-                <IconButton
-                  label={tool === "modify" ? "结束顶点编辑" : "取消绘制"}
-                  onClick={() => setTool("select")}
-                >
-                  <X size={16} />
-                </IconButton>
-              </div>
-            )}
-          </div>
-          <div className="document-title" title={active?.name}>
+          <div
+            className="document-title"
+            title={active?.name}
+            onPointerDown={(event) => {
+              if (desktop && event.button === 0 && event.detail !== 2)
+                void getCurrentWindow().startDragging().catch((reason) => setError(errorText(reason)));
+            }}
+            onDoubleClick={() => {
+              if (desktop) void getCurrentWindow().toggleMaximize().catch((reason) => setError(errorText(reason)));
+            }}
+          >
             {active?.name ?? ""}
             {active?.dirty && <span className="dirty-dot" title="未保存" />}
           </div>
@@ -1231,6 +1168,13 @@ export default function App() {
               <Settings2 size={16} />
             </IconButton>
           </div>
+          {desktop && (
+            <div className="window-controls">
+              <IconButton label="最小化" onClick={() => void getCurrentWindow().minimize().catch((reason) => setError(errorText(reason)))}><Minus size={16} /></IconButton>
+              <IconButton label="最大化 / 还原" onClick={() => void getCurrentWindow().toggleMaximize().catch((reason) => setError(errorText(reason)))}><Square size={14} /></IconButton>
+              <IconButton label="关闭窗口" disabled={busy || !recoveryReady} onClick={() => void requestExit()}><X size={18} /></IconButton>
+            </div>
+          )}
         </header>
         <input
           ref={input}
@@ -1399,6 +1343,78 @@ export default function App() {
           </aside>
           <section className="map-column">
             <div className="map-container">
+          <div className="map-toolbar" role="toolbar" aria-orientation="vertical" aria-label="地图工具">
+            <div className="tool-group">
+              {tools.map((item) => (
+                <IconButton
+                  key={item.value}
+                  label={item.label}
+                  disabled={
+                    !active || (item.value !== "select" && !editable) || busy
+                  }
+                  active={tool === item.value}
+                  onClick={() => setTool(item.value)}
+                >
+                  <item.icon size={18} />
+                </IconButton>
+              ))}
+              <IconButton
+                label="删除选中要素"
+                disabled={!selected || !editable || busy}
+                onClick={() => openModal("delete")}
+              >
+                <Trash2 size={18} />
+              </IconButton>
+            </div>
+            <div className="tool-group">
+              <IconButton
+                label="撤销"
+                disabled={!h?.past.length || !editable || busy}
+                onClick={() => history("undo")}
+              >
+                <Undo2 size={18} />
+              </IconButton>
+              <IconButton
+                label="重做"
+                disabled={!h?.future.length || !editable || busy}
+                onClick={() => history("redo")}
+              >
+                <Redo2 size={18} />
+              </IconButton>
+            </div>
+            <IconButton
+              label="捕捉当前图层顶点和边"
+              active={snapping}
+              disabled={!editable || busy}
+              onClick={() => setSnapping((v) => !v)}
+            >
+              <Magnet size={17} />
+            </IconButton>
+            {tool !== "select" && (
+              <div className="editing-tools">
+                <span>{tools.find((item) => item.value === tool)?.label}</span>
+                {tool !== "modify" && (
+                  <IconButton
+                    label="完成绘制"
+                    disabled={
+                      nodeCount <
+                      (tool === "Polygon" ? 3 : tool === "LineString" ? 2 : 1)
+                    }
+                    onClick={() => setFinishNonce((n) => n + 1)}
+                  >
+                    <Check size={16} />
+                  </IconButton>
+                )}
+                <IconButton
+                  label={tool === "modify" ? "结束顶点编辑" : "取消绘制"}
+                  onClick={() => setTool("select")}
+                >
+                  <X size={16} />
+                </IconButton>
+              </div>
+            )}
+          </div>
+
               <MapView
                 disabled={busy}
                 editable={editable}
