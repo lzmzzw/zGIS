@@ -1027,7 +1027,19 @@ export default function App() {
   return (
     <ErrorContext.Provider value={error}>
       <div className="app">
-        <header className="app-header">
+        <header
+          className="app-header"
+          onMouseDown={(event) => {
+            if (!desktop || event.button !== 0 || event.detail === 2) return;
+            if ((event.target as Element).closest("button, summary, .header-menu, .header-actions, .window-controls")) return;
+            event.preventDefault();
+            void getCurrentWindow().startDragging().catch((reason) => setError(errorText(reason)));
+          }}
+          onDoubleClick={(event) => {
+            if (!desktop || (event.target as Element).closest("button, summary, .header-menu, .header-actions, .window-controls")) return;
+            void getCurrentWindow().toggleMaximize().catch((reason) => setError(errorText(reason)));
+          }}
+        >
           <img className="brand-mark" src="/zgis.svg" alt="zGIS" />
           <nav className="header-menus" aria-label="主菜单">
             <HeaderMenu label="文件">
@@ -1136,13 +1148,6 @@ export default function App() {
           <div
             className="document-title"
             title={active?.name}
-            onPointerDown={(event) => {
-              if (desktop && event.button === 0 && event.detail !== 2)
-                void getCurrentWindow().startDragging().catch((reason) => setError(errorText(reason)));
-            }}
-            onDoubleClick={() => {
-              if (desktop) void getCurrentWindow().toggleMaximize().catch((reason) => setError(errorText(reason)));
-            }}
           >
             {active?.name ?? ""}
             {active?.dirty && <span className="dirty-dot" title="未保存" />}

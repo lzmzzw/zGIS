@@ -174,6 +174,7 @@ hr {
   overflow: hidden;
 }
 .app-header {
+  user-select: none;
   min-height: 44px;
   display: flex;
   align-items: center;
@@ -191,6 +192,7 @@ hr {
   flex-shrink: 0;
 }
 .document-title {
+  align-self: stretch;
   flex: 1;
   min-width: 0;
   font-size: 12px;

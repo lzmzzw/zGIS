@@ -1,6 +1,23 @@
 import { test, expect, type Page } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
 
+test("empty header can drag while menus and window buttons remain interactive", async ({ page }) => {
+  await installDesktopMock(page);
+  await page.goto("/");
+  const title = page.locator(".document-title");
+  const bounds = await title.boundingBox();
+  expect(bounds?.height).toBeGreaterThan(20);
+  await title.click();
+  await page.locator(".brand-mark").click();
+  expect(await page.evaluate(() => window.__ZG_TEST__.calls.filter(call => call.command === "plugin:window|start_dragging").length)).toBe(2);
+  await page.locator(".app-header summary").filter({ hasText: /^文件$/ }).click();
+  await expect(page.locator(".header-menus").getByRole("button", { name: "打开文件…", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "最小化", exact: true }).click();
+  expect(await page.evaluate(() => window.__ZG_TEST__.calls.filter(call => call.command === "plugin:window|start_dragging").length)).toBe(2);
+  await title.dblclick();
+  expect(await page.evaluate(() => window.__ZG_TEST__.calls.some(call => call.command === "plugin:window|toggle_maximize"))).toBe(true);
+});
+
 const snapshot = JSON.stringify(
   ["first", "second"].map((name) => ({
     id: name,
