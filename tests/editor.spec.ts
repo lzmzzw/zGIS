@@ -3,6 +3,25 @@ import { installDesktopMock } from "./desktop.mock";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
+test("GeoJSON XYZ import automatically preserves elevation", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("input[type=file]").setInputFiles({
+    name: "height.geojson", mimeType: "application/json",
+    buffer: Buffer.from('{"type":"Feature","id":"height-1","geometry":{"type":"Point","coordinates":[116.4,39.9,0]},"properties":{}}'),
+  });
+  const copy = page.getByLabel("height.geojson 按二维副本导入", { exact: true });
+  await expect(copy).not.toBeChecked();
+  await page.getByRole("button", { name: "导入", exact: true }).click();
+  await expect(page.locator(".layer-text")).toContainText("height.geojson");
+  await fileAction(page, "导出 / 转换");
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出", exact: true }).click();
+  const saved = await download;
+  const result = JSON.parse(readFileSync((await saved.path())!, "utf-8"));
+  expect(result.features[0].geometry.coordinates).toEqual([116.4,39.9,0]);
+  expect(result.features[0].id).toBe("height-1");
+});
+
 test("GeoJSON metadata import, default 4326 export and explicit projected export", async ({ page }) => {
   await page.goto("/");
   await page.locator("input[type=file]").setInputFiles({
@@ -118,16 +137,16 @@ test("CSV worker import, text codes, invalid geometry retained inside editor", a
   await wktEditor(page);
   await page
     .getByRole("textbox", { name: "WKT 几何", exact: true })
-    .fill("POINT Z (116 40 10)");
+    .fill("POINT ZM (116 40 10 5)");
   await expect(
     page.getByRole("button", { name: "应用几何", exact: true }),
   ).toBeDisabled();
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
-    "二维",
+    "M/ZM",
   );
   await expect(
     page.getByRole("textbox", { name: "WKT 几何", exact: true }),
-  ).toHaveValue("POINT Z (116 40 10)");
+  ).toHaveValue("POINT ZM (116 40 10 5)");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "关闭", exact: true })
@@ -185,12 +204,12 @@ test("file parse errors remain in original window and export rejects non-point X
   await page.locator("input[type=file]").setInputFiles({
     name: "三维.geojson",
     mimeType: "application/json",
-    buffer: Buffer.from('{"type":"Point","coordinates":[116,40,10]}'),
+    buffer: Buffer.from('{"type":"Point","coordinates":[116,40,10,5]}'),
   });
   await expect(page.getByRole("dialog")).toContainText("三维.geojson");
   await page.getByRole("button", { name: "导入", exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
-    "二维",
+    "XYZ",
   );
   await page
     .getByRole("dialog")
@@ -302,6 +321,10 @@ test("drawing completion, cancellation, vertices, deletion and undo", async ({
   const before = await page
     .getByRole("textbox", { name: "WKT 几何", exact: true })
     .inputValue();
+  expect(before).toMatch(/^POINT Z\s*\(.* 0\)$/);
+  const elevated = before.replace(/ 0\)$/, " 77.5)");
+  await page.getByRole("textbox", { name: "WKT 几何", exact: true }).fill(elevated);
+  await page.getByRole("button", { name: "应用几何", exact: true }).click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "关闭", exact: true })
@@ -317,6 +340,7 @@ test("drawing completion, cancellation, vertices, deletion and undo", async ({
   await expect(
     page.getByRole("textbox", { name: "WKT 几何", exact: true }),
   ).not.toHaveValue(before);
+  await expect(page.getByRole("textbox", { name: "WKT 几何", exact: true })).toHaveValue(/ 77\.5\)$/);
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "关闭", exact: true })

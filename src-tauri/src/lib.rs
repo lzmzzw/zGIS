@@ -746,7 +746,7 @@ fn validate_geometry(geometry: &Option<Value>) -> Result<(), String> {
     fn positions(value: &Value) -> bool {
         match value.as_array() {
             Some(a) if a.first().is_some_and(Value::is_number) => {
-                a.len() == 2 && a.iter().all(|n| n.as_f64().is_some_and(f64::is_finite))
+                [2, 3].contains(&a.len()) && a.iter().all(|n| n.as_f64().is_some_and(f64::is_finite))
             }
             Some(a) => !a.is_empty() && a.iter().all(positions),
             None => false,
@@ -769,7 +769,7 @@ fn validate_geometry(geometry: &Option<Value>) -> Result<(), String> {
             || !g.get("coordinates").is_some_and(positions)
         {
             return Err(
-                "仅支持有限二维坐标的基础几何；Z/M、空几何或 GeometryCollection 不可写入".into(),
+                "仅支持有限二维或XYZ坐标的基础几何；M/ZM、空几何或 GeometryCollection 不可写入".into(),
             );
         }
     }
@@ -972,7 +972,17 @@ async fn export_database(
     tx.batch_execute("SET LOCAL statement_timeout='30s'; SET LOCAL lock_timeout='5s'")
         .await
         .map_err(io_error)?;
-    tx.batch_execute(&format!("CREATE TABLE {target} (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, properties jsonb NOT NULL, geom geometry(Geometry,4326))")).await.map_err(io_error)?;
+    fn dimensions(v: &Value, dims: &mut std::collections::BTreeSet<usize>) {
+        if let Some(a) = v.as_array() {
+            if a.first().is_some_and(Value::is_number) { dims.insert(a.len()); }
+            else { for child in a { dimensions(child, dims); } }
+        }
+    }
+    let mut dims = std::collections::BTreeSet::new();
+    for f in list { dimensions(&f["geometry"]["coordinates"], &mut dims); }
+    if dims.len() > 1 { return Err("新表不支持混合二维与XYZ几何，请分图层导出".into()); }
+    let geometry_type = if dims.contains(&3) { "GeometryZ" } else { "Geometry" };
+    tx.batch_execute(&format!("CREATE TABLE {target} (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, properties jsonb NOT NULL, geom geometry({geometry_type},4326))")).await.map_err(io_error)?;
     for f in list {
         let props = f.get("properties").cloned().unwrap_or(json!({}));
         let geometry = f
@@ -1077,7 +1087,8 @@ mod tests {
     #[test]
     fn geometry_rejects_extra_dimensions() {
         assert!(validate_geometry(&Some(json!({"type":"Point","coordinates":[1,2]}))).is_ok());
-        assert!(validate_geometry(&Some(json!({"type":"Point","coordinates":[1,2,3]}))).is_err());
+        assert!(validate_geometry(&Some(json!({"type":"Point","coordinates":[1,2,3]}))).is_ok());
+        assert!(validate_geometry(&Some(json!({"type":"Point","coordinates":[1,2,3,4]}))).is_err());
         assert!(
             validate_geometry(&Some(json!({"type":"GeometryCollection","geometries":[]}))).is_err()
         );

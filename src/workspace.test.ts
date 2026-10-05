@@ -37,7 +37,12 @@ it("无效恢复内容被拒绝，不静默跳过或降低维度", () => {
   expect(() => restoreLayers("{}")).toThrow("图层列表");
   expect(() =>
     restoreLayers(
-      '[{"name":"bad","features":[{"geometry":{"type":"Point","coordinates":[1,2,3]},"properties":{}}]}]',
+      '[{"name":"bad","features":[{"geometry":{"type":"Point","coordinates":[1,2,3,4]},"properties":{}}]}]',
     ),
-  ).toThrow("二维");
+  ).toThrow("XYZ");
+});
+
+it("XYZ 恢复保留高程", () => {
+ const layer = makeLayer("height", [{id:"z", geometry:{type:"Point",coordinates:[1,2,12.5]},properties:{}}], "geojson");
+ expect(restoreLayers(snapshotLayers([layer]))[0].features[0].geometry).toEqual(layer.features[0].geometry);
 });

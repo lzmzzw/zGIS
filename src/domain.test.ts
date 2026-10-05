@@ -1,5 +1,8 @@
+import { existsSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
+  geometryFromWkt,
+  geometryToWkt,
   importCsv,
   exportCsv,
   importGeoJSON,
@@ -9,6 +12,36 @@ import {
 } from "./domain";
 import { zipSync, strToU8 } from "fflate";
 describe("地理数据格式转换", () => {
+  it.each(["EPSG:4326", "EPSG:4490", "EPSG:3857"])("%s 多维 GeoJSON 仅经明确选择导入二维副本", async (crs) => {
+    const base = JSON.parse(exportGeoJSON(importCsv("x,y\n116.4,39.9"), crs));
+    base.features[0].geometry.coordinates.push(12.5, 7);
+    const text = JSON.stringify(base);
+    expect(() => importGeoJSON(text)).toThrow("第 1 个要素");
+    expect(() => importGeoJSON(text)).toThrow("4 个分量");
+    const file = { name: "original.geojson", sourceId: "original-handle", bytes: Array.from(strToU8(text)) };
+    const [layer] = await importFiles([file], { geoJsonXYCopy: true });
+    expect(layer.name).toBe("original-二维副本.geojson");
+    expect(layer.sourceId).toBeUndefined();
+    expect(layer.dirty).toBe(true);
+    expect(layer.warnings?.join(" ")).toContain("Z/M 未载入");
+    const coordinates = (layer.features[0].geometry as { coordinates: number[] }).coordinates;
+    expect(coordinates).toHaveLength(2);
+    expect(coordinates[0]).toBeCloseTo(116.4, 8);
+    expect(coordinates[1]).toBeCloseTo(39.9, 8);
+    expect(new TextDecoder().decode(new Uint8Array(file.bytes))).toBe(text);
+  });
+  it("多维面洞按二维副本保持结构，无效分量不可通过降维绕过", () => {
+    const data = { type: "Feature", id: "area", properties: {}, geometry: { type: "Polygon", coordinates: [
+      [[0,0,0],[4,0,1],[4,4,2],[0,0,0]], [[1,1,0],[2,1,0],[2,2,0],[1,1,0]],
+    ] } };
+    const result = importGeoJSON(JSON.stringify(data), undefined, true)[0];
+    expect(result.geometry).toEqual({ type: "Polygon", coordinates: data.geometry.coordinates.map(ring => ring.map(point => point.slice(0, 2))) });
+    const bad = '{"type":"Feature","id":"bad-1","geometry":{"type":"Point","coordinates":[116,39,null]},"properties":{}}';
+    expect(() => importGeoJSON(bad, undefined, true)).toThrow("ID bad-1");
+    expect(() => importGeoJSON(bad, undefined, true)).toThrow("有限数值");
+    expect(() => importGeoJSON(bad.replace("null", '"0"'), undefined, true)).toThrow("字符串");
+    expect(() => importGeoJSON(bad.replace("null", "1e400"), undefined, true)).toThrow("有限数值");
+  });
   it.each(["EPSG:4326", "EPSG:4490", "EPSG:3857"])("%s GeoJSON 坐标与标记往返，保留属性和 ID", async (crs) => {
     const features = importGeoJSON('{"type":"Feature","id":"point-1","geometry":{"type":"Point","coordinates":[116.4,39.9]},"properties":{"id":9007199254740993}}');
     const output = exportGeoJSON(features, crs);
@@ -98,7 +131,7 @@ describe("地理数据格式转换", () => {
     expect(coordinates[1]).toBeCloseTo(39.9, 2);
   });
   it("拒绝无效几何、未知投影、非点 XY 导出", () => {
-    expect(() => importCsv('wkt\n"POINT Z (1 2 3)"')).toThrow("二维");
+    expect(() => importCsv('wkt\n"POINT ZM (1 2 3 4)"')).toThrow("M/ZM");
     expect(() => importCsv("x,y\n1,2", { crs: "EPSG:UNKNOWN" })).toThrow(
       "未知坐标系",
     );
@@ -184,3 +217,27 @@ describe("地理数据格式转换", () => {
     expect(importCsv(output)[0].properties.code).toBe("001");
   });
 });
+
+it.each(["EPSG:4326", "EPSG:4490", "EPSG:3857"])("%s XYZ 往返保留非零高程", (crs) => {
+ const original = importGeoJSON('{"type":"Feature","geometry":{"type":"Point","coordinates":[116.4,39.9,123.456]},"properties":{}}');
+ const restored = importGeoJSON(exportGeoJSON(original, crs));
+ expect((restored[0].geometry as {coordinates:number[]}).coordinates[2]).toBe(123.456);
+});
+it.each(["POINT Z (1 2 123.5)", "LINESTRING Z (1 2 5, 3 4 7)", "MULTIPOLYGON Z (((0 0 1,4 0 2,4 4 3,0 0 1)))"])("WKT 高程往返 %s", (text) => {
+ const geometry = geometryFromWkt(text)!;
+ expect(geometryFromWkt(geometryToWkt(geometry))).toEqual(geometry);
+});
+it.skipIf(!existsSync("output/smoke/xiang.geojson"))("xiang 实际 XYZ 多面导入保留全部高程", async () => {
+ const {readFileSync} = await import("node:fs");
+ const text = readFileSync("output/smoke/xiang.geojson", "utf8");
+ const original = JSON.parse(text);
+ const features = importGeoJSON(text);
+ expect(features).toHaveLength(19);
+ const output = JSON.parse(exportGeoJSON(features, "EPSG:4490"));
+ let count = 0;
+ const walk = (a: any[], b: any[]) => { if(typeof a[0] === "number") {expect(b[2]).toBe(a[2]);count++;} else a.forEach((v,i)=>walk(v,b[i])); };
+ original.features.forEach((f:any,i:number)=>walk(f.geometry.coordinates,output.features[i].geometry.coordinates));
+ expect(count).toBe(139446);
+});
+
+it("无 Z 标记的三分量 WKT 自动识别高程", () => { expect(geometryFromWkt("POINT (1 2 123.5)")).toEqual(geometryFromWkt("POINT Z (1 2 123.5)")); });

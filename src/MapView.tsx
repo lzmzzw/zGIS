@@ -248,6 +248,12 @@ export default function MapView(props: Props) {
         featureProjection: "EPSG:3857",
         dataProjection: "EPSG:4326",
       });
+      if (insert && raw.geometry && "coordinates" in raw.geometry) {
+        const zeroHeight = (coordinates: any[]): any[] => typeof coordinates[0] === "number"
+          ? [coordinates[0], coordinates[1], 0]
+          : coordinates.map(zeroHeight);
+        raw.geometry.coordinates = zeroHeight(raw.geometry.coordinates) as never;
+      }
       current.current.onEdit(
         {
           id: insert ? crypto.randomUUID() : String(feature.getId()),

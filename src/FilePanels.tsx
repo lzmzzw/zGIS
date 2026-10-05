@@ -162,7 +162,8 @@ export function ImportPanel({
             </>
           )}
           {files.map((item, index) => /\.(geojson|json)$/i.test(item.name) && (
-            <label key={index}>
+            <div key={index} className="form-grid">
+            <label>
               {item.name} · 来源坐标系
               <select aria-label={`${item.name} 来源坐标系`} value={configurations[index]?.crs ?? ""} disabled={busy}
                 onChange={(event) => {
@@ -173,6 +174,16 @@ export function ImportPanel({
                 <option>EPSG:4326</option><option>EPSG:4490</option><option>EPSG:3857</option>
               </select>
             </label>
+            <label className="checkbox-label">
+              <input type="checkbox" aria-label={`${item.name} 按二维副本导入`}
+                checked={Boolean(configurations[index]?.geoJsonXYCopy)} disabled={busy}
+                onChange={(event) => {
+                  onChange();
+                  setConfigurations(old => old.map((config, i) => i === index ? { ...config, geoJsonXYCopy: event.target.checked } : config));
+                }} />
+              按二维副本导入（忽略 Z/M，不修改原文件）
+            </label>
+            </div>
           ))}
           {issue && (
             <p id="import-validation" role="alert" className="inline-error">

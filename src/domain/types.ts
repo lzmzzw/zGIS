@@ -14,6 +14,7 @@ export interface ImportOptions {
   yColumn?: string;
   crs?: string;
   encoding?: string;
+  geoJsonXYCopy?: boolean;
 }
 export interface DocumentLayer {
   id: string;

@@ -1,4 +1,4 @@
-//! 会话授权范围内的只读矢量加载；所有输出统一为二维 WGS84 GeoJSON。
+//! 会话授权范围内的只读矢量加载；输出统一为 WGS84 GeoJSON，保留 XYZ 高程。
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -7,6 +7,26 @@ use std::{
     path::{Path, PathBuf},
 };
 const MAX_BYTES: u64 = 100 * 1024 * 1024;
+fn wkt_geometry(g: &wkt::Wkt<f64>) -> Result<Value, String> {
+    fn coord(c: &wkt::types::Coord<f64>) -> Result<Value, String> {
+        if c.m.is_some() { return Err("不支持 WKT M/ZM".into()); }
+        Ok(if let Some(z) = c.z { json!([c.x,c.y,z]) } else { json!([c.x,c.y]) })
+    }
+    fn point(p: &wkt::types::Point<f64>) -> Result<Value,String> { coord(p.coord().ok_or("不支持空WKT")?) }
+    fn line(l: &wkt::types::LineString<f64>) -> Result<Value,String> { Ok(Value::Array(l.coords().iter().map(coord).collect::<Result<_,_>>()?)) }
+    fn polygon(p: &wkt::types::Polygon<f64>) -> Result<Value,String> { Ok(Value::Array(p.rings().iter().map(line).collect::<Result<_,_>>()?)) }
+    let (kind, coordinates) = match g {
+        wkt::Wkt::Point(p) => ("Point",point(p)?),
+        wkt::Wkt::LineString(l) => ("LineString",line(l)?),
+        wkt::Wkt::Polygon(p) => ("Polygon",polygon(p)?),
+        wkt::Wkt::MultiPoint(p) => ("MultiPoint",Value::Array(p.points().iter().map(point).collect::<Result<_,_>>()?)),
+        wkt::Wkt::MultiLineString(l) => ("MultiLineString",Value::Array(l.line_strings().iter().map(line).collect::<Result<_,_>>()?)),
+        wkt::Wkt::MultiPolygon(p) => ("MultiPolygon",Value::Array(p.polygons().iter().map(polygon).collect::<Result<_,_>>()?)),
+        _ => return Err("不支持WKT几何集合".into()),
+    };
+    Ok(json!({"type":kind,"coordinates":coordinates}))
+}
+
 fn preserve_property_numbers(v: &mut Value) {
     fn walk(v: &mut Value) {
         match v {
@@ -282,9 +302,7 @@ fn csv_features(bytes: &[u8], args: &Value) -> Result<Vec<Value>, String> {
         let row = row.map_err(|e| e.to_string())?;
         let g = if let Some(i) = w {
             let parsed: wkt::Wkt<f64> = row[i].parse().map_err(|_| "无效WKT")?;
-            let geo: geo::Geometry<f64> = parsed.try_into().map_err(|_| "不支持WKT")?;
-            serde_json::to_value(geojson::Geometry::new(geojson::Value::from(&geo)))
-                .map_err(|e| e.to_string())?
+            wkt_geometry(&parsed)?
         } else {
             let (i, j) = (
                 x.ok_or("CSV缺少xField或wktField")?,
@@ -478,9 +496,10 @@ pub fn validate_geometry(g: &Value) -> Result<(), String> {
     fn walk(v: &Value) -> Result<(), String> {
         let a = v.as_array().ok_or("坐标必须为数组")?;
         if a.first().is_some_and(Value::is_number) {
-            if a.len() != 2 {
-                return Err("只支持二维坐标".into());
+            if ![2, 3].contains(&a.len()) {
+                return Err("仅支持二维或带高程XYZ坐标，不支持M/ZM".into());
             }
+            if a.iter().any(|v| !v.as_f64().is_some_and(f64::is_finite)) { return Err("坐标分量必须为有限数值".into()); }
             let x = a[0].as_f64().ok_or("无效坐标")?;
             let y = a[1].as_f64().ok_or("无效坐标")?;
             if !x.is_finite() || !y.is_finite() || x.abs() > 180.0 || y.abs() > 90.0 {
@@ -642,8 +661,13 @@ mod tests {
         assert!(authorized(&p, &[dir.path().canonicalize().unwrap()]).is_err());
     }
     #[test]
-    fn rejects_z_and_outside() {
-        assert!(validate_geometry(&json!({"type":"Point","coordinates":[1,2,3]})).is_err());
+    fn accepts_z_rejects_extra_and_outside() {
+        let z: wkt::Wkt<f64> = "LINESTRING Z (1 2 5,3 4 7)".parse().unwrap();
+        assert_eq!(wkt_geometry(&z).unwrap()["coordinates"], json!([[1.0,2.0,5.0],[3.0,4.0,7.0]]));
+        let m: wkt::Wkt<f64> = "POINT M (1 2 7)".parse().unwrap();
+        assert!(wkt_geometry(&m).is_err());
+        assert!(validate_geometry(&json!({"type":"Point","coordinates":[1,2,3]})).is_ok());
+        assert!(validate_geometry(&json!({"type":"Point","coordinates":[1,2,3,4]})).is_err());
         assert!(validate_geometry(&json!({"type":"Point","coordinates":[181,2]})).is_err());
     }
 }

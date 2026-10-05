@@ -35,22 +35,23 @@ export function validateGeometry(geometry: Geometry | null): string[] {
   if (!allowed.has(geometry.type))
     return ["不支持 GeometryCollection 或特殊几何"];
   const errors: string[] = [];
+  const dimensions = new Set<number>();
   const check = (value: unknown): void => {
     if (!Array.isArray(value) || value.length === 0) {
       errors.push("坐标数组不能为空");
       return;
     }
     if (typeof value[0] === "number") {
-      if (
-        value.length !== 2 ||
-        value.some((v) => typeof v !== "number" || !Number.isFinite(v))
-      )
-        errors.push("仅支持有限数值的二维坐标");
+      dimensions.add(value.length);
+      if (value.length !== 2 && value.length !== 3) errors.push(`坐标有 ${value.length} 个分量，仅支持二维或带高程的 XYZ 坐标`);
+      if (value.some((v) => typeof v !== "number" || !Number.isFinite(v)))
+        errors.push("坐标分量必须是有限数值");
     } else value.forEach(check);
   };
   check(
     (geometry as Exclude<Geometry, { type: "GeometryCollection" }>).coordinates,
   );
+  if (dimensions.size > 1) errors.push("同一几何不能混合二维与 XYZ 坐标");
   const line = (points: number[][]) => {
     if (points.length < 2) errors.push("线至少需要两个顶点");
   };
@@ -88,7 +89,7 @@ function transformGeometry(
       return coords.map((c) => walk(c as unknown[]));
     if (to === "EPSG:3857" && Math.abs(coords[1] as number) > 85.0511287798066)
       throw new Error("EPSG:3857 不支持超出 ±85.05112878° 的纬度");
-    return proj4(from, to, coords as number[]);
+    return [...proj4(from, to, (coords as number[]).slice(0, 2)), ...coords.slice(2)];
   };
   (copy as Exclude<Geometry, { type: "GeometryCollection" }>).coordinates =
     walk(
@@ -102,6 +103,13 @@ export function geometryFromWkt(
   crs = "EPSG:4326",
 ): Geometry | null {
   if (!value.trim()) return null;
+  if (/^\s*\w+\s+(M|ZM)\b/i.test(value)) throw new Error("暂不支持 WKT M/ZM；不会把测量值当高程或静默丢弃");
+  // Some exporters omit the Z marker while writing three ordinates.
+  if (!/^\s*\w+\s+Z\b/i.test(value)) {
+    const positions = value.slice(value.indexOf("(")).split(/[(),]/).map(part => part.trim()).filter(Boolean);
+    if (positions.length && positions.every(part => part.split(/\s+/).length === 3 && part.split(/\s+/).every(n => Number.isFinite(Number(n)))))
+      value = value.replace(/^(\s*\w+)/, "$1 Z");
+  }
   const geom = wkt.readGeometry(value);
   if (!geom) throw new Error("WKT 解析失败");
   const type = geom.getType();
@@ -210,7 +218,7 @@ export function geoJsonCrs(text: string, explicit?: string): string {
   if (!["EPSG:4326", "EPSG:4490", "EPSG:3857"].includes(crs)) throw new Error("不支持的 GeoJSON 坐标系");
   return crs;
 }
-export function importGeoJSON(text: string, explicitCrs?: string): GeoFeature[] {
+export function importGeoJSON(text: string, explicitCrs?: string, xyCopy = false): GeoFeature[] {
   const crs = geoJsonCrs(text, explicitCrs);
   const data = parse(text) as {
     type: string;
@@ -233,8 +241,27 @@ export function importGeoJSON(text: string, explicitCrs?: string): GeoFeature[] 
           ? [{ geometry: data as unknown as Geometry, properties: {} }]
           : undefined;
   if (!records) throw new Error("无效或不支持的 GeoJSON");
-  return records.map((record) => {
-    const geometry = transformGeometry(plain(record.geometry ?? null, true) as Geometry | null, crs, "EPSG:4326");
+  return records.map((record, index) => {
+    const input = plain(record.geometry ?? null, true) as Geometry | null;
+    // Normalize only an explicitly requested working copy; never coerce invalid numbers.
+    const positions = (value: unknown, path: string): unknown => {
+      const location = `GeoJSON 第 ${index + 1} 个要素${record.id !== undefined ? `（ID ${String(plain(record.id))}）` : ""} · ${path}`;
+      if (!Array.isArray(value) || !value.length) throw new Error(`${location}：坐标数组为空或结构无效`);
+      if (Array.isArray(value[0])) return value.map((child, i) => positions(child, `${path}[${i}]`));
+      if (value.some(component => typeof component !== "number" || !Number.isFinite(component)))
+        throw new Error(`${location}：坐标分量必须是有限数值，不接受字符串或 null`);
+      if (value.length < 2) throw new Error(`${location}：坐标至少需要 X、Y 两个分量`);
+      if (value.length > 3 && !xyCopy)
+        throw new Error(`${location}：坐标含 ${value.length} 个分量（含 M 或额外分量），仅支持二维或带高程 XYZ；可勾选“按二维副本导入”后重试，原文件不变`);
+      return xyCopy ? value.slice(0, 2) : value;
+    };
+    if (input && allowed.has(input.type)) {
+      (input as Exclude<Geometry, { type: "GeometryCollection" }>).coordinates = positions(
+        (input as Exclude<Geometry, { type: "GeometryCollection" }>).coordinates, "geometry.coordinates",
+      ) as never;
+    }
+    assertGeometry(input);
+    const geometry = transformGeometry(input, crs, "EPSG:4326");
     assertGeometry(geometry);
     if (
       record.properties &&
@@ -307,6 +334,8 @@ export function exportCsv(
       if (options.wktColumn) delete row[options.wktColumn];
       if (geometry && geometry.type !== "Point")
         throw new Error("X/Y CSV 仅支持 Point；线面请导出 WKT");
+      if (geometry?.type === "Point" && geometry.coordinates.length > 2)
+        throw new Error("含高程坐标不能无损导出 X/Y CSV，请选择 WKT 或 GeoJSON；或明确导入二维副本");
       row[options.xColumn ?? "longitude"] =
         geometry && geometry.type === "Point" ? geometry.coordinates[0] : "";
       row[options.yColumn ?? "latitude"] =
@@ -389,10 +418,11 @@ export async function importFiles(
       );
     if (/\.(geojson|json)$/i.test(file.name))
       layers.push(
-        makeLayer(file.name, importGeoJSON(text(), fileOptions.crs), "geojson", {
+        makeLayer(fileOptions.geoJsonXYCopy ? file.name.replace(/\.(geojson|json)$/i, "-二维副本.geojson") : file.name, importGeoJSON(text(), fileOptions.crs, fileOptions.geoJsonXYCopy), "geojson", {
           originalCrs: geoJsonCrs(text(), fileOptions.crs),
-          sourceId: file.sourceId,
-          warnings: ["高精度数值属性以文本保存，导出时保持文本类型"],
+          sourceId: fileOptions.geoJsonXYCopy ? undefined : file.sourceId,
+          dirty: Boolean(fileOptions.geoJsonXYCopy),
+          warnings: ["高精度数值属性以文本保存，导出时保持文本类型", ...(fileOptions.geoJsonXYCopy ? ["已明确选择二维副本；仅载入 X/Y，Z/M 未载入。原文件未修改，保存需另存新文件。"] : [])],
         }),
       );
     else if (/\.csv$/i.test(file.name)) {
