@@ -1028,6 +1028,7 @@ export default function App() {
     <ErrorContext.Provider value={error}>
       <div className="app">
         <header className="app-header">
+          <img className="brand-mark" src="/zgis.svg" alt="zGIS" />
           <nav className="header-menus" aria-label="主菜单">
             <HeaderMenu label="文件">
               <button onClick={openFiles} disabled={busy}>

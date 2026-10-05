@@ -184,6 +184,12 @@ hr {
   flex-shrink: 0;
   z-index: 5;
 }
+.brand-mark {
+  width: 19px;
+  height: 19px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
 .document-title {
   flex: 1;
   min-width: 0;
