@@ -31,6 +31,7 @@ it("移动支持排序、进出分组并拒绝周期", () => {
   expect(moved).toEqual([
     {
       ...tree[1],
+      collapsed: false,
       children: [
         { kind: "layer", id: "b" },
         { kind: "layer", id: "a" },
@@ -77,4 +78,60 @@ it("分组创建与更新保留原树且验证目标", () => {
   expect(() => addTreeGroup(tree, group, "a")).toThrow("分组");
   expect(() => updateTreeGroup(tree, "g", { name: " " })).toThrow("不能为空");
   expect(tree[1]).toMatchObject({ name: "组", children: [{ id: "b" }] });
+});
+
+it("整组移入其他子组时保留全部后代、顺序和状态并展开目标", () => {
+  const moving: LayerTreeNode = {
+    kind: "group",
+    id: "a",
+    name: "整组",
+    visible: false,
+    collapsed: true,
+    children: [
+      {
+        kind: "group",
+        id: "a-child",
+        name: "子组",
+        visible: true,
+        collapsed: false,
+        children: [{ kind: "layer", id: "layer-a" }],
+      },
+      { kind: "layer", id: "layer-b" },
+    ],
+  };
+  const target: LayerTreeNode = {
+    kind: "group",
+    id: "b",
+    name: "目标",
+    visible: true,
+    collapsed: false,
+    children: [
+      {
+        kind: "group",
+        id: "b-child",
+        name: "目标子组",
+        visible: true,
+        collapsed: true,
+        children: [],
+      },
+    ],
+  };
+  const original = [moving, target];
+  const moved = moveTreeNode(original, "a", "b-child", "inside");
+  expect(moved).toEqual([
+    {
+      ...target,
+      children: [
+        { ...target.children[0], collapsed: false, children: [moving] },
+      ],
+    },
+  ]);
+  expect(original).toEqual([moving, target]);
+  expect(() => moveTreeNode(original, "a", "a-child", "inside")).toThrow(
+    "后代",
+  );
+  expect(() => moveTreeNode(original, "a", "layer-a", "before")).toThrow(
+    "后代",
+  );
+  expect(() => moveTreeNode(original, "a", "a", "inside")).toThrow("自身");
 });

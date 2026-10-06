@@ -130,7 +130,11 @@ export function moveTreeNode(
         if (position === "before") result.push(moving, n);
         else if (position === "after") result.push(n, moving);
         else if (n.kind === "group")
-          result.push({ ...n, children: [...n.children, moving] });
+          result.push({
+            ...n,
+            collapsed: false,
+            children: [...n.children, moving],
+          });
       } else
         result.push(
           n.kind === "group" ? { ...n, children: insert(n.children) } : n,

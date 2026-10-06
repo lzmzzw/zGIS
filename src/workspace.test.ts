@@ -1,5 +1,5 @@
 import { snapshotWorkspace, restoreWorkspace } from "./workspace";
-import type { LayerTreeNode } from "./layerTree";
+import { moveTreeNode, type LayerTreeNode } from "./layerTree";
 import { expect, it } from "vitest";
 import { makeLayer } from "./domain";
 import { restoreLayers, snapshotLayers } from "./workspace";
@@ -107,4 +107,92 @@ it("恢复拒绝重复、未知与缺失图层引用", () => {
       }),
     ),
   ).toThrow("重复");
+});
+
+it("整组移动后的多级树恢复保留全部图层内容及高程", () => {
+  const layer = makeLayer(
+    "嵌套图层",
+    [
+      {
+        id: "height",
+        geometry: { type: "Point", coordinates: [116, 40, 19] },
+        properties: { name: "保留属性" },
+      },
+    ],
+    "geojson",
+  );
+  const source: LayerTreeNode = {
+    kind: "group",
+    id: "source",
+    name: "源组",
+    visible: false,
+    collapsed: false,
+    children: [
+      {
+        kind: "group",
+        id: "sub",
+        name: "子组",
+        visible: true,
+        collapsed: true,
+        children: [{ kind: "layer", id: layer.id }],
+      },
+    ],
+  };
+  const target: LayerTreeNode = {
+    kind: "group",
+    id: "target",
+    name: "目标组",
+    visible: true,
+    collapsed: false,
+    children: [
+      {
+        kind: "group",
+        id: "destination",
+        name: "目标子组",
+        visible: true,
+        collapsed: true,
+        children: [],
+      },
+    ],
+  };
+  const moved = moveTreeNode(
+    [source, target],
+    "source",
+    "destination",
+    "inside",
+  );
+  const restored = restoreWorkspace(snapshotWorkspace([layer], moved));
+  expect(
+    restored.layers[0].features.map(({ geometry, properties }) => ({
+      geometry,
+      properties,
+    })),
+  ).toEqual(
+    layer.features.map(({ geometry, properties }) => ({
+      geometry,
+      properties,
+    })),
+  );
+  expect(restored.tree).toEqual([
+    {
+      ...target,
+      children: [
+        {
+          ...target.children[0],
+          collapsed: false,
+          children: [
+            {
+              ...source,
+              children: [
+                {
+                  ...source.children[0],
+                  children: [{ kind: "layer", id: restored.layers[0].id }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ]);
 });

@@ -52,6 +52,7 @@ export default function LayerTree(props: Props) {
         x: number;
         y: number;
         moving: boolean;
+        forbidden: Set<string>;
         target?: { id: string; position: DropPosition };
       }
     | undefined
@@ -130,11 +131,18 @@ export default function LayerTree(props: Props) {
                 (event.target as HTMLElement).closest("button")
               )
                 return;
+              const forbidden = new Set<string>();
+              const collect = (value: LayerTreeNode) => {
+                forbidden.add(value.id);
+                if (value.kind === "group") value.children.forEach(collect);
+              };
+              collect(node);
               pointerDrag.current = {
                 id: node.id,
                 x: event.clientX,
                 y: event.clientY,
                 moving: false,
+                forbidden,
               };
               event.currentTarget.setPointerCapture(event.pointerId);
             }}
@@ -153,7 +161,7 @@ export default function LayerTree(props: Props) {
               const root = document
                 .elementFromPoint(event.clientX, event.clientY)
                 ?.closest(".layer-tree");
-              if (hit && hit.dataset.nodeId !== state.id) {
+              if (hit && !state.forbidden.has(hit.dataset.nodeId!)) {
                 const rect = hit.getBoundingClientRect();
                 const ratio = (event.clientY - rect.top) / rect.height;
                 const value: DropPosition =
