@@ -76,7 +76,7 @@ pwsh -File scripts/build.ps1
 
 后端单测可执行 `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`，需先载入 `scripts/msvc-environment.ps1`。打包脚本显式载入 MSVC，防止 Git 的 link.exe 抢占。Cargo.lock 和 pnpm-lock.yaml 都提交，构建、截图与测试数据在 output/target，不提交。
 
-安装版验收执行 `pwsh -File scripts/installed-smoke.ps1`，先正常关闭现有 zGIS 会话。脚本暂存并最终还原原恢复文件，使用独立 WebView2 目录，仅操作生成的测试文件；验证原生打开、保存、导出、取消、外部修改保护，以及真实退出后跨进程工作区及底图恢复。MCP/Agent 测试还需要 PATH 中有已登录的 Codex CLI，验证鉴权、链式分析、文件授权和 `/mcp` 工具发现，不发起模型推理。可用 `-Executable` 指定新构建的 release EXE。WebView2 本地 CDP 仅测试时通过环境启用，不写入产品配置，常规启动不开调试端口。独立 WebView2 目录本身不隔离 Rust 恢复文件，不直接对用户运行中的实例执行底层 smoke。
+覆盖安装统一执行 `pwsh -File scripts/install.ps1 -Smoke`，先正常关闭现有 zGIS 会话。脚本通过临时、非提权的当前用户计划任务在 Codex MSIX 包外安装；任务无触发器，完成后删除。使用文件句柄解析真实安装路径、比较 release 内容（仅归一化 NSIS bundle 标记）、核对桌面/开始菜单快捷方式及启动进程，并在 `output/install` 保存报告。不能以安装器退出码或 Codex 包内 `%LOCALAPPDATA%` 文件核对认定安装成功，包内路径会被重定向到 Codex LocalCache。`-Smoke` 验证安装相关文件操作与跨进程恢复，不依赖外部 Codex CLI/MCP；完整验收可从普通包外 PowerShell 执行 `pwsh -File scripts/installed-smoke.ps1`。脚本暂存并最终还原原恢复文件，使用独立 WebView2 目录，仅操作生成的测试文件；验证原生打开、保存、导出、取消、外部修改保护，以及真实退出后跨进程工作区及底图恢复。MCP/Agent 测试还需要 PATH 中有已登录的 Codex CLI，验证鉴权、链式分析、文件授权和 `/mcp` 工具发现，不发起模型推理。可用 `-Executable` 指定新构建的 release EXE。WebView2 本地 CDP 仅测试时通过环境启用，不写入产品配置，常规启动不开调试端口。独立 WebView2 目录本身不隔离 Rust 恢复文件，不直接对用户运行中的实例执行底层 smoke。
 
 接口见 [src-tauri/IPC.md](src-tauri/IPC.md)。最初设计见 [zGIS技术方案](../../../Deliverables/zGIS/zGIS技术方案.md)，实现边界以本 README 为准。数据库的 AI 直接操作仍遵守工作台 DBX 入口，应用数据层不提供旁路工具。
 

@@ -1,5 +1,7 @@
-param([string]$Executable = "$env:LOCALAPPDATA\zGIS\zgis.exe")
+param([string]$Executable = "$env:LOCALAPPDATA\zGIS\zgis.exe", [switch]$InstallationOnly)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'physical-path.ps1')
+if ([ZgisInstallNative]::IsPackaged()) { throw 'Codex MSIX 会重定向安装目录与恢复文件。请使用 pwsh -File scripts/install.ps1 -Smoke 在包外安装和验收。' }
 if (Get-Process zgis -ErrorAction SilentlyContinue) { throw 'Close existing zGIS sessions before running the isolated installed smoke.' }
 if (-not (Test-Path -LiteralPath $Executable)) { throw 'Installed executable not found.' }
 $recoveryPath = Join-Path $env:LOCALAPPDATA 'com.personal.zgis\recovery.json'
@@ -24,7 +26,9 @@ try {
   & node scripts/create-fixtures.mjs
   if ($LASTEXITCODE -ne 0) { throw 'Fixture generation failed.' }
   $testProcess = Start-Process -FilePath $Executable -WindowStyle Hidden -PassThru
-  & node scripts/desktop-smoke.mjs $testProcess.Id
+  if ([ZgisInstallNative]::FinalPath($testProcess.Path) -ne [ZgisInstallNative]::FinalPath($Executable)) { throw 'Running process differs from the physical installation.' }
+  $smokeArguments = @(if ($InstallationOnly) { '--installation-only' })
+  & node scripts/desktop-smoke.mjs $testProcess.Id @smokeArguments
   if ($LASTEXITCODE -ne 0) { throw 'Native file smoke failed.' }
   if (-not $testProcess.WaitForExit(10000)) { throw 'Test instance did not exit.' }
   $testProcess = Start-Process -FilePath $Executable -WindowStyle Hidden -PassThru

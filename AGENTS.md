@@ -10,4 +10,5 @@
 - 密码仅在连接期间保留，不写配置、恢复文件、日志或 Git。
 - 前端验证：pnpm test、pnpm build；后端验证：cargo test --manifest-path src-tauri/Cargo.toml --lib。
 - 打包：pnpm tauri build；Windows 安装及桌面运行必须实际验证。
+- 覆盖安装只使用 `pwsh -File scripts/install.ps1 -Smoke`：通过包外当前用户进程执行安装并核验物理路径、release 内容、快捷方式和启动进程。禁止在 Codex MSIX 环境直接运行安装器 `/S` 后以包内 `%LOCALAPPDATA%` 文件核对宣称成功；该路径可能重定向到 Codex LocalCache。完整原生 smoke 只在包外运行。
 - 仅提交源码、配置、锁文件与文档；output、target、dist、node_modules 不提交。

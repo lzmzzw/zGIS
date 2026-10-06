@@ -188,7 +188,9 @@ await fileAction("移除图层");
 await page.getByRole("button", { name: "放弃并移除", exact: true }).click();
 await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 0);
 console.log("PASS: native SHP attribute/geometry editing, ZIP cancellation/save, independent Chinese/coordinate roundtrip and unchanged original group");
-await mcpNativeSmoke(page, nativeDialog, fileAction);
+if (!process.argv.includes("--installation-only")) {
+  await mcpNativeSmoke(page, nativeDialog, fileAction);
+} else console.log("Installation scope: external Codex CLI/MCP checks omitted; native file and restart checks retained.");
 assert.deepEqual(errors, []);
 console.log(
   "PASS: desktop WebView2, native open/save/export/cancel, source ID preservation, external-file conflict protection and immediate discarded-recovery clearing",
