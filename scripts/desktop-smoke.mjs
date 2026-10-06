@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
 import shp from "shpjs";
+import { layerBasemapSmoke } from "./layer-basemap-smoke.mjs";
 import { mcpNativeSmoke } from "./mcp-native-smoke.mjs";
 const appPid = Number(process.argv[2]);
 if (!appPid) throw new Error("Pass the isolated zGIS test process ID");
@@ -28,19 +29,18 @@ if (process.argv.includes("--recovery-only")) {
   await page.waitForFunction(() =>
     document.querySelector(".statusbar")?.textContent?.includes("已恢复"),
   );
-  assert.equal(await page.locator(".layer-row").count(), 1);
+  assert.equal(await page.locator('[data-node-kind="layer"]').count(), 1);
+  await layerBasemapSmoke(page, true);
   await page.screenshot({ path: "output/desktop/installed-recovered.png" });
   await page
     .locator(".app-header summary")
     .filter({ hasText: /^文件$/ })
     .click();
-  await page.getByRole("button", { name: "退出", exact: true }).click();
-  await page.locator(".exit-layers select").selectOption("discard");
   const closed = page.waitForEvent("close");
-  await page.getByRole("button", { name: "处理并退出", exact: true }).click();
+  await page.getByRole("button", { name: "退出", exact: true }).click();
   await closed;
   console.log(
-    "PASS: automatic recovery after process restart and explicit discard exit",
+    "PASS: automatic recovery after process restart and automatic work-copy persistence on exit",
   );
   await browser.close();
   process.exit(0);
@@ -92,6 +92,7 @@ async function setName(value) {
 const opening = nativeDialog("output/smoke/fixtures/native.geojson");
 await fileAction("打开文件…");
 await opening;
+await page.getByRole("button", { name: "导入", exact: true }).click();
 await page
   .locator(".header-actions")
   .getByRole("button", { name: "属性表", exact: true })
@@ -192,6 +193,7 @@ assert.deepEqual(errors, []);
 console.log(
   "PASS: desktop WebView2, native open/save/export/cancel, source ID preservation, external-file conflict protection and immediate discarded-recovery clearing",
 );
+await page.locator(".app-header summary").filter({ hasText: /^数据$/ }).click();
 await page
   .getByRole("button", { name: "城市示例", exact: true })
   .filter({ visible: true })
@@ -202,9 +204,9 @@ await page
   .getByRole("textbox", { name: "属性 城市", exact: true })
   .fill("跨进程恢复测试");
 await page.getByRole("button", { name: "应用", exact: true }).click();
-await fileAction("退出");
+await layerBasemapSmoke(page);
 const closed = page.waitForEvent("close");
-await page.getByRole("button", { name: "处理并退出", exact: true }).click();
+await fileAction("退出");
 await closed;
-console.log("PASS: per-layer keep action persists recovery before native exit");
+console.log("PASS: normal native exit automatically persists applied edits without a confirmation");
 await browser.close();

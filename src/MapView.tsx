@@ -15,9 +15,11 @@ import { defaults as defaultControls, ScaleLine } from "ol/control";
 import type Feature from "ol/Feature";
 import type Geometry from "ol/geom/Geometry";
 import type { DocumentLayer, GeoFeature } from "./domain/types";
+import { isTdtService, validateXyzUrl, type BasemapService } from "./basemaps";
 
 export type Tool = "select" | "modify" | "Point" | "LineString" | "Polygon";
 interface Props {
+  services: BasemapService[];
   disabled?: boolean;
   editable?: boolean;
   theme: "light" | "dark";
@@ -129,8 +131,10 @@ export default function MapView(props: Props) {
   useEffect(() => {
     const base = tileRef.current!;
     const labels = labelRef.current!;
+    const service = props.services.find((item) => item.id === props.basemap);
+    labels.setSource(null);
     if (props.basemap === "osm") base.setSource(new OSM());
-    else if (props.basemap.startsWith("tdt") && props.tdtKey.trim()) {
+    else if (service && isTdtService(service) && props.tdtKey.trim()) {
       const type = props.basemap === "tdt-img" ? "img" : "vec";
       const annotation = type === "img" ? "cia" : "cva";
       const source = (layer: string) =>
@@ -141,20 +145,34 @@ export default function MapView(props: Props) {
         });
       base.setSource(source(type));
       labels.setSource(source(annotation));
-    }
-  }, [props.basemap, props.tdtKey]);
+    } else if (service?.url && validateXyzUrl(service.url)) {
+      base.setSource(
+        new XYZ({ url: service.url, attributions: service.attribution }),
+      );
+    } else base.setSource(null);
+  }, [props.basemap, props.tdtKey, props.services]);
   useEffect(() => {
-    const configured =
-      props.basemap === "osm" ||
-      (props.basemap.startsWith("tdt") && Boolean(props.tdtKey.trim()));
+    const service = props.services.find((item) => item.id === props.basemap);
+    const configured = Boolean(
+      service &&
+      (service.id === "osm" ||
+        (isTdtService(service) && Boolean(props.tdtKey.trim())) ||
+        (service.url && validateXyzUrl(service.url))),
+    );
     tileRef.current?.setVisible(props.basemapVisible && configured);
     labelRef.current?.setVisible(
       props.basemapVisible &&
         configured &&
-        props.basemap.startsWith("tdt") &&
+        Boolean(service && isTdtService(service)) &&
         props.annotations,
     );
-  }, [props.basemapVisible, props.basemap, props.tdtKey, props.annotations]);
+  }, [
+    props.basemapVisible,
+    props.basemap,
+    props.tdtKey,
+    props.annotations,
+    props.services,
+  ]);
   useEffect(() => {
     const map = mapRef.current!;
     for (const [id, layer] of vectorRefs.current)

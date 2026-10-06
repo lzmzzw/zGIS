@@ -1,7 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
 
-test("empty header can drag while menus and window buttons remain interactive", async ({ page }) => {
+test("empty header can drag while menus and window buttons remain interactive", async ({
+  page,
+}) => {
   await installDesktopMock(page);
   await page.goto("/");
   const title = page.locator(".document-title");
@@ -9,13 +11,40 @@ test("empty header can drag while menus and window buttons remain interactive", 
   expect(bounds?.height).toBeGreaterThan(20);
   await title.click();
   await page.locator(".brand-mark").click();
-  expect(await page.evaluate(() => window.__ZG_TEST__.calls.filter(call => call.command === "plugin:window|start_dragging").length)).toBe(2);
-  await page.locator(".app-header summary").filter({ hasText: /^文件$/ }).click();
-  await expect(page.locator(".header-menus").getByRole("button", { name: "打开文件…", exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        window.__ZG_TEST__.calls.filter(
+          (call) => call.command === "plugin:window|start_dragging",
+        ).length,
+    ),
+  ).toBe(2);
+  await page
+    .locator(".app-header summary")
+    .filter({ hasText: /^文件$/ })
+    .click();
+  await expect(
+    page
+      .locator(".header-menus")
+      .getByRole("button", { name: "打开文件…", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "最小化", exact: true }).click();
-  expect(await page.evaluate(() => window.__ZG_TEST__.calls.filter(call => call.command === "plugin:window|start_dragging").length)).toBe(2);
+  expect(
+    await page.evaluate(
+      () =>
+        window.__ZG_TEST__.calls.filter(
+          (call) => call.command === "plugin:window|start_dragging",
+        ).length,
+    ),
+  ).toBe(2);
   await title.dblclick();
-  expect(await page.evaluate(() => window.__ZG_TEST__.calls.some(call => call.command === "plugin:window|toggle_maximize"))).toBe(true);
+  expect(
+    await page.evaluate(() =>
+      window.__ZG_TEST__.calls.some(
+        (call) => call.command === "plugin:window|toggle_maximize",
+      ),
+    ),
+  ).toBe(true);
 });
 
 const snapshot = JSON.stringify(
@@ -65,7 +94,7 @@ test("native open continues into worker import after dialog busy state", async (
   await expect(page.locator(".layer-row")).toContainText("native.geojson");
 });
 
-test("restored CSV saves as GeoJSON with matching filename", async ({
+test("restored CSV saves as GeoJSON from the main file menu", async ({
   page,
 }) => {
   const layers = JSON.parse(snapshot);
@@ -74,12 +103,15 @@ test("restored CSV saves as GeoJSON with matching filename", async ({
   await installDesktopMock(page, JSON.stringify([layers[0]]));
   await page.goto("/");
   await expect(page.locator(".statusbar")).toContainText("已恢复");
-  await exit(page);
-  await page.getByLabel("退出处理 points.csv").selectOption("save");
-  await page.getByRole("button", { name: "处理并退出" }).click();
-  await expect
-    .poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed))
-    .toBe(true);
+  await page
+    .locator(".app-header summary")
+    .filter({ hasText: /^文件$/ })
+    .click();
+  await page
+    .locator(".app-header")
+    .getByRole("button", { name: "保存", exact: true })
+    .click();
+  await expect(page.locator(".statusbar")).toContainText("保存完成");
   const save = await page.evaluate(() =>
     window.__ZG_TEST__.calls.find((call) => call.command === "save_file")!,
   );
@@ -87,58 +119,133 @@ test("restored CSV saves as GeoJSON with matching filename", async ({
   expect(JSON.parse(String(save.args.content)).type).toBe("FeatureCollection");
 });
 
-test("auto recovery detaches database state and exit keeps only chosen layers", async ({
+const savedLayers = (raw: string) => {
+  const saved = JSON.parse(raw);
+  return Array.isArray(saved) ? saved : saved.layers;
+};
+async function editProperty(page: Page) {
+  await page
+    .locator(".header-actions")
+    .getByRole("button", { name: "属性表", exact: true })
+    .click();
+  await page.locator("tbody tr").first().click();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+}
+
+test("dirty restored layers exit without a prompt and all work copies are saved", async ({
   page,
 }) => {
   await installDesktopMock(page, snapshot);
   await page.goto("/");
   await expect(page.locator(".statusbar")).toContainText("已恢复 2");
-  await expect(page.locator(".layer-tree .layer-row")).toHaveCount(2);
   await exit(page);
-  await expect(page.getByLabel("退出处理 first")).toHaveValue("keep");
-  await expect(
-    page.getByLabel("退出处理 first").locator("option[value=submit]"),
-  ).toHaveCount(0);
-  await page.getByLabel("退出处理 second").selectOption("discard");
-  await page.getByRole("button", { name: "处理并退出" }).click();
   await expect
     .poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed))
     .toBe(true);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   const raw = await page.evaluate(() => window.__ZG_TEST__.snapshot!);
-  const saved = JSON.parse(raw);
-  expect(saved).toHaveLength(1);
-  expect(saved[0]).toMatchObject({ name: "first", sourceKind: "geojson" });
+  expect(savedLayers(raw).map((layer: { name: string }) => layer.name)).toEqual(
+    ["first", "second"],
+  );
   expect(raw).not.toMatch(/baseline|dbKey|sourceId|connectionId/);
+  expect(
+    await page.evaluate(() =>
+      window.__ZG_TEST__.calls.some(
+        (call) =>
+          call.command === "save_file" || call.command === "commit_changes",
+      ),
+    ),
+  ).toBe(false);
 });
 
-test("cancelled save preserves workspace; earlier successful saves remain clean after later failure", async ({
+test("editing exit can be cancelled; confirmation keeps applied changes but not property drafts", async ({
   page,
 }) => {
   await installDesktopMock(page, snapshot);
   await page.goto("/");
   await expect(page.locator(".statusbar")).toContainText("已恢复");
-  await exit(page);
-  await page.getByLabel("退出处理 first").selectOption("save");
-  await page.evaluate(() => {
-    window.__ZG_TEST__.saveCancelled = true;
-  });
-  await page.getByRole("button", { name: "处理并退出" }).click();
-  await expect(page.getByRole("alert")).toContainText("已取消保存");
+  await editProperty(page);
+  await page
+    .getByRole("textbox", { name: "属性 value", exact: true })
+    .fill("2");
+  await page.getByRole("button", { name: "应用", exact: true }).click();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "属性 value", exact: true })
+    .fill("999");
+  await page.evaluate(() => window.__ZG_TEST__.requestClose());
+  await expect(
+    page
+      .getByRole("dialog")
+      .filter({
+        has: page.getByRole("heading", { name: "退出 zGIS", exact: true }),
+      }),
+  ).toBeVisible();
   expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
-  await page.evaluate(() => {
-    window.__ZG_TEST__.saveCancelled = false;
-    window.__ZG_TEST__.backupError = "snapshot failed";
-  });
-  await page.getByRole("button", { name: "处理并退出" }).click();
-  await expect(page.getByRole("alert")).toContainText("snapshot failed");
-  await expect(page.getByLabel("退出处理 first")).toHaveCount(0);
-  await expect(page.getByLabel("退出处理 second")).toHaveCount(1);
-  expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
-  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "取消", exact: true })
+    .click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("textbox", { name: "属性 value", exact: true }),
+  ).toHaveValue("999");
+  await exit(page);
+  await page
+    .getByRole("button", { name: "退出并保留工作区", exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed))
+    .toBe(true);
+  const layers = savedLayers(
+    await page.evaluate(() => window.__ZG_TEST__.snapshot!),
+  );
+  expect(layers[0].features[0].properties.value).toBe(2);
+  expect(layers).toHaveLength(2);
 });
 
-test("invalid recovery stays intact and discard is not overwritten by pending autosnapshot", async ({
+test("vertex editing prompts even before geometry changes", async ({
+  page,
+}) => {
+  await installDesktopMock(page, snapshot);
+  await page.goto("/");
+  await expect(page.locator(".statusbar")).toContainText("已恢复");
+  await page.getByRole("button", { name: "编辑顶点", exact: true }).click();
+  await exit(page);
+  await expect(
+    page
+      .getByRole("dialog")
+      .filter({
+        has: page.getByRole("heading", { name: "退出 zGIS", exact: true }),
+      }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
+});
+
+test("backup failure prevents normal exit and allows a successful retry", async ({
+  page,
+}) => {
+  await installDesktopMock(page, snapshot);
+  await page.goto("/");
+  await expect(page.locator(".statusbar")).toContainText("已恢复");
+  await page.evaluate(() => {
+    window.__ZG_TEST__.backupError = "snapshot failed";
+  });
+  await exit(page);
+  await expect(page.getByRole("alert")).toContainText("snapshot failed");
+  expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
+  expect(await page.evaluate(() => window.__ZG_TEST__.snapshot)).toBe(snapshot);
+  await page.evaluate(() => {
+    window.__ZG_TEST__.backupError = "";
+  });
+  await page.getByRole("button", { name: "关闭错误", exact: true }).click();
+  await exit(page);
+  await expect
+    .poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed))
+    .toBe(true);
+});
+
+test("invalid recovery is not overwritten and exit is blocked", async ({
   page,
 }) => {
   await installDesktopMock(page, "invalid snapshot");
@@ -148,22 +255,39 @@ test("invalid recovery stays intact and discard is not overwritten by pending au
   expect(await page.evaluate(() => window.__ZG_TEST__.snapshot)).toBe(
     "invalid snapshot",
   );
+  await page.getByRole("button", { name: "关闭错误", exact: true }).click();
+  await exit(page);
+  await expect(page.getByRole("alert")).toContainText("避免覆盖原副本");
+  expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
+  expect(await page.evaluate(() => window.__ZG_TEST__.snapshot)).toBe(
+    "invalid snapshot",
+  );
 });
 
-test("discard exit flushes the snapshot queue without stale copies", async ({
+test("immediate native close flushes new empty groups instead of a stale autosnapshot", async ({
   page,
 }) => {
-  await installDesktopMock(page, snapshot);
+  await installDesktopMock(page);
   await page.goto("/");
-  await expect(page.locator(".statusbar")).toContainText("已恢复");
+  const tree = page.getByRole("tree", { name: "图层树" });
+  await tree.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "新建分组…" }).click();
+  await page.getByLabel("分组名称").fill("空分组");
+  await page.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(tree).toContainText("空分组");
   await page.evaluate(() => window.__ZG_TEST__.requestClose());
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await page.getByLabel("退出处理 first").selectOption("discard");
-  await page.getByLabel("退出处理 second").selectOption("discard");
-  await page.getByRole("button", { name: "处理并退出" }).click();
   await expect
     .poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed))
     .toBe(true);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.waitForTimeout(1800);
-  expect(await page.evaluate(() => window.__ZG_TEST__.snapshot)).toBe("[]");
+  const saved = JSON.parse(
+    await page.evaluate(() => window.__ZG_TEST__.snapshot!),
+  );
+  expect(saved.layers).toEqual([]);
+  expect(saved.tree[0]).toMatchObject({
+    kind: "group",
+    name: "空分组",
+    children: [],
+  });
 });

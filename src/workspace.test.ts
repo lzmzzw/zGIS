@@ -83,7 +83,7 @@ it("工作区分组与顺序恢复重映射ID，安全元数据与旧格式兼�
     { kind: "layer", id: restored.layers[0].id },
   ]);
   expect(restoreWorkspace(snapshotLayers([a])).tree[0].kind).toBe("layer");
-  expect(snapshotWorkspace([], tree)).toBe("[]");
+  expect(restoreWorkspace(snapshotWorkspace([], tree)).tree).toEqual([{ ...tree[0], children: [] }]);
 });
 it("恢复拒绝重复、未知与缺失图层引用", () => {
   const layer = makeLayer("a", [], "geojson");

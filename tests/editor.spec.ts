@@ -532,6 +532,6 @@ test("desktop SHP export preserves edits on cancellation, error and success", as
       .name,
   ).toBe("新北京");
   await page.evaluate(() => window.__ZG_TEST__.requestClose());
-  await expect(page.getByRole("dialog")).toContainText("cities");
-  await expect(page.getByRole("dialog").getByRole("combobox")).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(true);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });

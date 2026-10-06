@@ -1,10 +1,23 @@
-import { useEffect, useRef } from "react";
-import { ArrowLeft, Palette, Map, Plug, Info } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
+  Palette,
+  Map,
+  Plug,
+  Info,
+} from "lucide-react";
 import McpPanel from "./McpPanel";
 import { desktop } from "./bridge";
+import { moveBasemap, validateXyzUrl, type BasemapService } from "./basemaps";
+import "./basemap-settings.css";
 
 export type SettingsCategory = "appearance" | "map" | "mcp" | "about";
 interface Props {
+  services: BasemapService[];
+  onServices: (services: BasemapService[]) => void;
   category: SettingsCategory;
   onCategory: (value: SettingsCategory) => void;
   theme: "light" | "dark";
@@ -40,6 +53,14 @@ const categories = [
   },
 ] as const;
 export default function SettingsPage(props: Props) {
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [attribution, setAttribution] = useState("");
+  const [serviceError, setServiceError] = useState("");
+  const [removed, setRemoved] = useState<{
+    service: BasemapService;
+    index: number;
+  } | null>(null);
   const back = useRef<HTMLButtonElement>(null);
   const closeRef = useRef(props.onClose);
   closeRef.current = props.onClose;
@@ -131,9 +152,11 @@ export default function SettingsPage(props: Props) {
                   value={props.basemap}
                   onChange={(e) => props.onBasemap(e.target.value)}
                 >
-                  <option value="osm">OpenStreetMap</option>
-                  <option value="tdt-vec">天地图 · 矢量</option>
-                  <option value="tdt-img">天地图 · 影像</option>
+                  {props.services.map((service) => (
+                    <option key={service.id} value={service.id}>
+                      {service.name}
+                    </option>
+                  ))}
                   <option value="none">无底图</option>
                 </select>
               </label>
@@ -155,7 +178,7 @@ export default function SettingsPage(props: Props) {
                   </label>
                   <label>
                     <span>
-                      天地图 tk<small>仅在本次运行保留。</small>
+                      天地图 tk<small>保存在本机，下次启动继续使用。</small>
                     </span>
                     <input
                       aria-label="天地图 tk"
@@ -170,6 +193,154 @@ export default function SettingsPage(props: Props) {
                   )}
                 </>
               }
+              <section className="basemap-settings" aria-label="底图服务管理">
+                <h3>底图服务</h3>
+                <p className="form-note">顺序同步到地图中的底图选项。</p>
+                <ol className="basemap-service-list">
+                  {props.services.map((service, index) => (
+                    <li key={service.id}>
+                      <div>
+                        <strong>{service.name}</strong>
+                        <small>
+                          {service.url ? "XYZ 瓦片服务" : service.type}
+                        </small>
+                      </div>
+                      <div className="basemap-service-actions">
+                        <button
+                          className="icon-button"
+                          aria-label={`上移 ${service.name}`}
+                          title="上移"
+                          disabled={index === 0}
+                          onClick={() =>
+                            props.onServices(
+                              moveBasemap(props.services, service.id, -1),
+                            )
+                          }
+                        >
+                          <ArrowUp size={15} />
+                        </button>
+                        <button
+                          className="icon-button"
+                          aria-label={`下移 ${service.name}`}
+                          title="下移"
+                          disabled={index === props.services.length - 1}
+                          onClick={() =>
+                            props.onServices(
+                              moveBasemap(props.services, service.id, 1),
+                            )
+                          }
+                        >
+                          <ArrowDown size={15} />
+                        </button>
+                        {service.url && (
+                          <button
+                            className="icon-button"
+                            aria-label={`删除 ${service.name}`}
+                            title="删除"
+                            onClick={() => {
+                              setRemoved({ service, index });
+                              props.onServices(
+                                props.services.filter(
+                                  (item) => item.id !== service.id,
+                                ),
+                              );
+                            }}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+                {removed && (
+                  <p className="basemap-undo" role="status">
+                    已移除 {removed.service.name}
+                    <button
+                      className="quiet"
+                      onClick={() => {
+                        const next = [...props.services];
+                        next.splice(
+                          Math.min(removed.index, next.length),
+                          0,
+                          removed.service,
+                        );
+                        props.onServices(next);
+                        setRemoved(null);
+                      }}
+                    >
+                      撤销
+                    </button>
+                  </p>
+                )}
+                <form
+                  className="basemap-add-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!name.trim()) {
+                      setServiceError("请输入底图名称。");
+                      return;
+                    }
+                    if (!validateXyzUrl(url.trim())) {
+                      setServiceError(
+                        "请输入包含 {z}、{x}、{y} 的 HTTP(S) XYZ 瓦片地址。",
+                      );
+                      return;
+                    }
+                    props.onServices([
+                      ...props.services,
+                      {
+                        id: `xyz-${crypto.randomUUID()}`,
+                        name: name.trim(),
+                        type: "XYZ 瓦片服务",
+                        preview: "street",
+                        url: url.trim(),
+                        attribution: attribution.trim(),
+                      },
+                    ]);
+                    setName("");
+                    setUrl("");
+                    setAttribution("");
+                    setServiceError("");
+                  }}
+                >
+                  <h3>添加底图</h3>
+                  <label>
+                    名称
+                    <input
+                      aria-label="新底图名称"
+                      maxLength={100}
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    XYZ 地址
+                    <input
+                      aria-label="XYZ 瓦片地址"
+                      type="text"
+                      placeholder="https://example.com/{z}/{x}/{y}.png"
+                      value={url}
+                      onChange={(event) => setUrl(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    来源说明
+                    <input
+                      aria-label="底图来源说明"
+                      maxLength={300}
+                      value={attribution}
+                      onChange={(event) => setAttribution(event.target.value)}
+                    />
+                  </label>
+                  {serviceError && (
+                    <p className="warning" role="alert">
+                      {serviceError}
+                    </p>
+                  )}
+                  <button type="submit">添加底图</button>
+                </form>
+              </section>
             </div>
           )}
           {props.category === "mcp" &&
@@ -192,7 +363,7 @@ export default function SettingsPage(props: Props) {
                 <dt>高程</dt>
                 <dd>WKT / GeoJSON 保留 XYZ；新绘制要素默认 Z=0</dd>
                 <dt>工作副本</dt>
-                <dd>编辑不会自动覆盖源文件；退出时可保存或保留恢复副本。</dd>
+                <dd>图层操作自动保存为工作副本，不覆盖源文件。</dd>
               </dl>
             </div>
           )}

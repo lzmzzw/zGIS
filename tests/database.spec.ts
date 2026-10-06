@@ -131,3 +131,16 @@ test("uncertain commit disables repeat submission", async ({ page }) => {
     ),
   ).toBe(1);
 });
+for (const viewer of ["JSON 属性", "WKT 几何"]) {
+  test(`read-only ${viewer} viewer exits without an editing confirmation`, async ({ page }) => {
+    await loadSource(page, "readonly");
+    await page.getByRole("button", { name: `${viewer}…`, exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: viewer, exact: true })).toBeVisible();
+    await expect(dialog.getByRole("textbox", { name: viewer, exact: true })).toHaveAttribute("readonly", "");
+    await page.evaluate(() => window.__ZG_TEST__.requestClose());
+    await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(true);
+    await expect(page.getByRole("heading", { name: "退出 zGIS", exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => window.__ZG_TEST__.calls.some(call => call.command === "commit_changes"))).toBe(false);
+  });
+}

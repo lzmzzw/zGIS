@@ -89,6 +89,8 @@ export async function installDesktopMock(
             args: Record<string, unknown> = {},
           ) => {
             state.calls.push({ command, args });
+            if (command === "load_preferences") return localStorage.getItem("test.basemaps");
+            if (command === "save_preferences") { localStorage.setItem("test.basemaps", String(args.content)); return null; }
             if (command === "gis_mcp_status" || command === "gis_mcp_set_enabled") {
               if (command === "gis_mcp_set_enabled") state.mcpEnabled = Boolean(args.enabled);
               return { enabled: state.mcpEnabled, endpoint: state.mcpEnabled ? "http://127.0.0.1:9999/mcp" : null, token: state.mcpEnabled ? "test-token" : null, authorizedPaths: state.mcpPaths };

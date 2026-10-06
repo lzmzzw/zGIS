@@ -52,6 +52,7 @@ import {
   updateTreeGroup,
   type LayerTreeNode,
 } from "./layerTree";
+import { defaultBasemaps, type BasemapService } from "./basemaps";
 import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
 import MapView, { type Tool } from "./MapView";
@@ -66,7 +67,6 @@ import { databaseChanges } from "./dbChanges";
 import {
   restoreWorkspace,
   snapshotWorkspace,
-  type ExitAction,
 } from "./workspace";
 import {
   createDemoLayer,
@@ -159,6 +159,7 @@ function Modal({
   }, []);
   return (
     <dialog
+      aria-label={title}
       className="modal"
       ref={ref}
       onCancel={(event) => {
@@ -241,6 +242,11 @@ export default function App() {
   const [activeId, setActiveId] = useState<string>();
   const [selectedId, setSelectedId] = useState<string>();
   const [tool, setTool] = useState<Tool>("select");
+  const [services, setServices] = useState<BasemapService[]>(defaultBasemaps);
+  const [configReady, setConfigReady] = useState(!desktop);
+  const configQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const configError = useRef("");
+  const configBlocked = useRef(false);
   const [basemap, setBasemap] = useState("osm");
   const [basemapVisible, setBasemapVisible] = useState(true);
   const [tdtKey, setTdtKey] = useState("");
@@ -327,11 +333,9 @@ export default function App() {
   const [wktText, setWktText] = useState("");
   const [newField, setNewField] = useState("");
   const [recoveryReady, setRecoveryReady] = useState(!desktop);
-  const [exitActions, setExitActions] = useState<Record<string, ExitAction>>(
-    {},
-  );
   const snapshotQueue = useRef<Promise<unknown>>(Promise.resolve());
   const exitPending = useRef(false);
+  const exitPreviousModal = useRef<typeof modal>(null);
   const busyRef = useRef(false);
   busyRef.current = busy;
   const recoveryBlocked = useRef(false);
@@ -489,7 +493,7 @@ export default function App() {
       setStatus("拖入失败");
       return;
     }
-    if (busyRef.current || modal || !recoveryReady || exitPending.current) {
+    if (busyRef.current || modal || !recoveryReady || !configReady || exitPending.current) {
       setError("当前操作尚未完成，请关闭面板或等待后重新拖入文件");
       return;
     }
@@ -529,6 +533,37 @@ export default function App() {
     setDbSrid(dbLayers[index]?.srid || 4326);
     openModal("db-load");
   }
+  useEffect(() => {
+    let disposed = false;
+    const load = desktop ? api.preferences() : Promise.resolve(sessionStorage.getItem("zgis.basemaps"));
+    load.then(raw => {
+      if (disposed || !raw) return;
+      const value = JSON.parse(raw);
+      if (!Array.isArray(value.services) || !value.services.length || !value.services.every((s: BasemapService) => typeof s.id === "string" && typeof s.name === "string" && (!s.url || /^https?:\/\//.test(s.url)))) throw new Error("底图配置无效");
+      setServices(value.services);
+      setBasemap(value.services.some((s: BasemapService) => s.id === value.selected) ? value.selected : value.services[0].id);
+      setBasemapVisible(value.visible !== false);
+      setAnnotations(value.annotations !== false);
+      setTdtKey(typeof value.tdtKey === "string" ? value.tdtKey : "");
+    }).catch(() => { configBlocked.current = true; setError("底图配置加载失败，已保留原配置。"); })
+      .finally(() => { if (!disposed) setConfigReady(true); });
+    return () => { disposed = true; };
+  }, []);
+  useEffect(() => {
+    if (!configReady || configBlocked.current) return;
+    const content = JSON.stringify({ services, selected: basemap, visible: basemapVisible, annotations, tdtKey });
+    configQueue.current = configQueue.current.catch(() => {}).then(async () => {
+      try {
+        if (desktop) await api.savePreferences(content);
+        else sessionStorage.setItem("zgis.basemaps", content);
+        configError.current = "";
+      } catch { configError.current = "底图配置保存失败，请重试后退出。"; setError(configError.current); }
+    });
+  }, [services, basemap, basemapVisible, annotations, tdtKey, configReady]);
+  function changeServices(next: BasemapService[]) {
+    setServices(next);
+    if (!next.some(s => s.id === basemap)) setBasemap(next[0].id);
+  }
   function changeBasemap(value: string) {
     if (value === "none") {
       setBasemapVisible(false);
@@ -551,7 +586,7 @@ export default function App() {
     return next;
   }
   async function requestExit() {
-    if (busyRef.current || !recoveryReady || exitPending.current) return;
+    if (busyRef.current || !recoveryReady || !configReady || exitPending.current) return;
     exitPending.current = true;
     try {
       await analysisInFlight.current;
@@ -562,19 +597,15 @@ export default function App() {
       return;
     }
     setError("");
-    setExitActions(
-      Object.fromEntries(
-        currentLayers.current
-          .filter((layer) => layer.dirty)
-          .map((layer) => [layer.id, "keep"]),
-      ),
-    );
-    setModal("quit");
+    if (tool !== "select" || propertyDraft !== null || (editable && (modal === "json" || modal === "wkt" || modal === "field"))) {
+      exitPreviousModal.current = modal;
+      setModal("quit");
+    } else await processExit();
   }
   function cancelExit() {
     if (busyRef.current) return;
     exitPending.current = false;
-    openModal(null);
+    openModal(exitPreviousModal.current);
   }
   useEffect(() => {
     if (!desktop) return;
@@ -585,9 +616,9 @@ export default function App() {
         if (disposed) return;
         if (raw) {
           const restored = restoreWorkspace(raw);
+          setTree(restored.tree);
           if (restored.layers.length) {
             addLayers(restored.layers);
-            setTree(restored.tree);
             setStatus(`已恢复 ${restored.layers.length} 个本地副本`);
           }
         }
@@ -644,14 +675,14 @@ export default function App() {
   }, [layers, tree, recoveryReady, modal, busy]);
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
-      if (currentLayers.current.some((l) => l.dirty)) {
+      if (!desktop && tool !== "select") {
         event.preventDefault();
         event.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, []);
+  }, [tool]);
   useEffect(() => {
     setPage(0);
     setSearch("");
@@ -875,24 +906,16 @@ export default function App() {
   }
   async function processExit() {
     await task(async () => {
-      const retained: DocumentLayer[] = [];
-      for (const doc of [...currentLayers.current]) {
-        if (!doc.dirty) continue;
-        const action = exitActions[doc.id] ?? "keep";
-        if (action === "keep") retained.push(doc);
-        else if (action === "save")
-          await saveDocument(doc, doc.sourceKind === "shp");
-        else if (action === "submit") await commitLayer(doc);
-      }
-      if (desktop) {
-        if (!recoveryBlocked.current || retained.length)
-          await writeSnapshot(retained);
-        await getCurrentWindow().destroy();
-      } else {
-        setLayers(retained);
-        setActiveId(retained[0]?.id);
+      try {
+        if (recoveryBlocked.current) throw new Error("恢复文件加载失败，退出前请先处理恢复错误，避免覆盖原副本。");
+        await writeSnapshot(currentLayers.current);
+        await configQueue.current;
+        if (configError.current) throw new Error(configError.current);
+        if (desktop) await getCurrentWindow().destroy();
+        else { exitPending.current = false; setModal(null); }
+      } catch (reason) {
         exitPending.current = false;
-        setModal(null);
+        throw reason;
       }
     });
   }
@@ -1580,6 +1603,7 @@ export default function App() {
                 activeId={activeId}
                 selectedId={selectedId}
                 tool={tool}
+                services={services}
                 basemap={basemap}
                 basemapVisible={basemapVisible}
                 tdtKey={tdtKey}
@@ -1590,6 +1614,7 @@ export default function App() {
                 onBounds={setBounds}
               />
               <BasemapControl
+                services={services}
                 value={basemap}
                 visible={basemapVisible}
                 tdtConfigured={Boolean(tdtKey.trim())}
@@ -2159,6 +2184,8 @@ export default function App() {
         )}
         {modal === "settings" && (
           <SettingsPage
+            services={services}
+            onServices={changeServices}
             category={settingCategory}
             onCategory={setSettingCategory}
             theme={theme}
@@ -2402,56 +2429,8 @@ export default function App() {
         )}
         {modal === "quit" && (
           <Modal title="退出 zGIS" onClose={cancelExit}>
-            <div className="exit-layers">
-              {layers
-                .filter((layer) => layer.dirty)
-                .map((layer) => (
-                  <label key={layer.id}>
-                    <span title={layer.name}>
-                      {layer.name}
-                      <small>
-                        {layer.features.length} 个要素 · {layer.sourceKind}
-                      </small>
-                    </span>
-                    <select
-                      aria-label={`退出处理 ${layer.name}`}
-                      value={exitActions[layer.id] ?? "keep"}
-                      disabled={busy}
-                      onChange={(event) =>
-                        setExitActions((old) => ({
-                          ...old,
-                          [layer.id]: event.target.value as ExitAction,
-                        }))
-                      }
-                    >
-                      <option value="keep">保留恢复副本</option>
-                      <option value="save">
-                        {layer.sourceKind === "postgis" ||
-                        layer.sourceKind === "shp"
-                          ? "另存 GeoJSON"
-                          : "保存文件"}
-                      </option>
-                      {layer.db?.keyColumns.length &&
-                      !uncertainDocs.has(layer.id) ? (
-                        <option value="submit">提交到数据库</option>
-                      ) : null}
-                      <option value="discard">放弃修改</option>
-                    </select>
-                  </label>
-                ))}
-              {!layers.some((layer) => layer.dirty) && <p>所有图层已保存。</p>}
-            </div>
-            <p className="form-note">
-              待处理 {layers.filter((layer) => layer.dirty).length} 个图层 ·
-              保留{" "}
-              {
-                layers.filter(
-                  (layer) =>
-                    layer.dirty && (exitActions[layer.id] ?? "keep") === "keep",
-                ).length
-              }{" "}
-              个恢复副本
-            </p>
+            <p>当前图层仍处于编辑模式，是否退出？</p>
+            <p className="form-note">已应用的图层操作会自动保存。未应用的属性、WKT 或绘制草稿不会保存；可取消退出后完成编辑。</p>
             <div className="modal-actions">
               <button disabled={busy} onClick={cancelExit}>
                 取消
@@ -2462,7 +2441,7 @@ export default function App() {
                 ) : (
                   <Check size={15} />
                 )}
-                处理并退出
+                退出并保留工作区
               </button>
             </div>
           </Modal>

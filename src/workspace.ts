@@ -82,7 +82,6 @@ export function snapshotWorkspace(
   layers: DocumentLayer[],
   tree: LayerTreeNode[],
 ): string {
-  if (!layers.length) return "[]";
   const safeTree = reconcileTree(
     tree,
     layers.map((layer) => layer.id),

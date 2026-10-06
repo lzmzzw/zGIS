@@ -15,6 +15,7 @@ mod shapefile_export;
 mod spatial;
 mod gis_mcp;
 mod vector_files;
+mod preferences;
 mod codex_agent;
 
 #[tauri::command]
@@ -1076,6 +1077,8 @@ pub fn run() {
             save_file,
             save_recovery,
             load_recovery,
+            preferences::load_preferences,
+            preferences::save_preferences,
             connect_database,
             disconnect_database,
             discover_layers,

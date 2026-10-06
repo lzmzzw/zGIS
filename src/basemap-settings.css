@@ -1,0 +1,65 @@
+.basemap-settings {
+  padding: 24px 0;
+}
+.basemap-settings h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.basemap-service-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+  border-top: 1px solid var(--border);
+}
+.basemap-service-list li {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.basemap-service-list li > div:first-child {
+  min-width: 0;
+  flex: 1;
+}
+.basemap-service-list strong {
+  display: block;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.basemap-service-list small {
+  margin-top: 4px;
+}
+.basemap-service-actions {
+  display: flex;
+  gap: 4px;
+}
+.basemap-service-actions .icon-button {
+  width: 28px;
+  height: 28px;
+}
+.basemap-add-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 28px;
+}
+.basemap-add-form label {
+  display: grid;
+  gap: 7px;
+}
+.basemap-add-form input {
+  width: 100%;
+  min-width: 0;
+}
+.basemap-add-form > button {
+  justify-self: start;
+}
+.basemap-undo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  margin-top: 12px;
+}

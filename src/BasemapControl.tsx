@@ -1,17 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Map as MapIcon, Check, X } from "lucide-react";
 import "./basemap-control.css";
-const services = [
-  { id: "osm", name: "OpenStreetMap", type: "道路与地名", preview: "street" },
-  { id: "tdt-vec", name: "天地图 · 矢量", type: "矢量地图", preview: "vector" },
-  {
-    id: "tdt-img",
-    name: "天地图 · 影像",
-    type: "卫星影像",
-    preview: "imagery",
-  },
-];
+import { isTdtService, type BasemapService } from "./basemaps";
 interface Props {
+  services: BasemapService[];
   value: string;
   visible: boolean;
   tdtConfigured: boolean;
@@ -41,8 +33,8 @@ export default function BasemapControl(props: Props) {
       document.removeEventListener("keydown", escape);
     };
   }, [open]);
-  const available = services.filter(
-    (s) => s.id === "osm" || props.tdtConfigured,
+  const available = props.services.filter(
+    (s) => !isTdtService(s) || props.tdtConfigured,
   );
   return (
     <div ref={root} className="basemap-control">
@@ -138,7 +130,8 @@ export default function BasemapControl(props: Props) {
                 © OpenStreetMap contributors
               </a>
             ) : (
-              "© 天地图"
+              (props.services.find((service) => service.id === props.value)
+                ?.attribution ?? "")
             )}
           </p>
           {!props.tdtConfigured && (

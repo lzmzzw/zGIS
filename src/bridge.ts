@@ -61,6 +61,8 @@ export const api = {
         crs,
       },
     ),
+  preferences: () => invoke<string | null>("load_preferences"),
+  savePreferences: (content: string) => invoke("save_preferences", { content }),
   recover: () => invoke<string | null>("load_recovery"),
   backup: (content: string) => invoke("save_recovery", { content }),
   connect: (config: DbConnection) =>
