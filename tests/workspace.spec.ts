@@ -102,7 +102,7 @@ test("restored CSV saves as GeoJSON from the main file menu", async ({
   layers[0].sourceKind = "csv";
   await installDesktopMock(page, JSON.stringify([layers[0]]));
   await page.goto("/");
-  await expect(page.locator(".statusbar")).toContainText("已恢复");
+  await expect(page.locator(".operation-status")).toContainText("已恢复");
   await page
     .locator(".app-header summary")
     .filter({ hasText: /^文件$/ })
@@ -111,7 +111,7 @@ test("restored CSV saves as GeoJSON from the main file menu", async ({
     .locator(".app-header")
     .getByRole("button", { name: "保存", exact: true })
     .click();
-  await expect(page.locator(".statusbar")).toContainText("保存完成");
+  await expect(page.locator(".operation-status")).toContainText("保存完成");
   const save = await page.evaluate(() =>
     window.__ZG_TEST__.calls.find((call) => call.command === "save_file")!,
   );
@@ -137,7 +137,7 @@ test("dirty restored layers exit without a prompt and all work copies are saved"
 }) => {
   await installDesktopMock(page, snapshot);
   await page.goto("/");
-  await expect(page.locator(".statusbar")).toContainText("已恢复 2");
+  await expect(page.locator(".operation-status")).toContainText("已恢复 2");
   await exit(page);
   await expect
     .poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed))
@@ -163,7 +163,7 @@ test("editing exit can be cancelled; confirmation keeps applied changes but not 
 }) => {
   await installDesktopMock(page, snapshot);
   await page.goto("/");
-  await expect(page.locator(".statusbar")).toContainText("已恢复");
+  await expect(page.locator(".operation-status")).toContainText("已恢复");
   await editProperty(page);
   await page
     .getByRole("textbox", { name: "属性 value", exact: true })
@@ -209,7 +209,7 @@ test("vertex editing prompts even before geometry changes", async ({
 }) => {
   await installDesktopMock(page, snapshot);
   await page.goto("/");
-  await expect(page.locator(".statusbar")).toContainText("已恢复");
+  await expect(page.locator(".operation-status")).toContainText("已恢复");
   await page.getByRole("button", { name: "编辑顶点", exact: true }).click();
   await exit(page);
   await expect(
@@ -227,7 +227,7 @@ test("backup failure prevents normal exit and allows a successful retry", async 
 }) => {
   await installDesktopMock(page, snapshot);
   await page.goto("/");
-  await expect(page.locator(".statusbar")).toContainText("已恢复");
+  await expect(page.locator(".operation-status")).toContainText("已恢复");
   await page.evaluate(() => {
     window.__ZG_TEST__.backupError = "snapshot failed";
   });

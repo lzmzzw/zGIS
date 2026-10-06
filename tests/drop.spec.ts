@@ -13,7 +13,7 @@ test("native drop auto imports multiple layers with CRS and elevation", async ({
  });
  await expect(page.locator(".layer-row")).toHaveCount(2);
  await expect(page.getByRole("dialog")).toHaveCount(0);
- await expect(page.locator(".statusbar")).toContainText("已载入 2 个要素");
+ await expect(page.locator(".operation-status")).toContainText("已载入 2 个要素");
 });
 test("failed dropped CSV remains in import panel for correction", async ({page}) => {
  await installDesktopMock(page); await page.goto("/");

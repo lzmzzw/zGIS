@@ -27,7 +27,7 @@ const page =
 await page.waitForSelector(".app");
 if (process.argv.includes("--recovery-only")) {
   await page.waitForFunction(() =>
-    document.querySelector(".statusbar")?.textContent?.includes("已恢复"),
+    document.querySelector(".operation-status")?.textContent?.includes("已恢复"),
   );
   assert.equal(await page.locator('[data-node-kind="layer"]').count(), 1);
   await layerBasemapSmoke(page, true);
@@ -71,7 +71,7 @@ async function nativeDialog(filePath, cancel = false) {
     );
   });
 }
-assert.match(await page.locator(".statusbar").innerText(), /Windows 桌面/);
+assert.equal(await page.evaluate(() => Boolean(window.__TAURI_INTERNALS__)), true);
 async function fileAction(name) {
   await page
     .locator(".app-header summary")
@@ -103,7 +103,7 @@ await page.locator("tbody tr").click();
 await setName("已原生保存");
 await fileAction("保存");
 await page.waitForFunction(() =>
-  document.querySelector(".statusbar")?.textContent?.includes("保存完成"),
+  document.querySelector(".operation-status")?.textContent?.includes("保存完成"),
 );
 const source = JSON.parse(
   readFileSync("output/smoke/fixtures/native.geojson", "utf8"),
@@ -116,7 +116,7 @@ const cancelling = nativeDialog("", true);
 await page.getByRole("button", { name: "导出", exact: true }).click();
 await cancelling;
 await page.waitForFunction(() =>
-  document.querySelector(".statusbar")?.textContent?.includes("已取消导出"),
+  document.querySelector(".operation-status")?.textContent?.includes("已取消导出"),
 );
 assert.equal(await page.getByRole("dialog").count(), 1);
 rmSync("output/desktop/native-export.csv", { force: true });
@@ -124,7 +124,7 @@ const saving = nativeDialog("output/desktop/native-export.csv");
 await page.getByRole("button", { name: "导出", exact: true }).click();
 await saving;
 await page.waitForFunction(() =>
-  document.querySelector(".statusbar")?.textContent?.includes("导出完成"),
+  document.querySelector(".operation-status")?.textContent?.includes("导出完成"),
 );
 assert.match(readFileSync("output/desktop/native-export.csv", "utf8"), /POINT/);
 writeFileSync(
@@ -168,13 +168,13 @@ await page.getByLabel("输出格式").selectOption("shp");
 const shpCancelling = nativeDialog("", true);
 await page.getByRole("button", { name: "导出", exact: true }).click();
 await shpCancelling;
-await page.waitForFunction(() => document.querySelector(".statusbar")?.textContent?.includes("已取消导出"));
+await page.waitForFunction(() => document.querySelector(".operation-status")?.textContent?.includes("已取消导出"));
 assert.equal(await page.getByRole("dialog").count(), 1);
 rmSync("output/desktop/edited-shp.zip", { force: true });
 const shpSaving = nativeDialog("output/desktop/edited-shp.zip");
 await page.getByRole("button", { name: "导出", exact: true }).click();
 await shpSaving;
-await page.waitForFunction(() => document.querySelector(".statusbar")?.textContent?.includes("导出完成"));
+await page.waitForFunction(() => document.querySelector(".operation-status")?.textContent?.includes("导出完成"));
 const zip = readFileSync("output/desktop/edited-shp.zip");
 const roundtrip = await shp(zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength));
 assert.equal(roundtrip.features.length, 2);

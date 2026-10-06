@@ -2089,15 +2089,8 @@ export default function App() {
             </IconButton>
           </div>
         )}
+        <div className="operation-status sr-only" role="status">{status}</div>
         <footer className="statusbar" hidden={modal === "settings"}>
-          <span>
-            {busy ? (
-              <LoaderCircle className="spin" size={13} />
-            ) : (
-              <span className="status-dot" />
-            )}
-            {status}
-          </span>
           {busy && (
             <button
               onClick={() => {
@@ -2108,10 +2101,6 @@ export default function App() {
               取消解析
             </button>
           )}
-          <span>
-            {active?.features.length.toLocaleString() ?? 0} 要素
-            {selected ? " · 已选 1" : ""}
-          </span>
           {tool !== "select" && tool !== "modify" && (
             <span>{nodeCount} 个节点</span>
           )}
@@ -2119,8 +2108,6 @@ export default function App() {
           <span>
             {position[0].toFixed(5)}, {position[1].toFixed(5)}
           </span>
-          <span>WGS84 · 视图 EPSG:3857</span>
-          <span>{desktop ? "Windows 桌面" : "浏览器预览"}</span>
         </footer>
         {modal === "import" && (
           <Modal
