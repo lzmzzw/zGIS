@@ -382,8 +382,9 @@ export default function App() {
   }, [layers, activeId, recoveryReady]);
   const pendingAnalysis = useRef<AnalysisLayer[]>([]);
   const analysisInFlight = useRef<Promise<void> | null>(null);
-  function importPendingAnalysis() {
-    if (!pendingAnalysis.current.length || cellDraft || modal) return;
+  function importPendingAnalysis(forExit = false) {
+    if (!pendingAnalysis.current.length || (!forExit && (cellDraft || modal)))
+      return;
     const added = pendingAnalysis.current.map((result) =>
       makeLayer(
         result.name,
@@ -401,9 +402,11 @@ export default function App() {
     const next = [...currentLayers.current, ...added];
     currentLayers.current = next;
     setLayers(next);
-    setActiveId(added.at(-1)?.id);
-    setLayersOpen(true);
-    setFitNonce((n) => n + 1);
+    if (!forExit) {
+      setActiveId(added.at(-1)?.id);
+      setLayersOpen(true);
+      setFitNonce((n) => n + 1);
+    }
     setStatus(`已添加 ${added.length} 个空间分析结果图层`);
   }
   const importAnalysisRef = useRef(importPendingAnalysis);
@@ -1169,6 +1172,7 @@ export default function App() {
           throw new Error(
             "恢复文件加载失败，退出前请先处理恢复错误，避免覆盖原副本。",
           );
+        importAnalysisRef.current(true);
         await writeSnapshot(currentLayers.current);
         await configQueue.current;
         if (configError.current) throw new Error(configError.current);

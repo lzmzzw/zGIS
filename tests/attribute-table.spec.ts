@@ -3,30 +3,28 @@ import { installDesktopMock } from "./desktop.mock";
 
 async function setup(page: Page) {
   await page.goto("/");
-  await page
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "attributes.geojson",
-      mimeType: "application/json",
-      buffer: Buffer.from(
-        JSON.stringify({
-          type: "FeatureCollection",
-          features: [1, 2].map((n) => ({
-            type: "Feature",
-            id: `f${n}`,
-            geometry: { type: "Point", coordinates: [116 + n, 40] },
-            properties: {
-              code: "001",
-              count: n,
-              enabled: true,
-              empty: null,
-              detail: { name: "原值" },
-              long: "长文本".repeat(50),
-            },
-          })),
-        }),
-      ),
-    });
+  await page.locator("input[type=file]").setInputFiles({
+    name: "attributes.geojson",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      JSON.stringify({
+        type: "FeatureCollection",
+        features: [1, 2].map((n) => ({
+          type: "Feature",
+          id: `f${n}`,
+          geometry: { type: "Point", coordinates: [116 + n, 40] },
+          properties: {
+            code: "001",
+            count: n,
+            enabled: true,
+            empty: null,
+            detail: { name: "原值" },
+            long: "长文本".repeat(50),
+          },
+        })),
+      }),
+    ),
+  });
   await page.getByRole("button", { name: "导入", exact: true }).click();
   await page
     .locator(".header-actions")
@@ -211,4 +209,54 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
   await expect(
     page.getByLabel("attributes.geojson颜色", { exact: true }),
   ).toHaveValue("#123456");
+});
+
+test("confirmed native exit includes deferred analysis layers but discards unconfirmed styles", async ({
+  page,
+}) => {
+  await installDesktopMock(page);
+  await setup(page);
+  await page
+    .locator(".tree-row")
+    .filter({ hasText: "attributes.geojson" })
+    .click({ button: "right" });
+  await page.getByRole("menuitem", { name: "图层属性…", exact: true }).click();
+  const originalColor = await page
+    .getByLabel("attributes.geojson颜色", { exact: true })
+    .inputValue();
+  await page
+    .getByLabel("attributes.geojson颜色", { exact: true })
+    .fill("#abcdef");
+  await page.evaluate(() =>
+    window.__ZG_TEST__.analysisResults.push({
+      id: "deferred",
+      name: "退出保留结果",
+      features: [
+        {
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [116, 40] },
+          properties: { name: "result" },
+        },
+      ],
+    }),
+  );
+  await expect
+    .poll(() => page.evaluate(() => window.__ZG_TEST__.analysisResults.length))
+    .toBe(0);
+  await page.evaluate(() => window.__ZG_TEST__.requestClose());
+  await page
+    .getByRole("button", { name: "退出并保留工作区", exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed))
+    .toBe(true);
+  const saved = JSON.parse(
+    (await page.evaluate(() => window.__ZG_TEST__.snapshot))!,
+  );
+  const layers = Array.isArray(saved) ? saved : saved.layers;
+  expect(layers.map((l: { name: string }) => l.name)).toEqual([
+    "attributes.geojson",
+    "退出保留结果",
+  ]);
+  expect(layers[0].color).toBe(originalColor);
 });
