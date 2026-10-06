@@ -42,6 +42,7 @@ import {
   Minus,
   Square,
 } from "lucide-react";
+import BasemapControl from "./BasemapControl";
 import LayerTree from "./LayerTreePanel";
 import {
   reconcileTree,
@@ -228,7 +229,8 @@ export default function App() {
   useEffect(() => {
     // Escape closes the open picker before any enclosing settings page or menu.
     const pickerEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && document.querySelector("select:open")) event.stopPropagation();
+      if (event.key === "Escape" && document.querySelector("select:open"))
+        event.stopPropagation();
     };
     document.addEventListener("keydown", pickerEscape, true);
     return () => document.removeEventListener("keydown", pickerEscape, true);
@@ -240,6 +242,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string>();
   const [tool, setTool] = useState<Tool>("select");
   const [basemap, setBasemap] = useState("osm");
+  const [basemapVisible, setBasemapVisible] = useState(true);
   const [tdtKey, setTdtKey] = useState("");
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     try {
@@ -527,12 +530,17 @@ export default function App() {
     openModal("db-load");
   }
   function changeBasemap(value: string) {
+    if (value === "none") {
+      setBasemapVisible(false);
+      return;
+    }
+    setBasemap(value);
+    setBasemapVisible(true);
     if (value.startsWith("tdt") && !tdtKey) {
       setSettingCategory("map");
       openModal("settings");
       return;
     }
-    setBasemap(value);
   }
   function writeSnapshot(documents: DocumentLayer[]) {
     const content = snapshotWorkspace(documents, currentTree.current);
@@ -1384,8 +1392,6 @@ export default function App() {
                     (!l.db?.keyColumns.length || uncertainDocs.has(l.id)),
                 )
                 .map((l) => l.id)}
-              basemap={basemap}
-              onBasemap={changeBasemap}
               onSelect={(id) => {
                 setActiveId(id);
                 setInspectorOpen(true);
@@ -1575,12 +1581,20 @@ export default function App() {
                 selectedId={selectedId}
                 tool={tool}
                 basemap={basemap}
+                basemapVisible={basemapVisible}
                 tdtKey={tdtKey}
                 fitNonce={fitNonce}
                 onSelect={selectFeature}
                 onEdit={onGeometry}
                 onPosition={setPosition}
                 onBounds={setBounds}
+              />
+              <BasemapControl
+                value={basemap}
+                visible={basemapVisible}
+                tdtConfigured={Boolean(tdtKey.trim())}
+                onChange={setBasemap}
+                onVisible={setBasemapVisible}
               />
               <div className="map-fit">
                 <IconButton
@@ -2149,12 +2163,15 @@ export default function App() {
             onCategory={setSettingCategory}
             theme={theme}
             onTheme={setTheme}
-            basemap={basemap}
-            onBasemap={setBasemap}
+            basemap={basemapVisible ? basemap : "none"}
+            onBasemap={changeBasemap}
             annotations={annotations}
             onAnnotations={setAnnotations}
             tdtKey={tdtKey}
-            onTdtKey={setTdtKey}
+            onTdtKey={(value) => {
+              setTdtKey(value);
+              if (!value.trim() && basemap.startsWith("tdt")) setBasemap("osm");
+            }}
             error={error}
             onClose={() => openModal(null)}
           />

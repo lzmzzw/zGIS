@@ -17,8 +17,6 @@ interface Props {
   activeId?: string;
   busy: boolean;
   readonlyIds?: string[];
-  basemap: string;
-  onBasemap(value: string): void;
   onSelect(id: string): void;
   onFit(id: string): void;
   onToggleLayer(id: string): void;
@@ -364,20 +362,6 @@ export default function LayerTree(props: Props) {
         }}
       >
         {renderNodes(props.tree)}
-      </div>
-      <div className="basemap-picker">
-        <label htmlFor="basemap">底图</label>
-        <select
-          id="basemap"
-          aria-label="底图"
-          value={props.basemap}
-          onChange={(event) => props.onBasemap(event.target.value)}
-        >
-          <option value="osm">OpenStreetMap</option>
-          <option value="tdt-vec">天地图 · 矢量</option>
-          <option value="tdt-img">天地图 · 影像</option>
-          <option value="none">无底图</option>
-        </select>
       </div>
       {menu && (
         <div

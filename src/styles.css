@@ -443,25 +443,6 @@ details button {
   border-top: 1px solid var(--border);
   margin-top: auto;
 }
-.basemap-picker {
-  display: flex;
-  align-items: center;
-  padding: 8px 6px 8px 12px;
-  gap: 4px;
-  border-top: 1px solid var(--border);
-}
-.basemap-picker label {
-  font-size: 12px;
-  flex-shrink: 0;
-}
-.basemap-picker select {
-  flex: 1;
-  background: transparent;
-  border: 0;
-  width: 0;
-  padding: 0 2px;
-  font-size: 12px;
-}
 .map-column {
   display: flex;
   flex-direction: column;
@@ -474,6 +455,7 @@ details button {
   min-height: 180px;
   background: var(--map);
   overflow: hidden;
+  container-type: size;
 }
 .map-surface {
   width: 100%;
@@ -1132,13 +1114,6 @@ select[aria-invalid="true"] {
     height: auto;
     min-height: 32px;
     font-size: 12px;
-  }
-  .basemap-picker {
-    flex-wrap: wrap;
-    padding: 8px 4px;
-  }
-  .basemap-picker select {
-    flex-basis: 70%;
   }
   .inspector {
     max-width: 100%;

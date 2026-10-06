@@ -3,13 +3,20 @@ import { installDesktopMock } from "./desktop.mock";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-test("GeoJSON XYZ import automatically preserves elevation", async ({ page }) => {
+test("GeoJSON XYZ import automatically preserves elevation", async ({
+  page,
+}) => {
   await page.goto("/");
   await page.locator("input[type=file]").setInputFiles({
-    name: "height.geojson", mimeType: "application/json",
-    buffer: Buffer.from('{"type":"Feature","id":"height-1","geometry":{"type":"Point","coordinates":[116.4,39.9,0]},"properties":{}}'),
+    name: "height.geojson",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      '{"type":"Feature","id":"height-1","geometry":{"type":"Point","coordinates":[116.4,39.9,0]},"properties":{}}',
+    ),
   });
-  const copy = page.getByLabel("height.geojson 按二维副本导入", { exact: true });
+  const copy = page.getByLabel("height.geojson 按二维副本导入", {
+    exact: true,
+  });
   await expect(copy).not.toBeChecked();
   await page.getByRole("button", { name: "导入", exact: true }).click();
   await expect(page.locator(".layer-text")).toContainText("height.geojson");
@@ -18,15 +25,20 @@ test("GeoJSON XYZ import automatically preserves elevation", async ({ page }) =>
   await page.getByRole("button", { name: "导出", exact: true }).click();
   const saved = await download;
   const result = JSON.parse(readFileSync((await saved.path())!, "utf-8"));
-  expect(result.features[0].geometry.coordinates).toEqual([116.4,39.9,0]);
+  expect(result.features[0].geometry.coordinates).toEqual([116.4, 39.9, 0]);
   expect(result.features[0].id).toBe("height-1");
 });
 
-test("GeoJSON metadata import, default 4326 export and explicit projected export", async ({ page }) => {
+test("GeoJSON metadata import, default 4326 export and explicit projected export", async ({
+  page,
+}) => {
   await page.goto("/");
   await page.locator("input[type=file]").setInputFiles({
-    name: "mercator.geojson", mimeType: "application/json",
-    buffer: Buffer.from('{"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[111319.49079327357,0]},"properties":{}}]}'),
+    name: "mercator.geojson",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      '{"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[111319.49079327357,0]},"properties":{}}]}',
+    ),
   });
   await page.getByRole("button", { name: "导入", exact: true }).click();
   await expect(page.locator(".layer-text")).toContainText("mercator.geojson");
@@ -39,7 +51,10 @@ test("GeoJSON metadata import, default 4326 export and explicit projected export
   const file = await downloaded;
   const data = JSON.parse(readFileSync((await file.path())!, "utf-8"));
   expect(data.crs.properties.name).toBe("urn:ogc:def:crs:EPSG::3857");
-  expect(data.features[0].geometry.coordinates[0]).toBeCloseTo(111319.49079327357, 5);
+  expect(data.features[0].geometry.coordinates[0]).toBeCloseTo(
+    111319.49079327357,
+    5,
+  );
 });
 
 async function fileAction(page: Page, name: string) {
@@ -57,7 +72,10 @@ async function showTable(page: Page) {
 }
 async function demo(page: Page) {
   await page.goto("/");
-  await page.locator(".app-header summary").filter({hasText: /^数据$/}).click();
+  await page
+    .locator(".app-header summary")
+    .filter({ hasText: /^数据$/ })
+    .click();
   await page
     .getByRole("button", { name: "城市示例", exact: true })
     .filter({ visible: true })
@@ -306,7 +324,9 @@ test("drawing completion, cancellation, vertices, deletion and undo", async ({
 }) => {
   await demo(page);
   await page.locator("tbody tr").first().click();
-  await page.getByLabel("底图", { exact: true }).selectOption("none");
+  await page.getByRole("button", { name: "底图", exact: true }).click();
+  await page.getByLabel("显示底图", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "关闭底图面板" }).click();
   const box = await page.getByLabel("地理数据地图").boundingBox();
   if (!box) throw new Error("Map not rendered");
   const point = (x: number, y: number) => ({
@@ -324,7 +344,9 @@ test("drawing completion, cancellation, vertices, deletion and undo", async ({
     .inputValue();
   expect(before).toMatch(/^POINT Z\s*\(.* 0\)$/);
   const elevated = before.replace(/ 0\)$/, " 77.5)");
-  await page.getByRole("textbox", { name: "WKT 几何", exact: true }).fill(elevated);
+  await page
+    .getByRole("textbox", { name: "WKT 几何", exact: true })
+    .fill(elevated);
   await page.getByRole("button", { name: "应用几何", exact: true }).click();
   await page
     .getByRole("dialog")
@@ -341,7 +363,9 @@ test("drawing completion, cancellation, vertices, deletion and undo", async ({
   await expect(
     page.getByRole("textbox", { name: "WKT 几何", exact: true }),
   ).not.toHaveValue(before);
-  await expect(page.getByRole("textbox", { name: "WKT 几何", exact: true })).toHaveValue(/ 77\.5\)$/);
+  await expect(
+    page.getByRole("textbox", { name: "WKT 几何", exact: true }),
+  ).toHaveValue(/ 77\.5\)$/);
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "关闭", exact: true })
@@ -386,9 +410,12 @@ test("single header, panels, theme persistence, resizing and canvas rendering", 
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("navigation", { name: "设置分类" }).getByRole("button", {name:"地图",exact:true}).click();
+  await page
+    .getByRole("navigation", { name: "设置分类" })
+    .getByRole("button", { name: "地图", exact: true })
+    .click();
   await page.getByLabel("底图类型", { exact: true }).selectOption("tdt-vec");
-  await expect(page.getByRole("main", {name:"后台设置"})).toContainText(
+  await expect(page.getByRole("main", { name: "后台设置" })).toContainText(
     "填写 tk 后可载入天地图",
   );
   await page.getByLabel("显示注记", { exact: true }).uncheck();
@@ -397,7 +424,10 @@ test("single header, panels, theme persistence, resizing and canvas rendering", 
   await expect(
     page.getByRole("button", { name: "设置", exact: true }),
   ).toBeFocused();
-  await page.locator(".app-header summary").filter({hasText: /^数据$/}).click();
+  await page
+    .locator(".app-header summary")
+    .filter({ hasText: /^数据$/ })
+    .click();
   await page
     .getByRole("button", { name: "城市示例", exact: true })
     .filter({ visible: true })
@@ -413,7 +443,9 @@ test("single header, panels, theme persistence, resizing and canvas rendering", 
   await page.getByLabel("主题", { exact: true }).selectOption("dark");
   await page.getByRole("button", { name: "返回地图", exact: true }).click();
   await page.screenshot({ path: "output/smoke/redesign-dark.png" });
-  await page.getByLabel("底图", { exact: true }).selectOption("none");
+  await page.getByRole("button", { name: "底图", exact: true }).click();
+  await page.getByLabel("显示底图", { exact: true }).uncheck();
+  await page.getByRole("button", { name: "关闭底图面板" }).click();
   await page.waitForTimeout(250);
   const painted = await page
     .locator(".ol-layer canvas")

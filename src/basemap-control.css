@@ -1,0 +1,179 @@
+.basemap-control {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 15;
+}
+.basemap-toggle {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 2px 8px #0002;
+}
+.basemap-toggle:hover:not(:disabled) {
+  background: var(--elevated);
+}
+.basemap-popover {
+  position: absolute;
+  bottom: 48px;
+  right: 0;
+  width: max-content;
+  max-width: min(520px, calc(100cqw - 24px));
+  max-height: calc(100cqh - 76px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--elevated);
+  box-shadow: var(--overlay-shadow);
+}
+.basemap-popover header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.basemap-popover h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  flex: 1;
+}
+.basemap-popover .checkbox-label {
+  display: flex;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.basemap-popover .icon-button {
+  width: 24px;
+  height: 24px;
+}
+.basemap-cards {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.basemap-card {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  width: 144px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 4px 4px 7px;
+}
+.basemap-card:hover {
+  background: var(--hover);
+  border-color: var(--muted);
+}
+.basemap-card.selected {
+  border-color: var(--accent);
+  background: var(--selected);
+}
+.basemap-card:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.basemap-card input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.basemap-card strong {
+  font-size: 12px;
+  font-weight: 500;
+  margin: 0 4px;
+}
+.basemap-card small {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 4px;
+}
+.basemap-preview {
+  height: 72px;
+  overflow: hidden;
+  border-radius: 3px;
+  position: relative;
+  --land: #e2dfd4;
+  --park: #bbcbb4;
+  --water: #93bbc9;
+  --road: #faf8ea;
+  --street-line: #acb1a2;
+}
+.basemap-preview svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.basemap-preview .land {
+  fill: var(--land);
+}
+.basemap-preview .park {
+  fill: var(--park);
+}
+.basemap-preview .water {
+  fill: var(--water);
+}
+.basemap-preview .road {
+  stroke: var(--road);
+  stroke-width: 4;
+  fill: none;
+}
+.basemap-preview .street-line {
+  stroke: var(--street-line);
+  stroke-width: 1;
+  fill: none;
+  opacity: 0.5;
+}
+.basemap-preview.vector {
+  --land: #1c324a;
+  --park: #233e53;
+  --water: #12618b;
+  --road: #66839a;
+  --street-line: #46617c;
+}
+.basemap-preview.imagery {
+  --land: #455740;
+  --park: #293f32;
+  --water: #1d394b;
+  --road: #a69f81;
+  --street-line: #7d8763;
+}
+.basemap-check {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--panel);
+  border-radius: 50%;
+}
+.basemap-popover > p {
+  margin-top: 10px;
+  max-width: 220px;
+}
+@media (max-width: 1050px) {
+  .basemap-card {
+    width: 124px;
+  }
+}
+
+.basemap-source {
+  font-size: 11px;
+  color: var(--muted);
+}
+.basemap-source a {
+  color: inherit;
+  text-decoration: none;
+}
+.basemap-source a:hover {
+  text-decoration: underline;
+}

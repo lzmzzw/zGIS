@@ -10,22 +10,20 @@ for (const theme of ["dark", "light"])
     await page.getByLabel("主题", { exact: true }).selectOption(theme);
     await page.getByRole("button", { name: "返回地图", exact: true }).click();
     await page.setViewportSize({ width: 960, height: 640 });
-    const select = page.getByLabel("底图", { exact: true });
-    await select.click();
-    const option = select.getByRole("option", { name: "无底图", exact: true });
-    await expect(option).toBeVisible();
-    const bounds = await option.boundingBox();
+    const trigger = page.getByRole("button", { name: "底图", exact: true });
+    await trigger.click();
+    const panel = page.getByRole("region", { name: "底图服务" });
+    await expect(panel).toBeVisible();
+    const bounds = await panel.boundingBox();
     expect(bounds!.y).toBeGreaterThanOrEqual(0);
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(640);
-    await page.screenshot({
-      path: `output/smoke/components-dropdown-${theme}.png`,
-    });
-    await option.click();
-    await expect(select).toHaveValue("none");
-    await select.focus();
-    await page.keyboard.press("ArrowUp");
+    await page.screenshot({ path: `output/smoke/basemap-${theme}.png` });
+    await page.getByLabel("显示底图", { exact: true }).uncheck();
+    await expect(
+      page.getByRole("radio", { name: "OpenStreetMap" }),
+    ).toBeChecked();
     await page.keyboard.press("Escape");
-    await expect(select).toBeFocused();
+    await expect(trigger).toBeFocused();
     await page.getByRole("button", { name: "设置", exact: true }).click();
     const themes = page.getByLabel("主题", { exact: true });
     await themes.focus();
@@ -69,15 +67,13 @@ test("picker Escape retains import dialog and terminal follows theme without rem
     "rgb(240, 241, 243)",
   );
   await page.getByRole("button", { name: "隐藏助手侧栏" }).click();
-  await page
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "theme.geojson",
-      mimeType: "application/json",
-      buffer: Buffer.from(
-        '{"type":"Feature","geometry":{"type":"Point","coordinates":[116,40]},"properties":{}}',
-      ),
-    });
+  await page.locator("input[type=file]").setInputFiles({
+    name: "theme.geojson",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      '{"type":"Feature","geometry":{"type":"Point","coordinates":[116,40]},"properties":{}}',
+    ),
+  });
   const source = page.getByLabel("theme.geojson 来源坐标系", { exact: true });
   await source.click();
   await expect(

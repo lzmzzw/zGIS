@@ -31,6 +31,7 @@ interface Props {
   selectedId?: string;
   tool: Tool;
   basemap: string;
+  basemapVisible: boolean;
   tdtKey: string;
   fitNonce: number;
   onSelect: (id?: string) => void;
@@ -66,13 +67,17 @@ export default function MapView(props: Props) {
   current.current = props;
   useEffect(() => {
     const base = new TileLayer({ source: new OSM() });
+    base.setZIndex(0);
     tileRef.current = base;
     const labels = new TileLayer({ visible: false });
+    labels.setZIndex(1);
     labelRef.current = labels;
     const map = new Map({
       target: element.current!,
       layers: [base, labels],
-      controls: defaultControls({ rotate: false }).extend([new ScaleLine()]),
+      controls: defaultControls({ rotate: false, attribution: false }).extend([
+        new ScaleLine(),
+      ]),
       view: new View({ center: fromLonLat([104, 34]), zoom: 4 }),
     });
     mapRef.current = map;
@@ -124,13 +129,8 @@ export default function MapView(props: Props) {
   useEffect(() => {
     const base = tileRef.current!;
     const labels = labelRef.current!;
-    base.setVisible(
-      props.basemap === "osm" ||
-        (props.basemap.startsWith("tdt") && Boolean(props.tdtKey)),
-    );
-    labels.setVisible(false);
     if (props.basemap === "osm") base.setSource(new OSM());
-    else if (props.basemap.startsWith("tdt") && props.tdtKey) {
+    else if (props.basemap.startsWith("tdt") && props.tdtKey.trim()) {
       const type = props.basemap === "tdt-img" ? "img" : "vec";
       const annotation = type === "img" ? "cia" : "cva";
       const source = (layer: string) =>
@@ -141,9 +141,20 @@ export default function MapView(props: Props) {
         });
       base.setSource(source(type));
       labels.setSource(source(annotation));
-      labels.setVisible(props.annotations);
     }
-  }, [props.basemap, props.tdtKey, props.annotations]);
+  }, [props.basemap, props.tdtKey]);
+  useEffect(() => {
+    const configured =
+      props.basemap === "osm" ||
+      (props.basemap.startsWith("tdt") && Boolean(props.tdtKey.trim()));
+    tileRef.current?.setVisible(props.basemapVisible && configured);
+    labelRef.current?.setVisible(
+      props.basemapVisible &&
+        configured &&
+        props.basemap.startsWith("tdt") &&
+        props.annotations,
+    );
+  }, [props.basemapVisible, props.basemap, props.tdtKey, props.annotations]);
   useEffect(() => {
     const map = mapRef.current!;
     for (const [id, layer] of vectorRefs.current)
