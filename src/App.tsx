@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useMemo,
   useEffect,
   useRef,
   useState,
@@ -41,6 +42,15 @@ import {
   Minus,
   Square,
 } from "lucide-react";
+import LayerTree from "./LayerTreePanel";
+import {
+  reconcileTree,
+  orderedTreeLayers,
+  moveTreeNode,
+  addTreeGroup,
+  updateTreeGroup,
+  type LayerTreeNode,
+} from "./layerTree";
 import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
 import MapView, { type Tool } from "./MapView";
@@ -52,7 +62,11 @@ import {
   SubmitPanel,
 } from "./DatabasePanels";
 import { databaseChanges } from "./dbChanges";
-import { restoreLayers, snapshotLayers, type ExitAction } from "./workspace";
+import {
+  restoreWorkspace,
+  snapshotWorkspace,
+  type ExitAction,
+} from "./workspace";
 import {
   createDemoLayer,
   exportGeoJSON,
@@ -225,13 +239,34 @@ export default function App() {
       return "dark";
     }
   });
-  const [settingCategory, setSettingCategory] = useState<SettingsCategory>(
-    "appearance",
-  );
+  const [settingCategory, setSettingCategory] =
+    useState<SettingsCategory>("appearance");
   const [annotations, setAnnotations] = useState(true);
   const [snapping, setSnapping] = useState(true);
   const [layersOpen, setLayersOpen] = useState(true);
-  const [sourceTab, setSourceTab] = useState<"layers" | "sources">("layers");
+  const [tree, setTree] = useState<LayerTreeNode[]>([]);
+  const mapLayers = useMemo(
+    () =>
+      orderedTreeLayers(
+        reconcileTree(
+          tree,
+          layers.map((l) => l.id),
+        ),
+        layers,
+      ),
+    [tree, layers],
+  );
+  const currentTree = useRef(tree);
+  currentTree.current = tree;
+  const insertionGroup = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    setTree((old) =>
+      reconcileTree(
+        old,
+        layers.map((l) => l.id),
+      ),
+    );
+  }, [layers]);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<"layer" | "feature">(
     "layer",
@@ -258,6 +293,7 @@ export default function App() {
     | "export"
     | "database"
     | "db-load"
+    | "db-sources"
     | "submit"
     | "settings"
     | "close"
@@ -299,25 +335,39 @@ export default function App() {
   useEffect(() => {
     if (!desktop || !recoveryReady) return;
     const snapshot = layers.map((layer) => ({
-      id: layer.id, name: layer.name,
+      id: layer.id,
+      name: layer.name,
       features: layer.features.map((feature) => ({
-        type: "Feature", id: feature.id,
-        geometry: feature.geometry, properties: feature.properties,
+        type: "Feature",
+        id: feature.id,
+        geometry: feature.geometry,
+        properties: feature.properties,
       })),
     }));
-    mcpSyncQueue.current = mcpSyncQueue.current.catch(() => {}).then(() =>
-      api.mcpSync(snapshot, activeId),
-    ).catch((reason) => setError(`空间分析图层同步失败：${errorText(reason)}`));
+    mcpSyncQueue.current = mcpSyncQueue.current
+      .catch(() => {})
+      .then(() => api.mcpSync(snapshot, activeId))
+      .catch((reason) =>
+        setError(`空间分析图层同步失败：${errorText(reason)}`),
+      );
   }, [layers, activeId, recoveryReady]);
   const pendingAnalysis = useRef<AnalysisLayer[]>([]);
   const analysisInFlight = useRef<Promise<void> | null>(null);
   function importPendingAnalysis() {
     if (!pendingAnalysis.current.length) return;
-    const added = pendingAnalysis.current.map((result) => makeLayer(
-      result.name,
-      importGeoJSON(JSON.stringify({ type: "FeatureCollection", features: result.features })),
-      "geojson", { dirty: true, warnings: ["空间分析结果副本，请核对后保存或导出。"] },
-    ));
+    const added = pendingAnalysis.current.map((result) =>
+      makeLayer(
+        result.name,
+        importGeoJSON(
+          JSON.stringify({
+            type: "FeatureCollection",
+            features: result.features,
+          }),
+        ),
+        "geojson",
+        { dirty: true, warnings: ["空间分析结果副本，请核对后保存或导出。"] },
+      ),
+    );
     pendingAnalysis.current = [];
     const next = [...currentLayers.current, ...added];
     currentLayers.current = next;
@@ -333,19 +383,26 @@ export default function App() {
     if (!desktop) return;
     let alive = true;
     const timer = window.setInterval(() => {
-      if (analysisInFlight.current || busyRef.current || exitPending.current) return;
+      if (analysisInFlight.current || busyRef.current || exitPending.current)
+        return;
       analysisInFlight.current = (async () => {
         try {
           const incoming = await api.mcpResults();
           if (incoming?.length) pendingAnalysis.current.push(...incoming);
           // Save/close may begin while IPC is pending; keep drained data until safe.
-          if (alive && !busyRef.current && !exitPending.current) importAnalysisRef.current();
+          if (alive && !busyRef.current && !exitPending.current)
+            importAnalysisRef.current();
         } catch (reason) {
           if (alive) setError(`空间分析结果读取失败：${errorText(reason)}`);
-        } finally { analysisInFlight.current = null; }
+        } finally {
+          analysisInFlight.current = null;
+        }
       })();
     }, 1000);
-    return () => { alive = false; window.clearInterval(timer); };
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
   }, []);
   const selected = active?.features.find(
     (feature) => feature.id === selectedId,
@@ -398,6 +455,10 @@ export default function App() {
     }
   }
   function openFiles() {
+    insertionGroup.current = undefined;
+    requestFiles();
+  }
+  function requestFiles() {
     if (desktop) void openDesktopFiles();
     else input.current?.click();
   }
@@ -411,11 +472,16 @@ export default function App() {
   }
   const droppedHandler = useRef<(payload: DroppedFiles) => void>(() => {});
   droppedHandler.current = (payload) => {
-    if (payload.error) { setError(payload.error); setStatus("拖入失败"); return; }
+    if (payload.error) {
+      setError(payload.error);
+      setStatus("拖入失败");
+      return;
+    }
     if (busyRef.current || modal || !recoveryReady || exitPending.current) {
       setError("当前操作尚未完成，请关闭面板或等待后重新拖入文件");
       return;
     }
+    insertionGroup.current = undefined;
     void importSelected(payload.files);
   };
   useEffect(() => {
@@ -424,15 +490,26 @@ export default function App() {
     let cleanup: (() => void) | undefined;
     void onFilesDropped((payload) => {
       if (!disposed) droppedHandler.current(payload);
-    }).then((unlisten) => {
-      if (disposed) unlisten(); else cleanup = unlisten;
-    }).catch((reason) => { if (!disposed) setError(`文件拖入监听失败：${errorText(reason)}`); });
-    return () => { disposed = true; cleanup?.(); };
+    })
+      .then((unlisten) => {
+        if (disposed) unlisten();
+        else cleanup = unlisten;
+      })
+      .catch((reason) => {
+        if (!disposed) setError(`文件拖入监听失败：${errorText(reason)}`);
+      });
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
   }, []);
   function openSources() {
     setLayersOpen(true);
-    setSourceTab("sources");
-    if (!connectionId) openModal("database");
+    insertionGroup.current = undefined;
+    requestSources();
+  }
+  function requestSources() {
+    openModal(connectionId ? "db-sources" : "database");
   }
   function configureDatabase(index: number) {
     setDbIndex(index);
@@ -449,7 +526,7 @@ export default function App() {
     setBasemap(value);
   }
   function writeSnapshot(documents: DocumentLayer[]) {
-    const content = snapshotLayers(documents);
+    const content = snapshotWorkspace(documents, currentTree.current);
     const next = snapshotQueue.current
       .catch(() => {})
       .then(() => api.backup(content));
@@ -490,10 +567,11 @@ export default function App() {
       .then((raw) => {
         if (disposed) return;
         if (raw) {
-          const restored = restoreLayers(raw);
-          if (restored.length) {
-            addLayers(restored);
-            setStatus(`已恢复 ${restored.length} 个本地副本`);
+          const restored = restoreWorkspace(raw);
+          if (restored.layers.length) {
+            addLayers(restored.layers);
+            setTree(restored.tree);
+            setStatus(`已恢复 ${restored.layers.length} 个本地副本`);
           }
         }
       })
@@ -546,7 +624,7 @@ export default function App() {
       );
     }, 1500);
     return () => clearTimeout(timer);
-  }, [layers, recoveryReady, modal, busy]);
+  }, [layers, tree, recoveryReady, modal, busy]);
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
       if (currentLayers.current.some((l) => l.dirty)) {
@@ -583,7 +661,21 @@ export default function App() {
     }
   }
   function addLayers(imported: DocumentLayer[]) {
-    setSourceTab("layers");
+    const group = insertionGroup.current;
+    insertionGroup.current = undefined;
+    setTree((old) => {
+      let next = reconcileTree(
+        old,
+        [...layers, ...imported].map((l) => l.id),
+      );
+      if (group)
+        for (const layer of imported) {
+          try {
+            next = moveTreeNode(next, layer.id, group, "inside");
+          } catch {}
+        }
+      return next;
+    });
     setLayers((old) => [...old, ...imported]);
     setActiveId(imported[0]?.id);
     setFitNonce((n) => n + 1);
@@ -805,7 +897,11 @@ export default function App() {
         const name =
           exportFilename.trim().replace(/\.(geojson|json|csv|shp|zip)$/i, "") +
           ".zip";
-        const result = await api.exportShapefile(active.features, name, exportCrs);
+        const result = await api.exportShapefile(
+          active.features,
+          name,
+          exportCrs,
+        );
         if (!result) {
           setStatus("已取消导出");
           return;
@@ -842,9 +938,8 @@ export default function App() {
       setConnection((c) => ({ ...c, password: "" }));
       setDbLayers(await api.discover(id));
       setDbIndex(0);
-      setSourceTab("sources");
       setLayersOpen(true);
-      setModal(null);
+      setModal("db-sources");
       setStatus("数据库已连接");
     });
   }
@@ -886,7 +981,7 @@ export default function App() {
       dbReadLimits.current.set(doc.id, dbLimit);
       if (bbox) dbBounds.current.set(doc.id, bbox);
       addLayers([doc]);
-      setSourceTab("layers");
+
       setModal(null);
     });
   }
@@ -1051,17 +1146,36 @@ export default function App() {
           className="app-header"
           onMouseDown={(event) => {
             if (!desktop || event.button !== 0 || event.detail === 2) return;
-            if ((event.target as Element).closest("button, summary, .header-menu, .header-actions, .window-controls")) return;
+            if (
+              (event.target as Element).closest(
+                "button, summary, .header-menu, .header-actions, .window-controls",
+              )
+            )
+              return;
             event.preventDefault();
-            void getCurrentWindow().startDragging().catch((reason) => setError(errorText(reason)));
+            void getCurrentWindow()
+              .startDragging()
+              .catch((reason) => setError(errorText(reason)));
           }}
           onDoubleClick={(event) => {
-            if (!desktop || (event.target as Element).closest("button, summary, .header-menu, .header-actions, .window-controls")) return;
-            void getCurrentWindow().toggleMaximize().catch((reason) => setError(errorText(reason)));
+            if (
+              !desktop ||
+              (event.target as Element).closest(
+                "button, summary, .header-menu, .header-actions, .window-controls",
+              )
+            )
+              return;
+            void getCurrentWindow()
+              .toggleMaximize()
+              .catch((reason) => setError(errorText(reason)));
           }}
         >
           <img className="brand-mark" src="/zgis.svg" alt="zGIS" />
-          <nav className="header-menus" aria-label="主菜单" hidden={modal === "settings"}>
+          <nav
+            className="header-menus"
+            aria-label="主菜单"
+            hidden={modal === "settings"}
+          >
             <HeaderMenu label="文件">
               <button onClick={openFiles} disabled={busy}>
                 <FolderOpen size={16} />
@@ -1130,10 +1244,7 @@ export default function App() {
               <button
                 aria-pressed={layersOpen}
                 onClick={() => {
-                  if (sourceTab === "sources") {
-                    setSourceTab("layers");
-                    setLayersOpen(true);
-                  } else setLayersOpen((v) => !v);
+                  setLayersOpen((v) => !v);
                 }}
               >
                 <Layers size={16} />
@@ -1155,17 +1266,22 @@ export default function App() {
               </button>
             </HeaderMenu>
           </nav>
-          <div
-            className="document-title"
-            title={active?.name}
-          >
+          <div className="document-title" title={active?.name}>
             {active?.name ?? ""}
             {active?.dirty && <span className="dirty-dot" title="未保存" />}
           </div>
           <div className="header-actions">
-            {desktop && modal !== "settings" && <>
-              <IconButton label="Codex Agent" active={agentOpen} onClick={() => setAgentOpen((v) => !v)}><Bot size={16} /></IconButton>
-            </>}
+            {desktop && modal !== "settings" && (
+              <>
+                <IconButton
+                  label="Codex Agent"
+                  active={agentOpen}
+                  onClick={() => setAgentOpen((v) => !v)}
+                >
+                  <Bot size={16} />
+                </IconButton>
+              </>
+            )}
             <IconButton
               label="属性表"
               active={tableOpen}
@@ -1188,9 +1304,33 @@ export default function App() {
           </div>
           {desktop && (
             <div className="window-controls">
-              <IconButton label="最小化" onClick={() => void getCurrentWindow().minimize().catch((reason) => setError(errorText(reason)))}><Minus size={16} /></IconButton>
-              <IconButton label="最大化 / 还原" onClick={() => void getCurrentWindow().toggleMaximize().catch((reason) => setError(errorText(reason)))}><Square size={14} /></IconButton>
-              <IconButton label="关闭窗口" disabled={busy || !recoveryReady} onClick={() => void requestExit()}><X size={18} /></IconButton>
+              <IconButton
+                label="最小化"
+                onClick={() =>
+                  void getCurrentWindow()
+                    .minimize()
+                    .catch((reason) => setError(errorText(reason)))
+                }
+              >
+                <Minus size={16} />
+              </IconButton>
+              <IconButton
+                label="最大化 / 还原"
+                onClick={() =>
+                  void getCurrentWindow()
+                    .toggleMaximize()
+                    .catch((reason) => setError(errorText(reason)))
+                }
+              >
+                <Square size={14} />
+              </IconButton>
+              <IconButton
+                label="关闭窗口"
+                disabled={busy || !recoveryReady}
+                onClick={() => void requestExit()}
+              >
+                <X size={18} />
+              </IconButton>
             </div>
           )}
         </header>
@@ -1219,211 +1359,198 @@ export default function App() {
           data-inspector={inspectorOpen}
         >
           <aside className="layers-panel" hidden={!layersOpen}>
-            <div className="panel-heading">
-              <span>{sourceTab === "layers" ? "图层" : "数据源"}</span>
-              <span className="count">
-                {sourceTab === "layers" ? layers.length : dbLayers.length}
-              </span>
-            </div>
-            <div className="inspector-tabs source-tabs">
-              <button
-                className={sourceTab === "layers" ? "active" : "quiet"}
-                onClick={() => setSourceTab("layers")}
-              >
-                图层
-              </button>
-              <button
-                className={sourceTab === "sources" ? "active" : "quiet"}
-                disabled={!desktop}
-                onClick={() => setSourceTab("sources")}
-              >
-                数据源
-              </button>
-            </div>
-            {sourceTab === "sources" ? (
-              <SourcePanel
-                layers={dbLayers}
-                index={dbIndex}
-                connected={Boolean(connectionId)}
-                label={connection.database || "PostGIS"}
-                busy={busy}
-                onIndex={setDbIndex}
-                onLoad={configureDatabase}
-                onConnect={() => openModal("database")}
-                onRefresh={() =>
-                  void task(async () => {
-                    setDbLayers(await api.discover(connectionId));
-                    setDbIndex(0);
-                    setDbWktColumn("");
-                  })
+            <LayerTree
+              tree={reconcileTree(
+                tree,
+                layers.map((l) => l.id),
+              )}
+              layers={layers}
+              activeId={activeId}
+              busy={busy}
+              desktop={desktop}
+              readonlyIds={layers
+                .filter(
+                  (l) =>
+                    l.sourceKind === "postgis" &&
+                    (!l.db?.keyColumns.length || uncertainDocs.has(l.id)),
+                )
+                .map((l) => l.id)}
+              basemap={basemap}
+              onBasemap={changeBasemap}
+              onSelect={(id) => {
+                setActiveId(id);
+                setInspectorOpen(true);
+                setInspectorTab("layer");
+              }}
+              onFit={(id) => {
+                setActiveId(id);
+                setFitNonce((n) => n + 1);
+              }}
+              onToggleLayer={(id) =>
+                setLayers((old) =>
+                  old.map((l) =>
+                    l.id === id ? { ...l, visible: !l.visible } : l,
+                  ),
+                )
+              }
+              onToggleGroup={(id) =>
+                setTree((old) => {
+                  const visit = (nodes: LayerTreeNode[]): LayerTreeNode[] =>
+                    nodes.map((n) =>
+                      n.kind === "group"
+                        ? {
+                            ...n,
+                            visible: n.id === id ? !n.visible : n.visible,
+                            children: visit(n.children),
+                          }
+                        : n,
+                    );
+                  return visit(old);
+                })
+              }
+              onCollapseGroup={(id) =>
+                setTree((old) => {
+                  const visit = (nodes: LayerTreeNode[]): LayerTreeNode[] =>
+                    nodes.map((n) =>
+                      n.kind === "group"
+                        ? {
+                            ...n,
+                            collapsed: n.id === id ? !n.collapsed : n.collapsed,
+                            children: visit(n.children),
+                          }
+                        : n,
+                    );
+                  return visit(old);
+                })
+              }
+              onMove={(id, target, position) => {
+                try {
+                  setTree((old) => {
+                    try {
+                      return moveTreeNode(old, id, target, position);
+                    } catch {
+                      return old;
+                    }
+                  });
+                } catch (reason) {
+                  setError(errorText(reason));
                 }
-              />
-            ) : (
-              <>
-                <div className="layer-list">
-                  {layers.map((l) => (
-                    <div
-                      key={l.id}
-                      className={`layer-row ${l.id === activeId ? "selected" : ""}`}
-                      onDoubleClick={() => {
-                        setActiveId(l.id);
-                        setFitNonce((n) => n + 1);
-                      }}
-                    >
-                      <IconButton
-                        label={l.visible ? "隐藏图层" : "显示图层"}
-                        onClick={() =>
-                          setLayers((old) =>
-                            old.map((item) =>
-                              item.id === l.id
-                                ? { ...item, visible: !item.visible }
-                                : item,
-                            ),
-                          )
-                        }
-                      >
-                        {l.visible ? <Eye size={16} /> : <EyeOff size={16} />}
-                      </IconButton>
-                      <span
-                        className="layer-swatch"
-                        style={{ background: l.color }}
-                      />
-                      <button
-                        className="layer-text"
-                        onClick={() => {
-                          setActiveId(l.id);
-                          setInspectorOpen(true);
-                          setInspectorTab("layer");
-                        }}
-                      >
-                        <strong title={l.name}>
-                          {l.name}
-                          {l.dirty ? " *" : ""}
-                        </strong>
-                      </button>
-                      {l.sourceKind === "postgis" &&
-                        (!l.db?.keyColumns.length ||
-                          uncertainDocs.has(l.id)) && (
-                          <LockKeyhole size={13} aria-label="只读图层" />
-                        )}
-                    </div>
-                  ))}
-                </div>
-                {!layers.length && (
-                  <div className="empty-source">
-                    <button onClick={openFiles} disabled={busy}>
-                      <FolderOpen size={16} />
-                      打开文件…
-                    </button>
-                    <button onClick={openSources} disabled={!desktop || busy}>
-                      <Database size={16} />
-                      PostGIS 数据源…
-                    </button>
-                    <button
-                      onClick={() => addLayers([createDemoLayer()])}
-                      disabled={busy}
-                    >
-                      <Plus size={16} />
-                      城市示例
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-            <div className="layer-footer">
-              <button className="quiet" onClick={openFiles} disabled={busy}>
-                <FolderOpen size={16} />
-                打开文件
-              </button>
-            </div>
-            <div className="basemap-picker">
-              <label htmlFor="basemap">底图</label>
-              <select
-                id="basemap"
-                aria-label="底图"
-                value={basemap}
-                onChange={(e) => changeBasemap(e.target.value)}
-              >
-                <option value="osm">OpenStreetMap</option>
-                <option value="tdt-vec">天地图 · 矢量</option>
-                <option value="tdt-img">天地图 · 影像</option>
-                <option value="none">无底图</option>
-              </select>
-            </div>
+              }}
+              onAddFiles={(group) => {
+                insertionGroup.current = group;
+                requestFiles();
+              }}
+              onAddPostgis={(group) => {
+                insertionGroup.current = group;
+                requestSources();
+              }}
+              onNewGroup={(name, parent) =>
+                setTree((old) =>
+                  addTreeGroup(
+                    old,
+                    {
+                      kind: "group",
+                      id: crypto.randomUUID(),
+                      name,
+                      visible: true,
+                      collapsed: false,
+                      children: [],
+                    },
+                    parent,
+                  ),
+                )
+              }
+              onRenameGroup={(id, name) =>
+                setTree((old) => updateTreeGroup(old, id, { name }))
+              }
+            />
           </aside>
           <section className="map-column">
             <div className="map-container">
-          <div className="map-toolbar" role="toolbar" aria-orientation="vertical" aria-label="地图工具">
-            <div className="tool-group">
-              {tools.map((item) => (
-                <IconButton
-                  key={item.value}
-                  label={item.label}
-                  disabled={
-                    !active || (item.value !== "select" && !editable) || busy
-                  }
-                  active={tool === item.value}
-                  onClick={() => setTool(item.value)}
-                >
-                  <item.icon size={18} />
-                </IconButton>
-              ))}
-              <IconButton
-                label="删除选中要素"
-                disabled={!selected || !editable || busy}
-                onClick={() => openModal("delete")}
+              <div
+                className="map-toolbar"
+                role="toolbar"
+                aria-orientation="vertical"
+                aria-label="地图工具"
               >
-                <Trash2 size={18} />
-              </IconButton>
-            </div>
-            <div className="tool-group">
-              <IconButton
-                label="撤销"
-                disabled={!h?.past.length || !editable || busy}
-                onClick={() => history("undo")}
-              >
-                <Undo2 size={18} />
-              </IconButton>
-              <IconButton
-                label="重做"
-                disabled={!h?.future.length || !editable || busy}
-                onClick={() => history("redo")}
-              >
-                <Redo2 size={18} />
-              </IconButton>
-            </div>
-            <IconButton
-              label="捕捉当前图层顶点和边"
-              active={snapping}
-              disabled={!editable || busy}
-              onClick={() => setSnapping((v) => !v)}
-            >
-              <Magnet size={17} />
-            </IconButton>
-            {tool !== "select" && (
-              <div className="editing-tools">
-                <span>{tools.find((item) => item.value === tool)?.label}</span>
-                {tool !== "modify" && (
+                <div className="tool-group">
+                  {tools.map((item) => (
+                    <IconButton
+                      key={item.value}
+                      label={item.label}
+                      disabled={
+                        !active ||
+                        (item.value !== "select" && !editable) ||
+                        busy
+                      }
+                      active={tool === item.value}
+                      onClick={() => setTool(item.value)}
+                    >
+                      <item.icon size={18} />
+                    </IconButton>
+                  ))}
                   <IconButton
-                    label="完成绘制"
-                    disabled={
-                      nodeCount <
-                      (tool === "Polygon" ? 3 : tool === "LineString" ? 2 : 1)
-                    }
-                    onClick={() => setFinishNonce((n) => n + 1)}
+                    label="删除选中要素"
+                    disabled={!selected || !editable || busy}
+                    onClick={() => openModal("delete")}
                   >
-                    <Check size={16} />
+                    <Trash2 size={18} />
                   </IconButton>
-                )}
+                </div>
+                <div className="tool-group">
+                  <IconButton
+                    label="撤销"
+                    disabled={!h?.past.length || !editable || busy}
+                    onClick={() => history("undo")}
+                  >
+                    <Undo2 size={18} />
+                  </IconButton>
+                  <IconButton
+                    label="重做"
+                    disabled={!h?.future.length || !editable || busy}
+                    onClick={() => history("redo")}
+                  >
+                    <Redo2 size={18} />
+                  </IconButton>
+                </div>
                 <IconButton
-                  label={tool === "modify" ? "结束顶点编辑" : "取消绘制"}
-                  onClick={() => setTool("select")}
+                  label="捕捉当前图层顶点和边"
+                  active={snapping}
+                  disabled={!editable || busy}
+                  onClick={() => setSnapping((v) => !v)}
                 >
-                  <X size={16} />
+                  <Magnet size={17} />
                 </IconButton>
+                {tool !== "select" && (
+                  <div className="editing-tools">
+                    <span>
+                      {tools.find((item) => item.value === tool)?.label}
+                    </span>
+                    {tool !== "modify" && (
+                      <IconButton
+                        label="完成绘制"
+                        disabled={
+                          nodeCount <
+                          (tool === "Polygon"
+                            ? 3
+                            : tool === "LineString"
+                              ? 2
+                              : 1)
+                        }
+                        onClick={() => setFinishNonce((n) => n + 1)}
+                      >
+                        <Check size={16} />
+                      </IconButton>
+                    )}
+                    <IconButton
+                      label={tool === "modify" ? "结束顶点编辑" : "取消绘制"}
+                      onClick={() => setTool("select")}
+                    >
+                      <X size={16} />
+                    </IconButton>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
               <MapView
                 disabled={busy}
@@ -1434,7 +1561,7 @@ export default function App() {
                 finishNonce={finishNonce}
                 featureFitNonce={featureFitNonce}
                 onNodeCount={setNodeCount}
-                layers={layers}
+                layers={mapLayers}
                 activeId={activeId}
                 selectedId={selectedId}
                 tool={tool}
@@ -2002,15 +2129,27 @@ export default function App() {
             />
           </Modal>
         )}
-        {agentOpen && desktop && <div className="agent-dock" hidden={modal === "settings"}><AgentPanel onClose={() => setAgentOpen(false)} /></div>}
-        {modal === "settings" && <SettingsPage
-          category={settingCategory} onCategory={setSettingCategory}
-          theme={theme} onTheme={setTheme}
-          basemap={basemap} onBasemap={setBasemap}
-          annotations={annotations} onAnnotations={setAnnotations}
-          tdtKey={tdtKey} onTdtKey={setTdtKey}
-          error={error} onClose={() => openModal(null)}
-        />}
+        {agentOpen && desktop && (
+          <div className="agent-dock" hidden={modal === "settings"}>
+            <AgentPanel onClose={() => setAgentOpen(false)} />
+          </div>
+        )}
+        {modal === "settings" && (
+          <SettingsPage
+            category={settingCategory}
+            onCategory={setSettingCategory}
+            theme={theme}
+            onTheme={setTheme}
+            basemap={basemap}
+            onBasemap={setBasemap}
+            annotations={annotations}
+            onAnnotations={setAnnotations}
+            tdtKey={tdtKey}
+            onTdtKey={setTdtKey}
+            error={error}
+            onClose={() => openModal(null)}
+          />
+        )}
         {(modal === "json" || modal === "wkt") && selected && (
           <Modal
             title={modal === "json" ? "JSON 属性" : "WKT 几何"}
@@ -2127,6 +2266,33 @@ export default function App() {
                 删除
               </button>
             </div>
+          </Modal>
+        )}
+        {modal === "db-sources" && (
+          <Modal
+            title="添加 PostGIS 图层"
+            onClose={() => {
+              insertionGroup.current = undefined;
+              setModal(null);
+            }}
+          >
+            <SourcePanel
+              layers={dbLayers}
+              index={dbIndex}
+              connected={Boolean(connectionId)}
+              label={connection.database || "PostGIS"}
+              busy={busy}
+              onIndex={setDbIndex}
+              onLoad={configureDatabase}
+              onConnect={() => openModal("database")}
+              onRefresh={() =>
+                void task(async () => {
+                  setDbLayers(await api.discover(connectionId));
+                  setDbIndex(0);
+                  setDbWktColumn("");
+                })
+              }
+            />
           </Modal>
         )}
         {modal === "database" && (

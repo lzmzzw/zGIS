@@ -4,6 +4,7 @@ import { installDesktopMock } from "./desktop.mock";
 test("MCP controls, snapshot isolation and generated layers keep source intact", async ({ page }) => {
   await installDesktopMock(page);
   await page.goto("/");
+  await page.locator(".app-header summary").filter({hasText: /^数据$/}).click();
   await page.getByRole("button", { name: "城市示例", exact: true }).filter({ visible: true }).click();
   await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_workspace_sync").length)).toBeGreaterThan(0);
   const snapshot = await page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_workspace_sync").at(-1)?.args);

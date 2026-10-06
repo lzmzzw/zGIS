@@ -79,3 +79,5 @@ pwsh -File scripts/build.ps1
 安装版验收执行 `pwsh -File scripts/installed-smoke.ps1`，先正常关闭现有 zGIS 会话。脚本暂存并最终还原原恢复文件，使用独立 WebView2 目录，仅操作生成的测试文件；验证原生打开、保存、导出、取消、外部修改保护，以及真实退出后跨进程恢复和放弃。MCP/Agent 测试还需要 PATH 中有已登录的 Codex CLI，验证鉴权、链式分析、文件授权和 `/mcp` 工具发现，不发起模型推理。可用 `-Executable` 指定新构建的 release EXE。WebView2 本地 CDP 仅测试时通过环境启用，不写入产品配置，常规启动不开调试端口。独立 WebView2 目录本身不隔离 Rust 恢复文件，不直接对用户运行中的实例执行底层 smoke。
 
 接口见 [src-tauri/IPC.md](src-tauri/IPC.md)。最初设计见 [zGIS技术方案](../../../Deliverables/zGIS/zGIS技术方案.md)，实现边界以本 README 为准。数据库的 AI 直接操作仍遵守工作台 DBX 入口，应用数据层不提供旁路工具。
+
+图层区为统一图层树，首次启动只显示底图选择，不自动添加示例。空白处右键添加文件、PostGIS 或分组；分组右键添加的图层进入该组。拖动可调整叠放顺序、进出分组，列表上方对应地图上方；分组支持嵌套、显隐和折叠。恢复副本保存树结构，并兼容旧版数组快照。

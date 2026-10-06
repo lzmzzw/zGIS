@@ -1,3 +1,5 @@
+import { snapshotWorkspace, restoreWorkspace } from "./workspace";
+import type { LayerTreeNode } from "./layerTree";
 import { expect, it } from "vitest";
 import { makeLayer } from "./domain";
 import { restoreLayers, snapshotLayers } from "./workspace";
@@ -43,6 +45,66 @@ it("无效恢复内容被拒绝，不静默跳过或降低维度", () => {
 });
 
 it("XYZ 恢复保留高程", () => {
- const layer = makeLayer("height", [{id:"z", geometry:{type:"Point",coordinates:[1,2,12.5]},properties:{}}], "geojson");
- expect(restoreLayers(snapshotLayers([layer]))[0].features[0].geometry).toEqual(layer.features[0].geometry);
+  const layer = makeLayer(
+    "height",
+    [
+      {
+        id: "z",
+        geometry: { type: "Point", coordinates: [1, 2, 12.5] },
+        properties: {},
+      },
+    ],
+    "geojson",
+  );
+  expect(
+    restoreLayers(snapshotLayers([layer]))[0].features[0].geometry,
+  ).toEqual(layer.features[0].geometry);
+});
+
+it("工作区分组与顺序恢复重映射ID，安全元数据与旧格式兼容", () => {
+  const a = makeLayer("a", [], "geojson", { sourceId: "sensitive-handle" }),
+    b = makeLayer("b", [], "geojson");
+  const tree: LayerTreeNode[] = [
+    {
+      kind: "group",
+      id: "group",
+      name: "分组",
+      visible: false,
+      collapsed: true,
+      children: [{ kind: "layer", id: b.id }],
+    },
+    { kind: "layer", id: a.id },
+  ];
+  const snapshot = snapshotWorkspace([a, b], tree);
+  expect(snapshot).not.toContain("sensitive-handle");
+  const restored = restoreWorkspace(snapshot);
+  expect(restored.tree).toEqual([
+    { ...tree[0], children: [{ kind: "layer", id: restored.layers[1].id }] },
+    { kind: "layer", id: restored.layers[0].id },
+  ]);
+  expect(restoreWorkspace(snapshotLayers([a])).tree[0].kind).toBe("layer");
+  expect(snapshotWorkspace([], tree)).toBe("[]");
+});
+it("恢复拒绝重复、未知与缺失图层引用", () => {
+  const layer = makeLayer("a", [], "geojson");
+  const base = { version: 2, layers: JSON.parse(snapshotLayers([layer])) };
+  expect(() => restoreWorkspace(JSON.stringify({ ...base, tree: [] }))).toThrow(
+    "不完整",
+  );
+  expect(() =>
+    restoreWorkspace(
+      JSON.stringify({ ...base, tree: [{ kind: "layer", id: "unknown" }] }),
+    ),
+  ).toThrow("不存在");
+  expect(() =>
+    restoreWorkspace(
+      JSON.stringify({
+        ...base,
+        tree: [
+          { kind: "layer", id: layer.id },
+          { kind: "layer", id: layer.id },
+        ],
+      }),
+    ),
+  ).toThrow("重复");
 });

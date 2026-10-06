@@ -160,7 +160,7 @@ export default function MapView(props: Props) {
       }
       layer.setVisible(item.visible);
       layer.setOpacity(item.opacity ?? 1);
-      layer.setZIndex(index + 10);
+      layer.setZIndex(props.layers.length - index + 10);
       layer.setStyle((feature) =>
         style(
           item.color,
@@ -249,10 +249,13 @@ export default function MapView(props: Props) {
         dataProjection: "EPSG:4326",
       });
       if (insert && raw.geometry && "coordinates" in raw.geometry) {
-        const zeroHeight = (coordinates: any[]): any[] => typeof coordinates[0] === "number"
-          ? [coordinates[0], coordinates[1], 0]
-          : coordinates.map(zeroHeight);
-        raw.geometry.coordinates = zeroHeight(raw.geometry.coordinates) as never;
+        const zeroHeight = (coordinates: any[]): any[] =>
+          typeof coordinates[0] === "number"
+            ? [coordinates[0], coordinates[1], 0]
+            : coordinates.map(zeroHeight);
+        raw.geometry.coordinates = zeroHeight(
+          raw.geometry.coordinates,
+        ) as never;
       }
       current.current.onEdit(
         {

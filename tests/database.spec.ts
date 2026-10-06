@@ -3,12 +3,13 @@ import { installDesktopMock } from "./desktop.mock";
 test("PostGIS text WKT defaults to 4326 and passes all three source SRIDs", async ({ page }) => {
   await installDesktopMock(page);
   await page.goto("/");
+  await page.locator(".app-header summary").filter({hasText: /^数据$/}).click();
   await page.getByRole("button", { name: "PostGIS 数据源…", exact: true }).filter({ visible: true }).click();
   await page.getByLabel("数据库", { exact: true }).fill("test");
   await page.getByLabel("用户", { exact: true }).fill("tester");
   await page.getByRole("button", { name: "连接", exact: true }).click();
   for (const srid of [4326, 4490, 3857]) {
-    await page.getByRole("button", { name: "数据源", exact: true }).click();
+    if (srid !== 4326) { await page.locator(".app-header summary").filter({hasText: /^数据$/}).click(); await page.getByRole("button", { name: "PostGIS 数据源…", exact: true }).click(); }
     await page.locator(".source-table").filter({ hasText: "public.wkt_points" }).dblclick();
     await expect(page.getByLabel("来源 SRID")).toHaveValue("4326");
     await page.getByLabel("WKT 文本列").selectOption("location");
@@ -23,6 +24,7 @@ test("PostGIS text WKT defaults to 4326 and passes all three source SRIDs", asyn
 async function loadSource(page: Page, table = "roads") {
   await installDesktopMock(page);
   await page.goto("/");
+  await page.locator(".app-header summary").filter({hasText: /^数据$/}).click();
   await page
     .getByRole("button", { name: "PostGIS 数据源…", exact: true })
     .filter({ visible: true })

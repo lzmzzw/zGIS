@@ -1,0 +1,112 @@
+.layer-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+}
+.tree-row {
+  position: relative;
+  cursor: default;
+  outline-offset: -2px;
+  user-select: none;
+}
+.tree-row:hover {
+  background: var(--hover);
+}
+.tree-row.selected:hover {
+  background: var(--selected);
+}
+.tree-row .layer-text {
+  display: flex;
+  align-items: center;
+}
+.tree-row.drop-before::before,
+.tree-row.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.tree-row.drop-before::before {
+  top: 0;
+}
+.tree-row.drop-after::after {
+  bottom: 0;
+}
+.tree-row.drop-inside {
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: var(--selected);
+}
+.layer-tree-menu {
+  position: fixed;
+  z-index: 120;
+  width: 192px;
+  padding: 5px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 28px #0005;
+}
+.layer-tree-menu button {
+  width: 100%;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  justify-content: space-between;
+  padding: 0 9px;
+}
+.layer-tree-menu button:hover {
+  background: var(--hover);
+}
+.layer-tree-menu button span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.layer-tree-menu hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 4px;
+}
+.layer-group-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  background: #0005;
+  display: grid;
+  place-items: center;
+}
+.layer-group-dialog {
+  width: min(340px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 12px 40px #0005;
+  display: grid;
+  gap: 12px;
+}
+.layer-group-dialog h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.layer-group-dialog label {
+  color: var(--muted);
+}
+.layer-group-dialog input {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  padding: 0 9px;
+}
+.layer-group-dialog > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}

@@ -57,6 +57,7 @@ async function showTable(page: Page) {
 }
 async function demo(page: Page) {
   await page.goto("/");
+  await page.locator(".app-header summary").filter({hasText: /^数据$/}).click();
   await page
     .getByRole("button", { name: "城市示例", exact: true })
     .filter({ visible: true })
@@ -396,6 +397,7 @@ test("single header, panels, theme persistence, resizing and canvas rendering", 
   await expect(
     page.getByRole("button", { name: "设置", exact: true }),
   ).toBeFocused();
+  await page.locator(".app-header summary").filter({hasText: /^数据$/}).click();
   await page
     .getByRole("button", { name: "城市示例", exact: true })
     .filter({ visible: true })

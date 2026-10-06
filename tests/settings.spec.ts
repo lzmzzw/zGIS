@@ -6,6 +6,7 @@ test("one header entry opens independent settings and preserves edit draft", asy
  await expect(page.getByRole("button", {name:"设置",exact:true})).toHaveCount(1);
  await expect(page.getByRole("button", {name:"底图设置",exact:true})).toHaveCount(0);
  await expect(page.locator(".header-menus").getByRole("button", {name:"设置…",exact:true})).toHaveCount(0);
+ await page.locator(".app-header summary").filter({hasText: /^数据$/}).click();
  await page.getByRole("button",{name:"城市示例",exact:true}).filter({visible:true}).click();
  await page.locator(".header-actions").getByRole("button",{name:"属性表",exact:true}).click();
  await page.locator("tbody tr").first().click();

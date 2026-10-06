@@ -93,7 +93,7 @@ test("auto recovery detaches database state and exit keeps only chosen layers", 
   await installDesktopMock(page, snapshot);
   await page.goto("/");
   await expect(page.locator(".statusbar")).toContainText("已恢复 2");
-  await expect(page.locator(".layer-list .layer-row")).toHaveCount(2);
+  await expect(page.locator(".layer-tree .layer-row")).toHaveCount(2);
   await exit(page);
   await expect(page.getByLabel("退出处理 first")).toHaveValue("keep");
   await expect(
