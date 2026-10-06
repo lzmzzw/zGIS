@@ -11,13 +11,14 @@ import { Draw, Modify, Select, Snap } from "ol/interaction";
 import { click } from "ol/events/condition";
 import { Fill, Stroke, Circle, Style } from "ol/style";
 import { fromLonLat, toLonLat, transformExtent } from "ol/proj";
-import { defaults as defaultControls, ScaleLine } from "ol/control";
+import { defaults as defaultControls } from "ol/control";
 import type Feature from "ol/Feature";
 import type Geometry from "ol/geom/Geometry";
 import type { DocumentLayer, GeoFeature } from "./domain/types";
 import { isTdtService, validateXyzUrl, type BasemapService } from "./basemaps";
 
-export type Tool = "select" | "modify" | "Point" | "LineString" | "Polygon";
+export type Tool =
+  "pan" | "select" | "modify" | "Point" | "LineString" | "Polygon";
 interface Props {
   services: BasemapService[];
   disabled?: boolean;
@@ -78,9 +79,7 @@ export default function MapView(props: Props) {
     const map = new Map({
       target: element.current!,
       layers: [base, labels],
-      controls: defaultControls({ rotate: false, attribution: false }).extend([
-        new ScaleLine(),
-      ]),
+      controls: defaultControls({ rotate: false, attribution: false }),
       view: new View({ center: fromLonLat([104, 34]), zoom: 4 }),
     });
     mapRef.current = map;
@@ -99,7 +98,11 @@ export default function MapView(props: Props) {
         { layerFilter: (layer) => layer === active },
       );
       const geometry = feature?.getGeometry();
-      if (geometry && current.current.tool === "select") {
+      if (
+        geometry &&
+        !current.current.disabled &&
+        current.current.tool === "select"
+      ) {
         current.current.onSelect(feature?.getId()?.toString());
         map.getView().fit(geometry.getExtent(), {
           padding: [60, 60, 60, 60],
@@ -232,13 +235,23 @@ export default function MapView(props: Props) {
     const selection = selectionRef.current!;
     const source = selection.getSource()!;
     source.clear();
-    const active = props.layers.find(item => item.id === props.activeId);
+    const active = props.layers.find((item) => item.id === props.activeId);
     const selected = active?.visible
-      ? vectorRefs.current.get(active.id)?.getSource()?.getFeatureById(props.selectedId ?? "")
+      ? vectorRefs.current
+          .get(active.id)
+          ?.getSource()
+          ?.getFeatureById(props.selectedId ?? "")
       : undefined;
     if (selected) {
       const copy = selected.clone();
-      copy.setStyle(style(active!.color, true, props.theme === "dark" ? "#78a8ff" : "#3e73d8", active!.strokeWidth ?? 2));
+      copy.setStyle(
+        style(
+          active!.color,
+          true,
+          props.theme === "dark" ? "#78a8ff" : "#3e73d8",
+          active!.strokeWidth ?? 2,
+        ),
+      );
       source.addFeature(copy);
     }
   }, [props.layers, props.selectedId, props.activeId, props.theme]);
@@ -317,6 +330,7 @@ export default function MapView(props: Props) {
       interactions.push(modify);
     } else if (
       props.editable &&
+      props.tool !== "pan" &&
       props.tool !== "select" &&
       props.tool !== "modify"
     ) {
@@ -354,7 +368,7 @@ export default function MapView(props: Props) {
       draw.on("drawabort", resetNodes);
       interactions.push(draw);
     }
-    if (props.editable && props.snapping)
+    if (props.editable && props.snapping && props.tool !== "pan")
       interactions.push(new Snap({ source: layer.getSource()! }));
     interactions.forEach((item) => map.addInteraction(item));
     return () => {
@@ -374,6 +388,10 @@ export default function MapView(props: Props) {
     props.theme,
   ]);
   return (
-    <div className="map-surface" ref={element} aria-label="地理数据地图" />
+    <div
+      className={`map-surface ${props.tool === "pan" ? "pan-mode" : ""}`}
+      ref={element}
+      aria-label="地理数据地图"
+    />
   );
 }

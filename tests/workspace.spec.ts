@@ -215,6 +215,7 @@ test("vertex editing prompts even before geometry changes", async ({
   await installDesktopMock(page, snapshot);
   await page.goto("/");
   await expect(page.locator(".operation-status")).toContainText("已恢复");
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
   await page.getByRole("button", { name: "编辑顶点", exact: true }).click();
   await exit(page);
   await expect(

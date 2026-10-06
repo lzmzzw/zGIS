@@ -84,6 +84,8 @@ async function demo(page: Page) {
   await expect(page.locator("tbody tr")).toHaveCount(4);
 }
 async function wktEditor(page: Page) {
+  const enter = page.getByRole("button", { name: "编辑", exact: true });
+  if (await enter.count() && await enter.isEnabled()) await enter.click();
   await page
     .locator(".attribute-panel summary")
     .filter({ hasText: /^更多$/ })
@@ -310,6 +312,7 @@ test("field menu protects duplicates and adds to every feature", async ({
   page,
 }) => {
   await demo(page);
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
   await page
     .locator("th summary")
     .filter({ hasText: /^城市$/ })
@@ -348,6 +351,7 @@ test("drawing completion, cancellation, vertices, deletion and undo", async ({
     y: box.y + y * box.height,
   });
   await page.waitForTimeout(250);
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
   await page.getByRole("button", { name: "新增点", exact: true }).click();
   await page.mouse.click(point(0.4, 0.5).x, point(0.4, 0.5).y);
   await expect(page.locator("tbody tr")).toHaveCount(5);

@@ -114,8 +114,18 @@ await page
 await page.waitForSelector("tbody tr");
 assert.equal(await page.locator("tbody tr").count(), 1);
 await page.locator("tbody tr").click();
+assert.equal(await page.locator("footer, .ol-scale-line").count(), 0);
+assert.equal(await page.getByLabel("经纬度坐标").isVisible(), true);
+assert.equal(await page.getByRole("button", { name: "新增点", exact: true }).count(), 0);
+await page.getByRole("button", { name: "手形", exact: true }).click();
+const handMap = await page.getByLabel("地理数据地图").boundingBox();
+await page.mouse.click(handMap.x + handMap.width / 2, handMap.y + handMap.height / 2);
+assert.equal(await page.locator("tbody tr.selected").count(), 1);
+await page.getByRole("button", { name: "编辑", exact: true }).click();
+assert.equal(await page.getByRole("button", { name: "保存并退出编辑", exact: true }).isDisabled(), true);
 await setName("已原生保存");
-await fileAction("保存");
+assert.equal(await page.getByRole("button", { name: "保存并退出编辑", exact: true }).isEnabled(), true);
+await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
 await page.waitForFunction(() =>
   document
     .querySelector(".operation-status")
@@ -126,6 +136,9 @@ const source = JSON.parse(
 );
 assert.equal(source.features[0].properties.name, "已原生保存");
 assert.equal(source.features[0].id, "native-1");
+assert.equal(await page.getByRole("button", { name: "编辑", exact: true }).isVisible(), true);
+assert.equal(await page.getByRole("button", { name: "新增点", exact: true }).count(), 0);
+console.log("PASS: native coordinate overlay, hand mode, explicit edit and successful save exit");
 await fileAction("导出 / 转换");
 await page.getByLabel("输出格式").selectOption("wkt");
 const cancelling = nativeDialog("", true);
@@ -159,7 +172,7 @@ await page.getByRole("button", { name: "关闭错误" }).click();
 await page.getByRole("button", { name: "撤销", exact: true }).click();
 await page.screenshot({ path: "output/desktop/installed-zgis.png" });
 await fileAction("移除图层");
-await page.getByRole("button", { name: "放弃并移除", exact: true }).click();
+if (await page.getByRole("button", { name: "放弃并移除", exact: true }).count()) await page.getByRole("button", { name: "放弃并移除", exact: true }).click();
 await page.waitForFunction(
   () => document.querySelectorAll("tbody tr").length === 0,
 );
@@ -214,7 +227,7 @@ await shpSaving;
 await page.waitForFunction(() =>
   document
     .querySelector(".operation-status")
-    ?.textContent?.includes("导出完成"),
+    ?.textContent?.includes("保存完成"),
 );
 const zip = readFileSync("output/desktop/edited-shp.zip");
 const roundtrip = await shp(
@@ -226,12 +239,10 @@ assert.equal(roundtrip.features[0].properties.code, "001");
 assert.deepEqual(roundtrip.features[0].geometry.coordinates, [117, 40]);
 for (const [ext, bytes] of Object.entries(originalGroup))
   assert.deepEqual(readFileSync(`output/smoke/fixtures/cities.${ext}`), bytes);
+assert.equal(await page.getByRole("button", { name: "编辑", exact: true }).isVisible(), true);
 await page.screenshot({ path: "output/desktop/shp-edited-export.png" });
 await fileAction("移除图层");
-await page.getByRole("button", { name: "放弃并移除", exact: true }).click();
-await page.waitForFunction(
-  () => document.querySelectorAll("tbody tr").length === 0,
-);
+await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 0);
 console.log(
   "PASS: native SHP attribute/geometry editing, ZIP cancellation/save, independent Chinese/coordinate roundtrip and unchanged original group",
 );

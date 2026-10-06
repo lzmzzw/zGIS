@@ -138,7 +138,7 @@ test("no primary key remains selectable and read only", async ({ page }) => {
   ).toBeDisabled();
   await expect(
     page.getByRole("button", { name: "新增面", exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "选择", exact: true }),
   ).toBeEnabled();

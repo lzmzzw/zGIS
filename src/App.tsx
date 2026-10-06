@@ -17,6 +17,7 @@ import {
   Undo2,
   Redo2,
   MousePointer2,
+  Hand,
   Pencil,
   MapPin,
   Route,
@@ -95,6 +96,7 @@ import {
 } from "./bridge";
 
 const tools: { value: Tool; label: string; icon: typeof Pencil }[] = [
+  { value: "pan", label: "手形", icon: Hand },
   { value: "select", label: "选择", icon: MousePointer2 },
   { value: "modify", label: "编辑顶点", icon: Pencil },
   { value: "Point", label: "新增点", icon: MapPin },
@@ -243,6 +245,12 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string>();
   const centerImmediately = useRef(true);
   const [tool, setTool] = useState<Tool>("select");
+  const [editingLayerId, setEditingLayerId] = useState<string>();
+  const editingBaseline = useRef<
+    { id: string; features: GeoFeature[]; dirty: boolean } | undefined
+  >(undefined);
+  const exportSaveLayerId = useRef<string | undefined>(undefined);
+  const editing = Boolean(activeId && editingLayerId === activeId);
   const [services, setServices] = useState<BasemapService[]>(defaultBasemaps);
   const [configReady, setConfigReady] = useState(!desktop);
   const configQueue = useRef<Promise<unknown>>(Promise.resolve());
@@ -514,6 +522,10 @@ export default function App() {
     setError("");
     setModal(value);
   }
+  useEffect(() => {
+    if (modal !== "export" && modal !== "quit")
+      exportSaveLayerId.current = undefined;
+  }, [modal]);
   function selectFeature(id?: string, locateInTable = false) {
     if (cellDraft && id !== cellDraft.featureId) {
       setError("请先应用或取消当前单元格编辑");
@@ -707,7 +719,7 @@ export default function App() {
     }
     setError("");
     if (
-      tool !== "select" ||
+      (tool !== "select" && tool !== "pan") ||
       cellDraft !== null ||
       (modal === "style" &&
         layerStyleDraft !== null &&
@@ -793,7 +805,10 @@ export default function App() {
   }, [layers, tree, recoveryReady, modal, busy]);
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
-      if (!desktop && (tool !== "select" || cellDraft !== null)) {
+      if (
+        !desktop &&
+        ((tool !== "select" && tool !== "pan") || cellDraft !== null)
+      ) {
         event.preventDefault();
         event.returnValue = "";
       }
@@ -806,6 +821,9 @@ export default function App() {
     setSearch("");
     setSelectedId(undefined);
     setTool("select");
+    setEditingLayerId(undefined);
+    setTableEditing(false);
+    exportSaveLayerId.current = undefined;
   }, [activeId]);
   useEffect(() => {
     setPropertyText(JSON.stringify(selected?.properties ?? {}, null, 2));
@@ -929,7 +947,17 @@ export default function App() {
       to.push(active.features);
       setLayers((old) =>
         old.map((l) =>
-          l.id === active.id ? { ...l, features: next, dirty: true } : l,
+          l.id === active.id
+            ? {
+                ...l,
+                features: next,
+                dirty:
+                  editingBaseline.current?.id === active.id
+                    ? editingBaseline.current.dirty ||
+                      next !== editingBaseline.current.features
+                    : true,
+              }
+            : l,
         ),
       );
       refreshHistory((n) => n + 1);
@@ -1134,6 +1162,25 @@ export default function App() {
       setError(errorText(e));
     }
   }
+  function beginEditing() {
+    if (!active || !canEdit || busy || cellDraft) return;
+    editingBaseline.current = {
+      id: active.id,
+      features: active.features,
+      dirty: active.dirty,
+    };
+    setEditingLayerId(active.id);
+    setTableEditing(true);
+    setTool("select");
+  }
+  function finishEditing(id: string) {
+    setEditingLayerId((current) => (current === id ? undefined : current));
+    setTableEditing(false);
+    setTool("pan");
+    exportSaveLayerId.current = undefined;
+    histories.current.delete(id);
+    refreshHistory((n) => n + 1);
+  }
   async function save(asNew = false) {
     if (cellDraft) {
       setError("请先应用或取消当前单元格编辑");
@@ -1145,6 +1192,7 @@ export default function App() {
       return;
     }
     if (active.sourceKind === "shp") {
+      exportSaveLayerId.current = editing ? active.id : undefined;
       if (desktop) {
         setExportMode("shp");
         setExportFilename(active.name.replace(/\.[^.]+$/, "") + ".zip");
@@ -1157,6 +1205,7 @@ export default function App() {
     }
     await task(async () => {
       await saveDocument(active, asNew);
+      if (editing) finishEditing(active.id);
     });
   }
   async function saveDocument(
@@ -1248,7 +1297,7 @@ export default function App() {
           setStatus("已取消导出");
           return;
         }
-        setStatus("导出完成：SHP ZIP 已另存；工作副本和修改状态保留");
+        setStatus("导出完成：SHP ZIP 已另存");
       } else {
         const content =
           exportMode === "geojson"
@@ -1269,6 +1318,17 @@ export default function App() {
           }
         } else download(content, name);
         setStatus("导出完成");
+      }
+      if (exportSaveLayerId.current === active.id && exportMode !== "postgis") {
+        const updated = { ...active, dirty: false, restored: false };
+        setLayers((old) =>
+          old.map((layer) => (layer.id === active.id ? updated : layer)),
+        );
+        currentLayers.current = currentLayers.current.map((layer) =>
+          layer.id === active.id ? updated : layer,
+        );
+        finishEditing(active.id);
+        setStatus("保存完成，已退出编辑");
       }
       setModal(null);
     });
@@ -1405,6 +1465,7 @@ export default function App() {
     if (!active) return;
     await task(async () => {
       await commitLayer(active);
+      if (editing) finishEditing(active.id);
       setModal(null);
     });
   }
@@ -1509,11 +1570,12 @@ export default function App() {
     tableMaximized,
   ]);
   const h = active ? histories.current.get(active.id) : undefined;
-  const editable =
+  const canEdit =
     Boolean(active) &&
     (active?.sourceKind !== "postgis" ||
       (Boolean(active.db?.keyColumns.length) &&
         !uncertainDocs.has(active.id!)));
+  const editable = canEdit && editing;
   let draftSummary = "";
   let draftError = "";
   if (modal === "json" || modal === "wkt") {
@@ -1598,7 +1660,7 @@ export default function App() {
                 disabled={
                   !active ||
                   busy ||
-                  (active.sourceKind === "postgis" && !editable)
+                  (active.sourceKind === "postgis" && !canEdit)
                 }
               >
                 <Save size={16} />
@@ -1978,93 +2040,144 @@ export default function App() {
                 aria-label="地图工具"
               >
                 <div className="tool-group">
-                  {tools.map((item) => (
+                  {tools
+                    .filter(
+                      (item) =>
+                        editing ||
+                        item.value === "select" ||
+                        item.value === "pan",
+                    )
+                    .map((item) => (
+                      <IconButton
+                        key={item.value}
+                        label={item.label}
+                        disabled={
+                          !active ||
+                          (item.value !== "select" &&
+                            item.value !== "pan" &&
+                            !editable) ||
+                          Boolean(cellDraft) ||
+                          busy
+                        }
+                        active={tool === item.value}
+                        onClick={() => setTool(item.value)}
+                      >
+                        <item.icon size={18} />
+                      </IconButton>
+                    ))}
+                  {editing && (
                     <IconButton
-                      key={item.value}
-                      label={item.label}
+                      label="删除选中要素"
                       disabled={
-                        !active ||
-                        (item.value !== "select" && !editable) ||
-                        Boolean(cellDraft) ||
-                        busy
+                        !selected || !editable || busy || Boolean(cellDraft)
                       }
-                      active={tool === item.value}
-                      onClick={() => setTool(item.value)}
+                      onClick={() => openModal("delete")}
                     >
-                      <item.icon size={18} />
+                      <Trash2 size={18} />
                     </IconButton>
-                  ))}
-                  <IconButton
-                    label="删除选中要素"
-                    disabled={
-                      !selected || !editable || busy || Boolean(cellDraft)
-                    }
-                    onClick={() => openModal("delete")}
-                  >
-                    <Trash2 size={18} />
-                  </IconButton>
-                </div>
-                <div className="tool-group">
-                  <IconButton
-                    label="撤销"
-                    disabled={
-                      !h?.past.length || !editable || busy || Boolean(cellDraft)
-                    }
-                    onClick={() => history("undo")}
-                  >
-                    <Undo2 size={18} />
-                  </IconButton>
-                  <IconButton
-                    label="重做"
-                    disabled={
-                      !h?.future.length ||
-                      !editable ||
-                      busy ||
-                      Boolean(cellDraft)
-                    }
-                    onClick={() => history("redo")}
-                  >
-                    <Redo2 size={18} />
-                  </IconButton>
+                  )}
                 </div>
                 <IconButton
-                  label="捕捉当前图层顶点和边"
-                  active={snapping}
-                  disabled={!editable || busy}
-                  onClick={() => setSnapping((v) => !v)}
+                  label={editing ? "保存并退出编辑" : "编辑"}
+                  active={editing}
+                  disabled={
+                    !canEdit ||
+                    busy ||
+                    Boolean(cellDraft) ||
+                    (editing && (!active?.dirty || nodeCount > 0))
+                  }
+                  onClick={() => (editing ? void save() : beginEditing())}
                 >
-                  <Magnet size={17} />
+                  {editing ? <Save size={18} /> : <Pencil size={18} />}
                 </IconButton>
-                {tool !== "select" && (
-                  <div className="editing-tools">
-                    <span>
-                      {tools.find((item) => item.value === tool)?.label}
-                    </span>
-                    {tool !== "modify" && (
+                <span className="map-edit-state">
+                  {editing ? "编辑中" : "浏览"}
+                </span>
+                {editing && (
+                  <>
+                    <div className="tool-group">
                       <IconButton
-                        label="完成绘制"
+                        label="撤销"
                         disabled={
-                          nodeCount <
-                          (tool === "Polygon"
-                            ? 3
-                            : tool === "LineString"
-                              ? 2
-                              : 1)
+                          !h?.past.length ||
+                          !editable ||
+                          busy ||
+                          Boolean(cellDraft)
                         }
-                        onClick={() => setFinishNonce((n) => n + 1)}
+                        onClick={() => history("undo")}
                       >
-                        <Check size={16} />
+                        <Undo2 size={18} />
                       </IconButton>
-                    )}
+                      <IconButton
+                        label="重做"
+                        disabled={
+                          !h?.future.length ||
+                          !editable ||
+                          busy ||
+                          Boolean(cellDraft)
+                        }
+                        onClick={() => history("redo")}
+                      >
+                        <Redo2 size={18} />
+                      </IconButton>
+                    </div>
                     <IconButton
-                      label={tool === "modify" ? "结束顶点编辑" : "取消绘制"}
-                      onClick={() => setTool("select")}
+                      label="捕捉当前图层顶点和边"
+                      active={snapping}
+                      disabled={!editable || busy}
+                      onClick={() => setSnapping((v) => !v)}
                     >
-                      <X size={16} />
+                      <Magnet size={17} />
                     </IconButton>
-                  </div>
+                    {tool !== "select" && tool !== "pan" && (
+                      <div className="editing-tools">
+                        <span>
+                          {tools.find((item) => item.value === tool)?.label}
+                          {tool !== "modify" && <span>{nodeCount} 个节点</span>}
+                        </span>
+                        {tool !== "modify" && (
+                          <IconButton
+                            label="完成绘制"
+                            disabled={
+                              nodeCount <
+                              (tool === "Polygon"
+                                ? 3
+                                : tool === "LineString"
+                                  ? 2
+                                  : 1)
+                            }
+                            onClick={() => setFinishNonce((n) => n + 1)}
+                          >
+                            <Check size={16} />
+                          </IconButton>
+                        )}
+                        <IconButton
+                          label={
+                            tool === "modify" ? "结束顶点编辑" : "取消绘制"
+                          }
+                          onClick={() => setTool("select")}
+                        >
+                          <X size={16} />
+                        </IconButton>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
+              <div className="map-coordinates" aria-label="经纬度坐标">
+                {position[0].toFixed(5)}, {position[1].toFixed(5)}
+              </div>
+              {busy && (
+                <button
+                  className="map-cancel"
+                  onClick={() => {
+                    cancelParsing();
+                    setStatus("已取消解析");
+                  }}
+                >
+                  取消解析
+                </button>
+              )}
 
               <MapView
                 disabled={busy || Boolean(cellDraft)}
@@ -2182,8 +2295,12 @@ export default function App() {
                     <button
                       className={tableEditing ? "active" : "quiet"}
                       aria-pressed={tableEditing}
-                      disabled={!editable || busy || Boolean(cellDraft)}
+                      disabled={!canEdit || busy || Boolean(cellDraft)}
                       onClick={() => {
+                        if (!editing) {
+                          beginEditing();
+                          return;
+                        }
                         setTableEditing((v) => !v);
                         setTool("select");
                       }}
@@ -2204,7 +2321,7 @@ export default function App() {
                         </button>
                       </>
                     )}
-                    {tableMaximized && (
+                    {tableMaximized && editing && (
                       <>
                         <IconButton
                           label="撤销"
@@ -2460,25 +2577,6 @@ export default function App() {
         <div className="operation-status sr-only" role="status">
           {status}
         </div>
-        <footer className="statusbar" hidden={modal === "settings"}>
-          {busy && (
-            <button
-              onClick={() => {
-                cancelParsing();
-                setStatus("已取消解析");
-              }}
-            >
-              取消解析
-            </button>
-          )}
-          {tool !== "select" && tool !== "modify" && (
-            <span>{nodeCount} 个节点</span>
-          )}
-          <div />
-          <span>
-            {position[0].toFixed(5)}, {position[1].toFixed(5)}
-          </span>
-        </footer>
         {modal === "import" && (
           <Modal
             title={
@@ -2641,7 +2739,7 @@ export default function App() {
                   <dt>要素数量</dt>
                   <dd>{active.features.length.toLocaleString()}</dd>
                 </dl>
-                {!editable && (
+                {!canEdit && (
                   <p className="form-note">
                     当前数据库副本不可编辑，请核对主键及提交状态。
                   </p>
@@ -2801,7 +2899,7 @@ export default function App() {
                   <dt>工作坐标</dt>
                   <dd>WGS84</dd>
                 </dl>
-                {!editable && <p className="form-note">当前来源只读</p>}
+                {!canEdit && <p className="form-note">当前来源只读</p>}
                 {draftError && (
                   <p className="inline-error" role="alert">
                     {draftError}

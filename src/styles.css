@@ -754,31 +754,6 @@ dd {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.statusbar {
-  min-height: 26px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 0 12px;
-  border-top: 1px solid var(--border);
-  background: var(--chrome);
-  color: var(--muted);
-  font-size: 11px;
-  flex-shrink: 0;
-}
-.statusbar > span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-.statusbar > div {
-  flex: 1;
-}
-.statusbar button {
-  height: 22px;
-  font-size: 11px;
-}
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1086,9 +1061,6 @@ select[aria-invalid="true"] {
   .app-header {
     gap: 3px;
   }
-  .statusbar {
-    gap: 10px;
-  }
 }
 @media (max-width: 800px) {
   .app-header {
@@ -1160,17 +1132,6 @@ select[aria-invalid="true"] {
     border-left: 0;
     border-top: 1px solid var(--border);
     padding: 16px 0 0;
-  }
-  .statusbar {
-    flex-wrap: wrap;
-    padding: 4px 8px;
-    gap: 6px;
-  }
-  .statusbar > span {
-    white-space: normal;
-  }
-  .statusbar > span:first-child {
-    min-width: 0;
   }
   .menu-items {
     min-width: 150px;
@@ -1317,3 +1278,21 @@ button, summary, select { transition: background-color 120ms ease, border-color 
   background: var(--accent);
   outline: none;
 }
+
+.map-coordinates {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 5;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--surface);
+  box-shadow: var(--overlay-shadow);
+  color: var(--muted);
+  font: 11px/1.4 Consolas, monospace;
+  pointer-events: none;
+}
+.map-cancel { position: absolute; right: 10px; bottom: 10px; z-index: 5; }
+.map-surface.pan-mode { cursor: grab; }
+.map-surface.pan-mode:active { cursor: grabbing; }
+.map-edit-state { font-size: 10px; color: var(--muted); text-align: center; }

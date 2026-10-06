@@ -5,10 +5,25 @@ Add-Type -AssemblyName UIAutomationTypes
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class NativeDialog {
   [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h, int id);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, string l);
   [DllImport("user32.dll", EntryPoint="SendMessageW")] public static extern IntPtr SendButton(IntPtr h, uint m, IntPtr w, IntPtr l);
+  private delegate bool EnumCallback(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr h, EnumCallback callback, IntPtr l);
+  [DllImport("user32.dll")] private static extern int GetDlgCtrlID(IntPtr h);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder name, int length);
+  public static IntPtr FindFilenameEdit(IntPtr dialog) {
+    IntPtr found = IntPtr.Zero;
+    EnumChildWindows(dialog, (h, l) => {
+      var name = new StringBuilder(256);
+      GetClassName(h, name, name.Capacity);
+      if (GetDlgCtrlID(h) == 1001 && name.ToString() == "Edit") { found = h; return false; }
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
 }
 '@
 $pidCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $AppPid)
@@ -29,6 +44,14 @@ if ($Cancel) {
   exit
 }
 $filenameControl = [NativeDialog]::GetDlgItem($handle, 1148)
+if ($filenameControl -eq [IntPtr]::Zero) {
+  # 新版通用对话框可能尚未发布 UIA Edit 类型，按原生控件 ID 定位嵌套输入框。
+  $controlDeadline = (Get-Date).AddSeconds(3)
+  do {
+    $filenameControl = [NativeDialog]::FindFilenameEdit($handle)
+    if ($filenameControl -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 100 }
+  } while ($filenameControl -eq [IntPtr]::Zero -and (Get-Date) -lt $controlDeadline)
+}
 if ($filenameControl -ne [IntPtr]::Zero) {
   [NativeDialog]::SendMessage($filenameControl, 0xC, [IntPtr]::Zero, $FilePath) | Out-Null
   $acceptButton = [NativeDialog]::GetDlgItem($handle, 1)
