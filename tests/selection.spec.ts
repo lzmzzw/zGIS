@@ -50,7 +50,10 @@ test("map selection locates its record across pages without filtering the attrib
   await expect.poll(() => selected.evaluate(row => {
     const bounds = row.getBoundingClientRect();
     const viewport = row.closest(".table-scroll")!.getBoundingClientRect();
-    return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
+    const container = row.closest(".table-scroll")!;
+    const header = container.querySelector("thead")!.getBoundingClientRect().height;
+    const center = viewport.top + container.clientTop + (container.clientHeight + header) / 2;
+    return Math.abs(bounds.top + bounds.height / 2 - center) < 2;
   })).toBe(true);
   await page.getByRole("button", { name: "上一页", exact: true }).click();
   await expect(page.locator("tbody tr")).toHaveCount(100);
@@ -106,3 +109,26 @@ test("selected polygon outlines remain above adjacent shared edges and deselecti
   await expect.poll(async () => (await readOutline()).count).toBe(0);
 });
 
+
+test("first and last selected records center below the sticky header and re-center on resize", async ({ page }) => {
+  await importPolygons(page, 232);
+  const distance = () => page.locator("tbody tr.selected").evaluate(row => {
+    const view = row.closest(".table-scroll")!;
+    const v = view.getBoundingClientRect(), r = row.getBoundingClientRect();
+    const header = view.querySelector("thead")!.getBoundingClientRect().height;
+    return Math.abs(r.top + r.height / 2 - v.top - view.clientTop - (view.clientHeight + header) / 2);
+  });
+  await page.locator("tbody tr").first().click();
+  await expect.poll(distance).toBeLessThan(2);
+  await page.locator(".table-scroll").evaluate(view => { view.scrollTop = view.scrollHeight; });
+  await page.locator("tbody tr").last().click();
+  await expect.poll(distance).toBeLessThan(2);
+  const scrollLeft = await page.locator(".table-scroll").evaluate(v => v.scrollLeft);
+  await page.setViewportSize({width:1100,height:700});
+  await expect.poll(distance).toBeLessThan(2);
+  expect(await page.locator(".table-scroll").evaluate(v => v.scrollLeft)).toBe(scrollLeft);
+  await expect(page.locator("tbody tr")).toHaveCount(100);
+  await page.getByRole("button",{name:"下一页",exact:true}).click();
+  await expect(page.locator("tbody tr.selected")).toHaveCount(0);
+  await expect(page.locator("tbody tr")).toHaveCount(100);
+});

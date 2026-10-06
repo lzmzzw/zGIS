@@ -582,6 +582,13 @@ details button {
   flex: 1;
   position: relative;
 }
+/* Space at page boundaries lets the first and last selected record center too. */
+.table-scroll table:has(tr.selected) tbody::before,
+.table-scroll table:has(tr.selected) tbody::after {
+  content: "";
+  display: table-row;
+  height: var(--selection-centering-space, 0px);
+}
 table {
   border-collapse: separate;
   border-spacing: 0;

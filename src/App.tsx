@@ -3,6 +3,7 @@ import {
   useContext,
   useMemo,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -241,6 +242,7 @@ export default function App() {
   const [layers, setLayers] = useState<DocumentLayer[]>([]);
   const [activeId, setActiveId] = useState<string>();
   const [selectedId, setSelectedId] = useState<string>();
+  const centerImmediately = useRef(true);
   const [tool, setTool] = useState<Tool>("select");
   const [services, setServices] = useState<BasemapService[]>(defaultBasemaps);
   const [configReady, setConfigReady] = useState(!desktop);
@@ -465,6 +467,7 @@ export default function App() {
     setModal(value);
   }
   function selectFeature(id?: string, locateInTable = false) {
+    centerImmediately.current = locateInTable;
     setSelectedId(id);
     if (id && locateInTable) {
       setSearch("");
@@ -1148,8 +1151,36 @@ export default function App() {
     const index = filtered.findIndex(feature => feature.id === selectedId);
     if (index >= 0) setPage(Math.floor(index / pageSize));
   }, [selectedId, activeId, tableOpen, tableLocateNonce]);
-  useEffect(() => {
-    selectedRow.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  useLayoutEffect(() => {
+    const row = selectedRow.current;
+    const viewport = row?.closest<HTMLDivElement>(".table-scroll");
+    if (!row || !viewport || !tableOpen) return;
+    let frame = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const center = () => {
+      const headerHeight = viewport.querySelector("thead")?.offsetHeight ?? 0;
+      const spacing = Math.max(0, (viewport.clientHeight - headerHeight - row.offsetHeight) / 2);
+      viewport.style.setProperty("--selection-centering-space", `${spacing}px`);
+      const rowBounds = row.getBoundingClientRect();
+      const viewportBounds = viewport.getBoundingClientRect();
+      const target = viewport.scrollTop + rowBounds.top + rowBounds.height / 2
+        - viewportBounds.top - viewport.clientTop - (viewport.clientHeight + headerHeight) / 2;
+      viewport.scrollTo({ top: target, behavior: "instant" });
+    };
+    // A table click may be the first half of a double-click; do not move its
+    // target before the second click. Map selections position immediately.
+    const schedule = () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      if (centerImmediately.current) center();
+      else timer = setTimeout(() => { frame = requestAnimationFrame(center); }, 400);
+    };
+    schedule();
+    const observer = new ResizeObserver(schedule);
+    observer.observe(viewport);
+    const header = viewport.querySelector("thead");
+    if (header) observer.observe(header);
+    return () => { observer.disconnect(); clearTimeout(timer); cancelAnimationFrame(frame); };
   }, [selectedId, page, tableOpen, tableLocateNonce]);
   const h = active ? histories.current.get(active.id) : undefined;
   const editable =
@@ -1796,6 +1827,8 @@ export default function App() {
                           onClick={() => selectFeature(f.id)}
                           onDoubleClick={() => {
                             selectFeature(f.id);
+                            centerImmediately.current = true;
+                            setTableLocateNonce(n => n + 1);
                             setFeatureFitNonce((n) => n + 1);
                           }}
                         >
