@@ -28,6 +28,7 @@ export interface DbConnection {
   sslMode: string;
 }
 export const api = {
+  mcpTools: () => invoke<McpToolDefinition[]>("gis_mcp_tool_catalog"),
   mcpStatus: () => invoke<McpStatus>("gis_mcp_status"),
   mcpEnable: (enabled: boolean) => invoke<McpStatus>("gis_mcp_set_enabled", { enabled }),
   mcpSync: (layers: unknown[], activeLayerId?: string) =>
@@ -100,6 +101,11 @@ export interface McpStatus {
   endpoint?: string | null;
   token?: string | null;
   authorizedPaths?: string[];
+}
+export interface McpToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
 }
 export interface AnalysisLayer {
   id: string;

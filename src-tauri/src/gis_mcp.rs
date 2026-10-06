@@ -369,6 +369,11 @@ async fn handle(
 fn def(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":name!="publish_result","destructiveHint":false,"idempotentHint":true,"openWorldHint":false}})
 }
+#[tauri::command]
+pub fn gis_mcp_tool_catalog() -> Vec<Value> {
+    definitions()
+}
+
 pub fn definitions() -> Vec<Value> {
     let mut d = vec![
         def("list_layers", "列举当前zGIS图层快照", json!({}), &[]),

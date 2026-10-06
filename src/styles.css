@@ -1296,3 +1296,15 @@ button, summary, select { transition: background-color 120ms ease, border-color 
 .map-surface.pan-mode { cursor: grab; }
 .map-surface.pan-mode:active { cursor: grabbing; }
 .map-edit-state { font-size: 10px; color: var(--muted); text-align: center; }
+
+.mcp-tools-panel { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.mcp-tools-toggle { display: flex; align-items: center; gap: 8px; width: 100%; height: auto; padding: 12px; border: 0; border-radius: 0; background: var(--surface); text-align: left; }
+.mcp-tools-toggle > span { margin-left: auto; color: var(--muted); font-size: 12px; }
+.mcp-tools-details { padding: 0 12px 12px; }
+.mcp-tool-group h3 { margin: 16px 0 8px; font-size: 12px; color: var(--muted); }
+.mcp-tool-list { display: grid; gap: 8px; }
+.mcp-tool-item { padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; }
+.mcp-tool-item > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.mcp-tool-item code { color: var(--muted); overflow-wrap: anywhere; font-size: 12px; }
+.mcp-tool-item p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.mcp-tools-error { display: flex; align-items: center; gap: 10px; color: var(--danger); padding-top: 12px; }

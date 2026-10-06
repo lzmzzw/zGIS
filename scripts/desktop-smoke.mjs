@@ -103,6 +103,17 @@ async function editCell(field) {
     .locator(`.attribute-panel tbody tr.selected td[data-field="${field}"]`)
     .dblclick();
 }
+await page.getByRole("button", { name: "设置", exact: true }).click();
+await page.getByRole("button", { name: "空间分析 MCP", exact: true }).click();
+const nativeTools = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("gis_mcp_tool_catalog"));
+assert.equal(nativeTools.length, 14);
+await page.getByRole("button", { name: /工具详情/ }).click();
+await page.waitForSelector(".mcp-tool-item");
+assert.deepEqual((await page.locator(".mcp-tool-item code").allTextContents()).sort(), nativeTools.map(tool => tool.name).sort());
+assert.equal(await page.getByRole("button", { name: "启用 MCP", exact: true }).isVisible(), true);
+await page.screenshot({ path: "output/desktop/mcp-tool-catalog.png" });
+await page.getByRole("button", { name: "返回地图", exact: true }).click();
+console.log("PASS: native MCP catalog lists every registered tool while service is stopped");
 const opening = nativeDialog("output/smoke/fixtures/native.geojson");
 await fileAction("打开文件…");
 await opening;

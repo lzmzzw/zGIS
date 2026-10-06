@@ -1059,6 +1059,7 @@ pub fn run() {
         .manage(codex_agent::CodexAgent::default())
         .invoke_handler(tauri::generate_handler![
             gis_mcp::gis_mcp_status,
+            gis_mcp::gis_mcp_tool_catalog,
             gis_mcp::gis_mcp_set_enabled,
             gis_mcp::gis_workspace_sync,
             gis_mcp::gis_results_drain,

@@ -11,6 +11,8 @@ export interface DesktopTestState {
   backupError: string;
   saveError: string;
   saveCancelled: boolean;
+  mcpTools: { name: string; description: string; inputSchema: Record<string, unknown> }[];
+  mcpToolsError: string;
   snapshot: string | null;
   destroyed: boolean;
   features: GeoFeature[];
@@ -40,6 +42,8 @@ export async function installDesktopMock(
         backupError: "",
         saveError: "",
         saveCancelled: false,
+        mcpTools: [],
+        mcpToolsError: "",
         snapshot,
         destroyed: false,
         features: [
@@ -89,6 +93,10 @@ export async function installDesktopMock(
             args: Record<string, unknown> = {},
           ) => {
             state.calls.push({ command, args });
+            if (command === "gis_mcp_tool_catalog") {
+              if (state.mcpToolsError) throw Error(state.mcpToolsError);
+              return state.mcpTools;
+            }
             if (command === "load_preferences") return localStorage.getItem("test.basemaps");
             if (command === "save_preferences") { localStorage.setItem("test.basemaps", String(args.content)); return null; }
             if (command === "gis_mcp_status" || command === "gis_mcp_set_enabled") {

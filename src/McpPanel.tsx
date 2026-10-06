@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type McpStatus } from "./bridge";
+import McpToolCatalog from "./McpToolCatalog";
 
 export default function McpPanel() {
   const [status, setStatus] = useState<McpStatus>({ enabled: false });
@@ -37,6 +38,7 @@ export default function McpPanel() {
       <p className="form-note">在外部客户端的进程环境中设置 ZGIS_MCP_TOKEN，再添加以下配置。服务重启后需更新令牌与地址；侧栏 Agent 自动连接。</p>
       <pre>{`[mcp_servers.zgis]\nurl = ${JSON.stringify(status.endpoint)}\nbearer_token_env_var = "ZGIS_MCP_TOKEN"`}</pre>
     </>}
+    <McpToolCatalog />
     <h3>外部矢量文件</h3>
     <p className="form-note">当前图层直接可用。读取外部文件前，选择文件或授权目录；仅本次运行有效，可随时撤销。支持 GeoJSON、CSV、SHP 和 ZIP，排除 _credentials。</p>
     <div className="modal-actions">
