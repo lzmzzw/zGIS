@@ -19,6 +19,7 @@ interface Props {
   readonlyIds?: string[];
   onSelect(id: string): void;
   onFit(id: string): void;
+  onProperties(id: string): void;
   onToggleLayer(id: string): void;
   onToggleGroup(id: string): void;
   onCollapseGroup(id: string): void;
@@ -414,6 +415,15 @@ export default function LayerTree(props: Props) {
           {menu.node && (
             <>
               <hr />
+              {menu.node.kind === "layer" && (
+                <button
+                  role="menuitem"
+                  disabled={props.busy}
+                  onClick={() => act(() => props.onProperties(menu.node!.id))}
+                >
+                  图层属性…
+                </button>
+              )}
               <button
                 role="menuitem"
                 disabled={props.busy || menu.siblings[0]?.id === menu.node.id}

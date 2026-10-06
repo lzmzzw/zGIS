@@ -44,6 +44,7 @@ import {
   Square,
 } from "lucide-react";
 import BasemapControl from "./BasemapControl";
+import { cellText, parseCellValue } from "./attributeEditing";
 import LayerTree from "./LayerTreePanel";
 import {
   reconcileTree,
@@ -65,10 +66,7 @@ import {
   SubmitPanel,
 } from "./DatabasePanels";
 import { databaseChanges } from "./dbChanges";
-import {
-  restoreWorkspace,
-  snapshotWorkspace,
-} from "./workspace";
+import { restoreWorkspace, snapshotWorkspace } from "./workspace";
 import {
   createDemoLayer,
   exportGeoJSON,
@@ -287,14 +285,24 @@ export default function App() {
       ),
     );
   }, [layers]);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
-  const [inspectorTab, setInspectorTab] = useState<"layer" | "feature">(
-    "layer",
-  );
-  const [propertyDraft, setPropertyDraft] = useState<Record<
-    string,
-    unknown
-  > | null>(null);
+  const [layerStyleDraft, setLayerStyleDraft] = useState<{
+    layerId: string;
+    color: string;
+    opacity: number;
+    strokeWidth: number;
+  } | null>(null);
+  const [tableEditing, setTableEditing] = useState(false);
+  const [tableMaximized, setTableMaximized] = useState(false);
+  const [cellDraft, setCellDraft] = useState<{
+    layerId: string;
+    featureId: string;
+    field: string;
+    text: string;
+    original: unknown;
+    isNull: boolean;
+    expanded: boolean;
+    error: string;
+  } | null>(null);
   const [tableHeight, setTableHeight] = useState(250);
   const [featureFitNonce, setFeatureFitNonce] = useState(0);
   const [finishNonce, setFinishNonce] = useState(0);
@@ -321,6 +329,8 @@ export default function App() {
     | "json"
     | "wkt"
     | "field"
+    | "cell"
+    | "layer"
     | "delete"
     | null
   >(null);
@@ -373,7 +383,7 @@ export default function App() {
   const pendingAnalysis = useRef<AnalysisLayer[]>([]);
   const analysisInFlight = useRef<Promise<void> | null>(null);
   function importPendingAnalysis() {
-    if (!pendingAnalysis.current.length) return;
+    if (!pendingAnalysis.current.length || cellDraft || modal) return;
     const added = pendingAnalysis.current.map((result) =>
       makeLayer(
         result.name,
@@ -450,10 +460,11 @@ export default function App() {
       /* Theme remains usable when storage is unavailable. */
     }
   }, [theme]);
-  useEffect(() => {
-    setPropertyDraft(null);
-  }, [activeId, selectedId]);
   function openModal(value: typeof modal) {
+    if (cellDraft && value && !["settings", "cell", "quit"].includes(value)) {
+      setError("请先应用或取消当前单元格编辑");
+      return;
+    }
     if (value === "export" && active)
       setExportFilename(
         active.name.replace(/\.[^.]+$/, "") +
@@ -467,16 +478,16 @@ export default function App() {
     setModal(value);
   }
   function selectFeature(id?: string, locateInTable = false) {
+    if (cellDraft && id !== cellDraft.featureId) {
+      setError("请先应用或取消当前单元格编辑");
+      return;
+    }
     centerImmediately.current = locateInTable;
     setSelectedId(id);
     if (id && locateInTable) {
       setSearch("");
       setTableOpen(true);
-      setTableLocateNonce(n => n + 1);
-    }
-    if (id) {
-      setInspectorOpen(true);
-      setInspectorTab("feature");
+      setTableLocateNonce((n) => n + 1);
     }
   }
   function openFiles() {
@@ -484,6 +495,10 @@ export default function App() {
     requestFiles();
   }
   function requestFiles() {
+    if (cellDraft) {
+      setError("请先应用或取消当前单元格编辑");
+      return;
+    }
     if (desktop) void openDesktopFiles();
     else input.current?.click();
   }
@@ -502,7 +517,13 @@ export default function App() {
       setStatus("拖入失败");
       return;
     }
-    if (busyRef.current || modal || !recoveryReady || !configReady || exitPending.current) {
+    if (
+      busyRef.current ||
+      modal ||
+      !recoveryReady ||
+      !configReady ||
+      exitPending.current
+    ) {
       setError("当前操作尚未完成，请关闭面板或等待后重新拖入文件");
       return;
     }
@@ -544,34 +565,70 @@ export default function App() {
   }
   useEffect(() => {
     let disposed = false;
-    const load = desktop ? api.preferences() : Promise.resolve(sessionStorage.getItem("zgis.basemaps"));
-    load.then(raw => {
-      if (disposed || !raw) return;
-      const value = JSON.parse(raw);
-      if (!Array.isArray(value.services) || !value.services.length || !value.services.every((s: BasemapService) => typeof s.id === "string" && typeof s.name === "string" && (!s.url || /^https?:\/\//.test(s.url)))) throw new Error("底图配置无效");
-      setServices(value.services);
-      setBasemap(value.services.some((s: BasemapService) => s.id === value.selected) ? value.selected : value.services[0].id);
-      setBasemapVisible(value.visible !== false);
-      setAnnotations(value.annotations !== false);
-      setTdtKey(typeof value.tdtKey === "string" ? value.tdtKey : "");
-    }).catch(() => { configBlocked.current = true; setError("底图配置加载失败，已保留原配置。"); })
-      .finally(() => { if (!disposed) setConfigReady(true); });
-    return () => { disposed = true; };
+    const load = desktop
+      ? api.preferences()
+      : Promise.resolve(sessionStorage.getItem("zgis.basemaps"));
+    load
+      .then((raw) => {
+        if (disposed || !raw) return;
+        const value = JSON.parse(raw);
+        if (
+          !Array.isArray(value.services) ||
+          !value.services.length ||
+          !value.services.every(
+            (s: BasemapService) =>
+              typeof s.id === "string" &&
+              typeof s.name === "string" &&
+              (!s.url || /^https?:\/\//.test(s.url)),
+          )
+        )
+          throw new Error("底图配置无效");
+        setServices(value.services);
+        setBasemap(
+          value.services.some((s: BasemapService) => s.id === value.selected)
+            ? value.selected
+            : value.services[0].id,
+        );
+        setBasemapVisible(value.visible !== false);
+        setAnnotations(value.annotations !== false);
+        setTdtKey(typeof value.tdtKey === "string" ? value.tdtKey : "");
+      })
+      .catch(() => {
+        configBlocked.current = true;
+        setError("底图配置加载失败，已保留原配置。");
+      })
+      .finally(() => {
+        if (!disposed) setConfigReady(true);
+      });
+    return () => {
+      disposed = true;
+    };
   }, []);
   useEffect(() => {
     if (!configReady || configBlocked.current) return;
-    const content = JSON.stringify({ services, selected: basemap, visible: basemapVisible, annotations, tdtKey });
-    configQueue.current = configQueue.current.catch(() => {}).then(async () => {
-      try {
-        if (desktop) await api.savePreferences(content);
-        else sessionStorage.setItem("zgis.basemaps", content);
-        configError.current = "";
-      } catch { configError.current = "底图配置保存失败，请重试后退出。"; setError(configError.current); }
+    const content = JSON.stringify({
+      services,
+      selected: basemap,
+      visible: basemapVisible,
+      annotations,
+      tdtKey,
     });
+    configQueue.current = configQueue.current
+      .catch(() => {})
+      .then(async () => {
+        try {
+          if (desktop) await api.savePreferences(content);
+          else sessionStorage.setItem("zgis.basemaps", content);
+          configError.current = "";
+        } catch {
+          configError.current = "底图配置保存失败，请重试后退出。";
+          setError(configError.current);
+        }
+      });
   }, [services, basemap, basemapVisible, annotations, tdtKey, configReady]);
   function changeServices(next: BasemapService[]) {
     setServices(next);
-    if (!next.some(s => s.id === basemap)) setBasemap(next[0].id);
+    if (!next.some((s) => s.id === basemap)) setBasemap(next[0].id);
   }
   function changeBasemap(value: string) {
     if (value === "none") {
@@ -595,7 +652,13 @@ export default function App() {
     return next;
   }
   async function requestExit() {
-    if (busyRef.current || !recoveryReady || !configReady || exitPending.current) return;
+    if (
+      busyRef.current ||
+      !recoveryReady ||
+      !configReady ||
+      exitPending.current
+    )
+      return;
     exitPending.current = true;
     try {
       await analysisInFlight.current;
@@ -606,7 +669,16 @@ export default function App() {
       return;
     }
     setError("");
-    if (tool !== "select" || propertyDraft !== null || (editable && (modal === "json" || modal === "wkt" || modal === "field"))) {
+    if (
+      tool !== "select" ||
+      cellDraft !== null ||
+      (modal === "layer" &&
+        layerStyleDraft !== null &&
+        (layerStyleDraft.color !== active?.color ||
+          layerStyleDraft.opacity !== (active?.opacity ?? 1) ||
+          layerStyleDraft.strokeWidth !== (active?.strokeWidth ?? 2))) ||
+      (editable && (modal === "json" || modal === "wkt" || modal === "field"))
+    ) {
       exitPreviousModal.current = modal;
       setModal("quit");
     } else await processExit();
@@ -684,14 +756,14 @@ export default function App() {
   }, [layers, tree, recoveryReady, modal, busy]);
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
-      if (!desktop && tool !== "select") {
+      if (!desktop && (tool !== "select" || cellDraft !== null)) {
         event.preventDefault();
         event.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [tool]);
+  }, [tool, cellDraft]);
   useEffect(() => {
     setPage(0);
     setSearch("");
@@ -718,6 +790,10 @@ export default function App() {
     }
   }
   function addLayers(imported: DocumentLayer[]) {
+    if (cellDraft) {
+      setError("请先应用或取消当前单元格编辑");
+      return;
+    }
     const group = insertionGroup.current;
     insertionGroup.current = undefined;
     setTree((old) => {
@@ -761,6 +837,10 @@ export default function App() {
     });
   }
   async function acceptFiles(files: InputFile[]) {
+    if (cellDraft) {
+      setError("请先应用或取消当前单元格编辑");
+      return;
+    }
     if (!files.length) return;
     setPendingFiles(files);
     if (files.some((f) => /\.(csv|geojson|json)$/i.test(f.name))) {
@@ -802,7 +882,7 @@ export default function App() {
     if (insert) setTool("select");
   }
   function history(direction: "undo" | "redo") {
-    if (!active || busy || !editable) return;
+    if (!active || busy || !editable || cellDraft) return;
     const h = histories.current.get(active.id);
     if (!h) return;
     const from = direction === "undo" ? h.past : h.future;
@@ -817,6 +897,171 @@ export default function App() {
       );
       refreshHistory((n) => n + 1);
     }
+  }
+  function beginCell(feature: GeoFeature, field: string) {
+    if (!active || !editable || busy || !tableEditing || cellDraft) return;
+    const original = feature.properties[field];
+    const expanded =
+      (typeof original === "object" && original !== null) ||
+      (typeof original === "string" &&
+        (original.length > 80 || original.includes("\n")));
+    selectFeature(feature.id);
+    setTool("select");
+    setCellDraft({
+      layerId: active.id,
+      featureId: feature.id,
+      field,
+      original,
+      text: cellText(original),
+      isNull: false,
+      expanded,
+      error: "",
+    });
+    if (expanded) openModal("cell");
+  }
+  function cancelCell() {
+    const field = cellDraft?.field;
+    const featureId = cellDraft?.featureId;
+    setCellDraft(null);
+    if (modal === "cell") setModal(null);
+    if (field && featureId)
+      requestAnimationFrame(() => focusCell(featureId, field));
+  }
+  function focusCell(featureId: string, field: string) {
+    const cells = document.querySelectorAll<HTMLElement>(".attribute-cell");
+    Array.from(cells)
+      .find((c) => c.dataset.feature === featureId && c.dataset.field === field)
+      ?.focus();
+  }
+  function commitCell(direction = 0) {
+    if (
+      !cellDraft ||
+      !active ||
+      cellDraft.layerId !== active.id ||
+      !editable ||
+      busy
+    )
+      return;
+    try {
+      const value = parseCellValue(
+        cellDraft.text,
+        cellDraft.original,
+        cellDraft.isNull,
+      );
+      const feature = active.features.find((f) => f.id === cellDraft.featureId);
+      if (!feature) throw new Error("要素已不存在，请取消编辑后重新选择");
+      if (
+        JSON.stringify(value) !==
+        JSON.stringify(feature.properties[cellDraft.field])
+      )
+        edit(
+          active.features.map((f) =>
+            f.id === feature.id
+              ? {
+                  ...f,
+                  properties: { ...f.properties, [cellDraft.field]: value },
+                }
+              : f,
+          ),
+        );
+      const fieldIndex = fields.indexOf(cellDraft.field);
+      const nextField = fields[fieldIndex + direction];
+      const oldField = cellDraft.field;
+      setCellDraft(null);
+      if (modal === "cell") setModal(null);
+      setError("");
+      setStatus("属性已更新，源文件需保存");
+      requestAnimationFrame(() =>
+        focusCell(feature.id, direction && nextField ? nextField : oldField),
+      );
+    } catch (reason) {
+      setCellDraft((d) => (d ? { ...d, error: errorText(reason) } : null));
+    }
+  }
+  function renderCellInput(expanded = false) {
+    if (!cellDraft) return null;
+    const label = `属性 ${cellDraft.field}`;
+    const update = (text: string) =>
+      setCellDraft((d) => (d ? { ...d, text, error: "" } : null));
+    return (
+      <div
+        className="cell-editor"
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelCell();
+          } else if (
+            e.key === "Enter" &&
+            (!expanded || e.ctrlKey || e.metaKey)
+          ) {
+            e.preventDefault();
+            commitCell();
+          } else if (e.key === "Tab" && !expanded) {
+            e.preventDefault();
+            commitCell(e.shiftKey ? -1 : 1);
+          }
+        }}
+      >
+        {typeof cellDraft.original === "boolean" ? (
+          <select
+            autoFocus
+            aria-label={label}
+            value={cellDraft.text}
+            disabled={busy || cellDraft.isNull}
+            onChange={(e) => update(e.target.value)}
+          >
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        ) : expanded ? (
+          <textarea
+            autoFocus
+            aria-label={label}
+            value={cellDraft.text}
+            disabled={busy || cellDraft.isNull}
+            onChange={(e) => update(e.target.value)}
+          />
+        ) : (
+          <input
+            autoFocus
+            aria-label={label}
+            aria-invalid={Boolean(cellDraft.error)}
+            value={cellDraft.text}
+            disabled={busy || cellDraft.isNull}
+            onChange={(e) => update(e.target.value)}
+          />
+        )}
+        <label className="cell-null">
+          <input
+            type="checkbox"
+            aria-label="设为 NULL"
+            checked={cellDraft.isNull}
+            disabled={busy}
+            onChange={(e) =>
+              setCellDraft((d) =>
+                d ? { ...d, isNull: e.target.checked, error: "" } : null,
+              )
+            }
+          />
+          NULL
+        </label>
+        {!expanded && (
+          <IconButton
+            label="展开单元格编辑"
+            disabled={busy}
+            onClick={() => {
+              setCellDraft((d) => (d ? { ...d, expanded: true } : null));
+              openModal("cell");
+            }}
+          >
+            <Square size={13} />
+          </IconButton>
+        )}
+      </div>
+    );
   }
   function applyProperties() {
     if (!selected || !active || !editable || busy) return;
@@ -853,6 +1098,10 @@ export default function App() {
     }
   }
   async function save(asNew = false) {
+    if (cellDraft) {
+      setError("请先应用或取消当前单元格编辑");
+      return;
+    }
     if (!active) return;
     if (active.sourceKind === "postgis") {
       openModal("submit");
@@ -916,12 +1165,18 @@ export default function App() {
   async function processExit() {
     await task(async () => {
       try {
-        if (recoveryBlocked.current) throw new Error("恢复文件加载失败，退出前请先处理恢复错误，避免覆盖原副本。");
+        if (recoveryBlocked.current)
+          throw new Error(
+            "恢复文件加载失败，退出前请先处理恢复错误，避免覆盖原副本。",
+          );
         await writeSnapshot(currentLayers.current);
         await configQueue.current;
         if (configError.current) throw new Error(configError.current);
         if (desktop) await getCurrentWindow().destroy();
-        else { exitPending.current = false; setModal(null); }
+        else {
+          exitPending.current = false;
+          setModal(null);
+        }
       } catch (reason) {
         exitPending.current = false;
         throw reason;
@@ -1116,6 +1371,10 @@ export default function App() {
     });
   }
   async function closeLayer() {
+    if (cellDraft) {
+      setError("请先应用或取消当前单元格编辑");
+      return;
+    }
     if (!active) return;
     await task(async () => {
       const next = layers.filter((l) => l.id !== active.id);
@@ -1144,27 +1403,42 @@ export default function App() {
     ) ?? [];
   const pageSize = 100;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const shown = filtered.slice(page * pageSize, (page + 1) * pageSize);
+  const effectivePage = Math.min(page, totalPages - 1);
+  const shown = filtered.slice(
+    effectivePage * pageSize,
+    (effectivePage + 1) * pageSize,
+  );
+  useEffect(() => {
+    if (page !== effectivePage) setPage(effectivePage);
+  }, [page, effectivePage]);
   const selectedRow = useRef<HTMLTableRowElement>(null);
   useEffect(() => {
     if (!tableOpen || !selectedId) return;
-    const index = filtered.findIndex(feature => feature.id === selectedId);
+    const index = filtered.findIndex((feature) => feature.id === selectedId);
     if (index >= 0) setPage(Math.floor(index / pageSize));
   }, [selectedId, activeId, tableOpen, tableLocateNonce]);
   useLayoutEffect(() => {
     const row = selectedRow.current;
     const viewport = row?.closest<HTMLDivElement>(".table-scroll");
-    if (!row || !viewport || !tableOpen) return;
+    if (!row || !viewport || !tableOpen || cellDraft) return;
     let frame = 0;
     let timer: ReturnType<typeof setTimeout>;
     const center = () => {
       const headerHeight = viewport.querySelector("thead")?.offsetHeight ?? 0;
-      const spacing = Math.max(0, (viewport.clientHeight - headerHeight - row.offsetHeight) / 2);
+      const spacing = Math.max(
+        0,
+        (viewport.clientHeight - headerHeight - row.offsetHeight) / 2,
+      );
       viewport.style.setProperty("--selection-centering-space", `${spacing}px`);
       const rowBounds = row.getBoundingClientRect();
       const viewportBounds = viewport.getBoundingClientRect();
-      const target = viewport.scrollTop + rowBounds.top + rowBounds.height / 2
-        - viewportBounds.top - viewport.clientTop - (viewport.clientHeight + headerHeight) / 2;
+      const target =
+        viewport.scrollTop +
+        rowBounds.top +
+        rowBounds.height / 2 -
+        viewportBounds.top -
+        viewport.clientTop -
+        (viewport.clientHeight + headerHeight) / 2;
       viewport.scrollTo({ top: target, behavior: "instant" });
     };
     // A table click may be the first half of a double-click; do not move its
@@ -1173,15 +1447,29 @@ export default function App() {
       clearTimeout(timer);
       cancelAnimationFrame(frame);
       if (centerImmediately.current) center();
-      else timer = setTimeout(() => { frame = requestAnimationFrame(center); }, 400);
+      else
+        timer = setTimeout(() => {
+          frame = requestAnimationFrame(center);
+        }, 400);
     };
     schedule();
     const observer = new ResizeObserver(schedule);
     observer.observe(viewport);
     const header = viewport.querySelector("thead");
     if (header) observer.observe(header);
-    return () => { observer.disconnect(); clearTimeout(timer); cancelAnimationFrame(frame); };
-  }, [selectedId, page, tableOpen, tableLocateNonce]);
+    return () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+    };
+  }, [
+    selectedId,
+    page,
+    tableOpen,
+    tableLocateNonce,
+    Boolean(cellDraft),
+    tableMaximized,
+  ]);
   const h = active ? histories.current.get(active.id) : undefined;
   const editable =
     Boolean(active) &&
@@ -1338,17 +1626,11 @@ export default function App() {
               </button>
               <button
                 aria-pressed={tableOpen}
+                disabled={Boolean(cellDraft)}
                 onClick={() => setTableOpen((v) => !v)}
               >
                 <Table2 size={16} />
                 属性表
-              </button>
-              <button
-                aria-pressed={inspectorOpen}
-                onClick={() => setInspectorOpen((v) => !v)}
-              >
-                <Settings2 size={16} />
-                检查器
               </button>
             </HeaderMenu>
           </nav>
@@ -1371,7 +1653,7 @@ export default function App() {
             <IconButton
               label="属性表"
               active={tableOpen}
-              disabled={modal === "settings"}
+              disabled={modal === "settings" || Boolean(cellDraft)}
               onClick={() => setTableOpen((v) => !v)}
             >
               <Table2 size={16} />
@@ -1442,7 +1724,6 @@ export default function App() {
           hidden={modal === "settings"}
           className="workspace"
           data-layers={layersOpen}
-          data-inspector={inspectorOpen}
         >
           <aside className="layers-panel" hidden={!layersOpen}>
             <LayerTree
@@ -1452,7 +1733,7 @@ export default function App() {
               )}
               layers={layers}
               activeId={activeId}
-              busy={busy}
+              busy={busy || Boolean(cellDraft)}
               desktop={desktop}
               readonlyIds={layers
                 .filter(
@@ -1462,11 +1743,24 @@ export default function App() {
                 )
                 .map((l) => l.id)}
               onSelect={(id) => {
+                if (cellDraft) return;
                 setActiveId(id);
-                setInspectorOpen(true);
-                setInspectorTab("layer");
+              }}
+              onProperties={(id) => {
+                if (cellDraft || busy) return;
+                const layer = layers.find((l) => l.id === id);
+                if (!layer) return;
+                setActiveId(id);
+                setLayerStyleDraft({
+                  layerId: id,
+                  color: layer.color,
+                  opacity: layer.opacity ?? 1,
+                  strokeWidth: layer.strokeWidth ?? 2,
+                });
+                openModal("layer");
               }}
               onFit={(id) => {
+                if (cellDraft) return;
                 setActiveId(id);
                 setFitNonce((n) => n + 1);
               }}
@@ -1565,6 +1859,7 @@ export default function App() {
                       disabled={
                         !active ||
                         (item.value !== "select" && !editable) ||
+                        Boolean(cellDraft) ||
                         busy
                       }
                       active={tool === item.value}
@@ -1575,7 +1870,9 @@ export default function App() {
                   ))}
                   <IconButton
                     label="删除选中要素"
-                    disabled={!selected || !editable || busy}
+                    disabled={
+                      !selected || !editable || busy || Boolean(cellDraft)
+                    }
                     onClick={() => openModal("delete")}
                   >
                     <Trash2 size={18} />
@@ -1584,14 +1881,21 @@ export default function App() {
                 <div className="tool-group">
                   <IconButton
                     label="撤销"
-                    disabled={!h?.past.length || !editable || busy}
+                    disabled={
+                      !h?.past.length || !editable || busy || Boolean(cellDraft)
+                    }
                     onClick={() => history("undo")}
                   >
                     <Undo2 size={18} />
                   </IconButton>
                   <IconButton
                     label="重做"
-                    disabled={!h?.future.length || !editable || busy}
+                    disabled={
+                      !h?.future.length ||
+                      !editable ||
+                      busy ||
+                      Boolean(cellDraft)
+                    }
                     onClick={() => history("redo")}
                   >
                     <Redo2 size={18} />
@@ -1637,7 +1941,7 @@ export default function App() {
               </div>
 
               <MapView
-                disabled={busy}
+                disabled={busy || Boolean(cellDraft)}
                 editable={editable}
                 theme={theme}
                 annotations={annotations}
@@ -1680,7 +1984,8 @@ export default function App() {
             <section
               className={`attribute-panel ${tableOpen ? "" : "collapsed"}`}
               hidden={!tableOpen}
-              style={{ height: tableHeight }}
+              data-maximized={tableMaximized}
+              style={{ height: tableMaximized ? "100%" : tableHeight }}
             >
               <div
                 className="table-resizer"
@@ -1688,6 +1993,7 @@ export default function App() {
                 aria-label="调整属性表高度"
                 aria-orientation="horizontal"
                 aria-valuenow={tableHeight}
+                hidden={tableMaximized}
                 aria-valuemin={140}
                 aria-valuemax={600}
                 tabIndex={0}
@@ -1727,6 +2033,7 @@ export default function App() {
                 <button
                   className="quiet"
                   onClick={() => setTableOpen((v) => !v)}
+                  disabled={Boolean(cellDraft)}
                 >
                   属性表{" "}
                   <span className="count">{active?.features.length ?? 0}</span>
@@ -1739,16 +2046,101 @@ export default function App() {
                         aria-label="搜索属性"
                         placeholder="搜索属性"
                         value={search}
+                        disabled={Boolean(cellDraft)}
                         onChange={(e) => {
                           setSearch(e.target.value);
                           setPage(0);
                         }}
                       />
                     </div>
+                    <button
+                      className={tableEditing ? "active" : "quiet"}
+                      aria-pressed={tableEditing}
+                      disabled={!editable || busy || Boolean(cellDraft)}
+                      onClick={() => {
+                        setTableEditing((v) => !v);
+                        setTool("select");
+                      }}
+                    >
+                      <Pencil size={14} />
+                      编辑属性
+                    </button>
+                    {cellDraft && (
+                      <>
+                        <button
+                          disabled={busy || !editable}
+                          onClick={() => commitCell()}
+                        >
+                          应用
+                        </button>
+                        <button disabled={busy} onClick={cancelCell}>
+                          取消
+                        </button>
+                      </>
+                    )}
+                    {tableMaximized && (
+                      <>
+                        <IconButton
+                          label="撤销"
+                          disabled={
+                            !h?.past.length ||
+                            !editable ||
+                            busy ||
+                            Boolean(cellDraft)
+                          }
+                          onClick={() => history("undo")}
+                        >
+                          <Undo2 size={15} />
+                        </IconButton>
+                        <IconButton
+                          label="重做"
+                          disabled={
+                            !h?.future.length ||
+                            !editable ||
+                            busy ||
+                            Boolean(cellDraft)
+                          }
+                          onClick={() => history("redo")}
+                        >
+                          <Redo2 size={15} />
+                        </IconButton>
+                      </>
+                    )}
+                    <IconButton
+                      label="定位到选中要素"
+                      disabled={!selected || Boolean(cellDraft)}
+                      onClick={() => setFeatureFitNonce((n) => n + 1)}
+                    >
+                      <LocateFixed size={15} />
+                    </IconButton>
+                    <HeaderMenu label="更多">
+                      <span className="field-info">
+                        {selected ? `选中要素：${selected.id}` : "请先选择要素"}
+                      </span>
+                      <button
+                        disabled={!selected || busy || Boolean(cellDraft)}
+                        onClick={() => openModal("json")}
+                      >
+                        <FileJson size={15} />
+                        JSON 属性…
+                      </button>
+                      <button
+                        disabled={!selected || busy || Boolean(cellDraft)}
+                        onClick={() => openModal("wkt")}
+                      >
+                        WKT 几何…
+                      </button>
+                    </HeaderMenu>
+                    <IconButton
+                      label={tableMaximized ? "还原属性表" : "最大化属性表"}
+                      onClick={() => setTableMaximized((v) => !v)}
+                    >
+                      <Square size={14} />
+                    </IconButton>
                     <div className="pagination">
                       <IconButton
                         label="上一页"
-                        disabled={page === 0}
+                        disabled={page === 0 || Boolean(cellDraft)}
                         onClick={() => setPage((n) => n - 1)}
                       >
                         <ChevronLeft size={16} />
@@ -1758,7 +2150,7 @@ export default function App() {
                       </span>
                       <IconButton
                         label="下一页"
-                        disabled={page + 1 >= totalPages}
+                        disabled={page + 1 >= totalPages || Boolean(cellDraft)}
                         onClick={() => setPage((n) => n + 1)}
                       >
                         <ChevronRight size={16} />
@@ -1768,11 +2160,42 @@ export default function App() {
                 )}
                 <IconButton
                   label="收起属性表"
-                  onClick={() => setTableOpen(false)}
+                  onClick={() => {
+                    setTableOpen(false);
+                    setTableMaximized(false);
+                  }}
+                  disabled={Boolean(cellDraft)}
                 >
                   <ChevronDown size={16} />
                 </IconButton>
               </header>
+              {tableEditing && (
+                <div className="table-edit-note">
+                  {editable
+                    ? "双击单元格或 Enter 编辑 · Enter 应用 · Tab 下一字段 · Esc 取消"
+                    : "当前来源只读"}
+                </div>
+              )}
+              {selected && !filtered.some((f) => f.id === selected.id) && (
+                <div className="table-edit-note">
+                  选中要素已被筛选隐藏{" "}
+                  <button
+                    className="quiet"
+                    disabled={Boolean(cellDraft)}
+                    onClick={() => {
+                      setSearch("");
+                      setTableLocateNonce((n) => n + 1);
+                    }}
+                  >
+                    显示选中项
+                  </button>
+                </div>
+              )}
+              {cellDraft?.error && !cellDraft.expanded && (
+                <div className="cell-error" role="alert">
+                  {cellDraft.field}：{cellDraft.error}
+                </div>
+              )}
               {tableOpen && (
                 <div className="table-scroll">
                   <table>
@@ -1826,9 +2249,10 @@ export default function App() {
                           className={selectedId === f.id ? "selected" : ""}
                           onClick={() => selectFeature(f.id)}
                           onDoubleClick={() => {
+                            if (cellDraft || tableEditing) return;
                             selectFeature(f.id);
                             centerImmediately.current = true;
-                            setTableLocateNonce(n => n + 1);
+                            setTableLocateNonce((n) => n + 1);
                             setFeatureFitNonce((n) => n + 1);
                           }}
                         >
@@ -1836,14 +2260,55 @@ export default function App() {
                             {page * pageSize + index + 1}
                           </td>
                           <td>{f.geometry?.type ?? "空"}</td>
-                          {fields.map((field) => (
-                            <td
-                              key={field}
-                              title={stringify(f.properties[field])}
-                            >
-                              {stringify(f.properties[field])}
-                            </td>
-                          ))}
+                          {fields.map((field) => {
+                            const draft =
+                              cellDraft?.featureId === f.id &&
+                              cellDraft.layerId === activeId &&
+                              cellDraft.field === field
+                                ? cellDraft
+                                : null;
+                            const value = f.properties[field];
+                            return (
+                              <td
+                                key={field}
+                                title={
+                                  value === null ? "NULL" : stringify(value)
+                                }
+                                className={
+                                  draft
+                                    ? "attribute-cell editing"
+                                    : "attribute-cell"
+                                }
+                                data-feature={f.id}
+                                data-field={field}
+                                tabIndex={
+                                  tableEditing && editable ? 0 : undefined
+                                }
+                                onDoubleClick={(e) => {
+                                  if (!tableEditing) return;
+                                  e.stopPropagation();
+                                  beginCell(f, field);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (
+                                    e.target !== e.currentTarget ||
+                                    e.key !== "Enter"
+                                  )
+                                    return;
+                                  e.preventDefault();
+                                  beginCell(f, field);
+                                }}
+                              >
+                                {draft && !draft.expanded ? (
+                                  renderCellInput()
+                                ) : value === null ? (
+                                  <span className="null-value">NULL</span>
+                                ) : (
+                                  stringify(value)
+                                )}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))}
                     </tbody>
@@ -1857,262 +2322,6 @@ export default function App() {
               )}
             </section>
           </section>
-          <aside className="inspector" hidden={!inspectorOpen}>
-            <div className="panel-heading">
-              <span>{inspectorTab === "layer" ? "图层" : "要素"}</span>
-              <IconButton
-                label="关闭检查器"
-                onClick={() => setInspectorOpen(false)}
-              >
-                <X size={16} />
-              </IconButton>
-            </div>
-            <div className="inspector-tabs">
-              <button
-                className={inspectorTab === "layer" ? "active" : "quiet"}
-                onClick={() => setInspectorTab("layer")}
-              >
-                图层
-              </button>
-              <button
-                className={inspectorTab === "feature" ? "active" : "quiet"}
-                onClick={() => setInspectorTab("feature")}
-              >
-                要素
-              </button>
-            </div>
-            {inspectorTab === "layer" ? (
-              active ? (
-                <div className="inspector-body layer-details">
-                  <h3>{active.name}</h3>
-                  <span className="count">
-                    {active.features.length.toLocaleString()} 个要素
-                  </span>
-                  <h4>样式</h4>
-                  <label>
-                    颜色
-                    <input
-                      type="color"
-                      value={active.color}
-                      aria-label={`${active.name}颜色`}
-                      onChange={(e) =>
-                        setLayers((old) =>
-                          old.map((l) =>
-                            l.id === active.id
-                              ? { ...l, color: e.target.value }
-                              : l,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label>
-                    不透明度{" "}
-                    <output>{Math.round((active.opacity ?? 1) * 100)}%</output>
-                    <input
-                      type="range"
-                      aria-label="不透明度"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={active.opacity ?? 1}
-                      onChange={(event) =>
-                        setLayers((old) =>
-                          old.map((layer) =>
-                            layer.id === active.id
-                              ? {
-                                  ...layer,
-                                  opacity: Number(event.target.value),
-                                }
-                              : layer,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <label>
-                    线宽 <output>{active.strokeWidth ?? 2} px</output>
-                    <input
-                      type="range"
-                      aria-label="线宽"
-                      min="1"
-                      max="8"
-                      step="1"
-                      value={active.strokeWidth ?? 2}
-                      onChange={(event) =>
-                        setLayers((old) =>
-                          old.map((layer) =>
-                            layer.id === active.id
-                              ? {
-                                  ...layer,
-                                  strokeWidth: Number(event.target.value),
-                                }
-                              : layer,
-                          ),
-                        )
-                      }
-                    />
-                  </label>
-                  <details open>
-                    <summary>来源详情</summary>
-                    {active.restored && (
-                      <p className="form-note">
-                        恢复副本 · {active.restoredFrom}
-                      </p>
-                    )}
-                    <dl>
-                      <dt>格式</dt>
-                      <dd>
-                        {active.sourceKind === "shp"
-                          ? "Shapefile · 可编辑 / 另存"
-                          : active.sourceKind}
-                      </dd>
-                      <dt>来源 CRS</dt>
-                      <dd>{active.originalCrs}</dd>
-                      <dt>工作坐标</dt>
-                      <dd>WGS84 · EPSG:4326</dd>
-                      <dt>要素数量</dt>
-                      <dd>{active.features.length.toLocaleString()}</dd>
-                    </dl>
-                    {!editable && (
-                      <p className="form-note">
-                        当前数据库副本不可编辑，请核对主键及提交状态。
-                      </p>
-                    )}
-                    {active.warnings?.map((warning, index) => (
-                      <p className="warning" key={index}>
-                        {warning}
-                      </p>
-                    ))}
-                  </details>
-                </div>
-              ) : (
-                <div className="inspector-empty">未载入图层</div>
-              )
-            ) : selected ? (
-              <div className="inspector-body">
-                <div className="feature-kind">
-                  {selected.geometry?.type ?? "空几何"}
-                </div>
-                <div className="property-fields">
-                  {Object.entries(selected.properties).map(([key, value]) => (
-                    <label key={key}>
-                      <span title={key}>{key}</span>
-                      {typeof value === "boolean" ? (
-                        <input
-                          type="checkbox"
-                          aria-label={`属性 ${key}`}
-                          checked={Boolean(propertyDraft?.[key] ?? value)}
-                          disabled={!propertyDraft || !editable || busy}
-                          onChange={(e) =>
-                            setPropertyDraft((draft) =>
-                              draft
-                                ? { ...draft, [key]: e.target.checked }
-                                : null,
-                            )
-                          }
-                        />
-                      ) : (
-                        <input
-                          aria-label={`属性 ${key}`}
-                          value={stringify(propertyDraft?.[key] ?? value)}
-                          disabled={
-                            !propertyDraft ||
-                            !editable ||
-                            busy ||
-                            (typeof value === "object" && value !== null)
-                          }
-                          onChange={(e) => {
-                            if (!active) return;
-                            const inputValue = e.target.value;
-                            setPropertyDraft((draft) =>
-                              draft
-                                ? {
-                                    ...draft,
-                                    [key]: inputValue,
-                                  }
-                                : null,
-                            );
-                          }}
-                        />
-                      )}
-                    </label>
-                  ))}
-                </div>
-                <div className="property-actions">
-                  {propertyDraft ? (
-                    <>
-                      <button
-                        disabled={!editable || busy}
-                        onClick={() => {
-                          const properties = { ...propertyDraft };
-                          for (const [key, value] of Object.entries(
-                            selected.properties,
-                          )) {
-                            if (typeof value !== "number") continue;
-                            const draft = properties[key];
-                            if (
-                              String(draft).trim() === "" ||
-                              !Number.isFinite(Number(draft))
-                            ) {
-                              setError(`${key} 必须是有限数值`);
-                              return;
-                            }
-                            properties[key] = Number(draft);
-                          }
-                          edit(
-                            active!.features.map((f) =>
-                              f.id === selected.id ? { ...f, properties } : f,
-                            ),
-                          );
-                          setPropertyDraft(null);
-                          setError("");
-                          setStatus("属性已更新");
-                        }}
-                      >
-                        <Check size={15} />
-                        应用
-                      </button>
-                      <button onClick={() => setPropertyDraft(null)}>
-                        取消
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      className="quiet"
-                      disabled={!editable || busy}
-                      onClick={() =>
-                        setPropertyDraft({ ...selected.properties })
-                      }
-                    >
-                      <Pencil size={15} />
-                      编辑
-                    </button>
-                  )}
-                </div>
-                {!editable && (
-                  <p className="form-note">
-                    <LockKeyhole size={13} /> 当前来源只读
-                  </p>
-                )}
-                <details open>
-                  <summary>高级编辑</summary>
-                  <button className="quiet" onClick={() => openModal("json")}>
-                    <FileJson size={15} />
-                    JSON 属性…
-                  </button>
-                  <button className="quiet" onClick={() => openModal("wkt")}>
-                    WKT 几何…
-                  </button>
-                </details>
-              </div>
-            ) : (
-              <div className="inspector-empty">
-                <MousePointer2 size={24} />
-                <span>未选中要素</span>
-              </div>
-            )}
-          </aside>
         </main>
         {error && !modal && (
           <div className="error-banner" role="alert">
@@ -2122,7 +2331,9 @@ export default function App() {
             </IconButton>
           </div>
         )}
-        <div className="operation-status sr-only" role="status">{status}</div>
+        <div className="operation-status sr-only" role="status">
+          {status}
+        </div>
         <footer className="statusbar" hidden={modal === "settings"}>
           {busy && (
             <button
@@ -2240,6 +2451,182 @@ export default function App() {
             onClose={() => openModal(null)}
           />
         )}
+        {modal === "layer" && active && layerStyleDraft && (
+          <Modal
+            title={`图层属性：${active.name}`}
+            onClose={() => openModal(null)}
+          >
+            <div className="layer-details">
+              <h3>{active.name}</h3>
+              <span className="count">
+                {active.features.length.toLocaleString()} 个要素
+              </span>
+              <h4>样式</h4>
+              <label>
+                <span>颜色</span>
+                <input
+                  type="color"
+                  value={layerStyleDraft.color}
+                  aria-label={`${active.name}颜色`}
+                  onChange={(e) =>
+                    setLayerStyleDraft((d) =>
+                      d ? { ...d, color: e.target.value } : null,
+                    )
+                  }
+                />
+              </label>
+              <label>
+                <span>不透明度</span>
+                <output>{Math.round(layerStyleDraft.opacity * 100)}%</output>
+                <input
+                  type="range"
+                  aria-label="不透明度"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={layerStyleDraft.opacity}
+                  onChange={(e) =>
+                    setLayerStyleDraft((d) =>
+                      d ? { ...d, opacity: Number(e.target.value) } : null,
+                    )
+                  }
+                />
+              </label>
+              <label>
+                <span>线宽</span>
+                <output>{layerStyleDraft.strokeWidth} px</output>
+                <input
+                  type="range"
+                  aria-label="线宽"
+                  min="1"
+                  max="8"
+                  step="1"
+                  value={layerStyleDraft.strokeWidth}
+                  onChange={(e) =>
+                    setLayerStyleDraft((d) =>
+                      d ? { ...d, strokeWidth: Number(e.target.value) } : null,
+                    )
+                  }
+                />
+              </label>
+              <details open>
+                <summary>属性字段 · {fields.length}</summary>
+                <div className="layer-field-list">
+                  {fields.length ? (
+                    fields.map((field) => (
+                      <div key={field}>
+                        <strong>{field}</strong>
+                        <span>{fieldSummary(field)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="form-note">没有属性字段</p>
+                  )}
+                </div>
+                <button
+                  disabled={
+                    !editable || busy || active.sourceKind === "postgis"
+                  }
+                  onClick={() => openModal("field")}
+                >
+                  <Plus size={14} />
+                  添加字段…
+                </button>
+                <button
+                  className="quiet"
+                  onClick={() => {
+                    setTableOpen(true);
+                    openModal(null);
+                  }}
+                >
+                  打开属性表
+                </button>
+              </details>
+              <details open>
+                <summary>来源详情</summary>
+                {active.restored && (
+                  <p className="form-note">恢复副本 · {active.restoredFrom}</p>
+                )}
+                <dl>
+                  <dt>格式</dt>
+                  <dd>
+                    {active.sourceKind === "shp"
+                      ? "Shapefile · 可编辑 / 另存"
+                      : active.sourceKind}
+                  </dd>
+                  <dt>来源 CRS</dt>
+                  <dd>{active.originalCrs}</dd>
+                  <dt>工作坐标</dt>
+                  <dd>WGS84 · EPSG:4326</dd>
+                  <dt>要素数量</dt>
+                  <dd>{active.features.length.toLocaleString()}</dd>
+                </dl>
+                {!editable && (
+                  <p className="form-note">
+                    当前数据库副本不可编辑，请核对主键及提交状态。
+                  </p>
+                )}
+                {active.warnings?.map((warning, index) => (
+                  <p className="warning" key={index}>
+                    {warning}
+                  </p>
+                ))}
+              </details>
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => openModal(null)}>取消</button>
+              <button
+                disabled={busy}
+                onClick={() => {
+                  setLayers((old) =>
+                    old.map((l) =>
+                      l.id === layerStyleDraft.layerId
+                        ? {
+                            ...l,
+                            color: layerStyleDraft.color,
+                            opacity: layerStyleDraft.opacity,
+                            strokeWidth: layerStyleDraft.strokeWidth,
+                          }
+                        : l,
+                    ),
+                  );
+                  setStatus("图层样式已更新");
+                  openModal(null);
+                }}
+              >
+                应用样式
+              </button>
+            </div>
+          </Modal>
+        )}
+        {modal === "cell" && cellDraft && (
+          <Modal
+            title={`编辑属性：${cellDraft.field}`}
+            onClose={cancelCell}
+            showError={false}
+          >
+            <p className="form-note">
+              图层：{active?.name} · 要素：{cellDraft.featureId} ·{" "}
+              {cellDraft.original == null
+                ? "输入 JSON 值"
+                : typeof cellDraft.original === "object"
+                  ? "输入 JSON，保留原有结构类型"
+                  : "输入文本"}
+            </p>
+            {renderCellInput(true)}
+            {cellDraft.error && (
+              <p className="inline-error" role="alert">
+                {cellDraft.error}
+              </p>
+            )}
+            <div className="modal-actions">
+              <button onClick={cancelCell}>取消</button>
+              <button disabled={!editable || busy} onClick={() => commitCell()}>
+                应用
+              </button>
+            </div>
+          </Modal>
+        )}
         {(modal === "json" || modal === "wkt") && selected && (
           <Modal
             title={modal === "json" ? "JSON 属性" : "WKT 几何"}
@@ -2346,7 +2733,7 @@ export default function App() {
               <button onClick={() => openModal(null)}>取消</button>
               <button
                 className="danger"
-                disabled={!selected || !editable || busy}
+                disabled={!selected || !editable || busy || Boolean(cellDraft)}
                 onClick={() => {
                   edit(active!.features.filter((f) => f.id !== selectedId));
                   setSelectedId(undefined);
@@ -2467,7 +2854,10 @@ export default function App() {
         {modal === "quit" && (
           <Modal title="退出 zGIS" onClose={cancelExit}>
             <p>当前图层仍处于编辑模式，是否退出？</p>
-            <p className="form-note">已应用的图层操作会自动保存。未应用的属性、WKT 或绘制草稿不会保存；可取消退出后完成编辑。</p>
+            <p className="form-note">
+              已应用的图层操作会自动保存。未应用的属性、WKT
+              或绘制草稿不会保存；可取消退出后完成编辑。
+            </p>
             <div className="modal-actions">
               <button disabled={busy} onClick={cancelExit}>
                 取消

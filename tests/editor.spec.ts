@@ -84,7 +84,17 @@ async function demo(page: Page) {
   await expect(page.locator("tbody tr")).toHaveCount(4);
 }
 async function wktEditor(page: Page) {
+  await page
+    .locator(".attribute-panel summary")
+    .filter({ hasText: /^更多$/ })
+    .click();
   await page.getByRole("button", { name: "WKT 几何…", exact: true }).click();
+}
+
+async function editCell(page: Page, field: string) {
+  await page
+    .locator(`.attribute-panel tbody tr.selected td[data-field="${field}"]`)
+    .dblclick();
 }
 
 test("city attributes use explicit apply, independent geometry editor, undo and export", async ({
@@ -95,13 +105,14 @@ test("city attributes use explicit apply, independent geometry editor, undo and 
   await demo(page);
   await page.locator("tbody tr").first().click();
   const city = page.getByRole("textbox", { name: "属性 城市", exact: true });
-  await expect(city).toBeDisabled();
-  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await expect(city).toHaveCount(0);
+  await page.getByRole("button", { name: "编辑属性", exact: true }).click();
+  await editCell(page, "城市");
   await city.fill("取消测试");
-  await expect(page.locator("tbody tr").first()).toContainText("北京");
   await page.getByRole("button", { name: "取消", exact: true }).click();
-  await expect(city).toHaveValue("北京");
-  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await expect(city).toHaveCount(0);
+  await expect(page.locator("tbody tr").first()).toContainText("北京");
+  await editCell(page, "城市");
   await city.fill("北京测试");
   await page.getByRole("button", { name: "应用", exact: true }).click();
   await expect(page.locator("tbody tr").first()).toContainText("北京测试");
@@ -263,11 +274,14 @@ test("SHP ZIP is editable and save routes to conversion", async ({ page }) => {
   await showTable(page);
   await expect(page.locator("tbody tr")).toHaveCount(2);
   await page.locator("tbody tr").first().click();
+  await page.getByRole("button", { name: "编辑属性", exact: true }).click();
+  await editCell(page, "name");
   await expect(
     page.getByRole("textbox", { name: "属性 name", exact: true }),
   ).toHaveValue("北京");
+  await page.getByRole("button", { name: "取消", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "编辑", exact: true }),
+    page.getByRole("button", { name: "编辑属性", exact: true }),
   ).toBeEnabled();
   await expect(
     page.getByRole("button", { name: "新增点", exact: true }),
@@ -401,7 +415,7 @@ test("single header, panels, theme persistence, resizing and canvas rendering", 
 }) => {
   await page.goto("/");
   await expect(page.locator(".attribute-panel")).toBeHidden();
-  await expect(page.locator(".inspector")).toBeHidden();
+  await expect(page.locator(".inspector")).toHaveCount(0);
   await expect(page.locator(".map-empty")).toHaveCount(0);
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByLabel("主题", { exact: true }).selectOption("light");
@@ -485,7 +499,8 @@ test("desktop SHP export preserves edits on cancellation, error and success", as
     .setInputFiles("output/smoke/fixtures/cities.zip");
   await showTable(page);
   await page.locator("tbody tr").first().click();
-  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await page.getByRole("button", { name: "编辑属性", exact: true }).click();
+  await editCell(page, "name");
   await page
     .getByRole("textbox", { name: "属性 name", exact: true })
     .fill("新北京");
@@ -532,6 +547,8 @@ test("desktop SHP export preserves edits on cancellation, error and success", as
       .name,
   ).toBe("新北京");
   await page.evaluate(() => window.__ZG_TEST__.requestClose());
-  await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed))
+    .toBe(true);
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });

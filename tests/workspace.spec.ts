@@ -129,7 +129,14 @@ async function editProperty(page: Page) {
     .getByRole("button", { name: "属性表", exact: true })
     .click();
   await page.locator("tbody tr").first().click();
-  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await page.getByRole("button", { name: "编辑属性", exact: true }).click();
+  await editValueCell(page);
+}
+
+async function editValueCell(page: Page) {
+  await page
+    .locator('.attribute-panel tbody tr.selected td[data-field="value"]')
+    .dblclick();
 }
 
 test("dirty restored layers exit without a prompt and all work copies are saved", async ({
@@ -169,17 +176,15 @@ test("editing exit can be cancelled; confirmation keeps applied changes but not 
     .getByRole("textbox", { name: "属性 value", exact: true })
     .fill("2");
   await page.getByRole("button", { name: "应用", exact: true }).click();
-  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await editValueCell(page);
   await page
     .getByRole("textbox", { name: "属性 value", exact: true })
     .fill("999");
   await page.evaluate(() => window.__ZG_TEST__.requestClose());
   await expect(
-    page
-      .getByRole("dialog")
-      .filter({
-        has: page.getByRole("heading", { name: "退出 zGIS", exact: true }),
-      }),
+    page.getByRole("dialog").filter({
+      has: page.getByRole("heading", { name: "退出 zGIS", exact: true }),
+    }),
   ).toBeVisible();
   expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
   await page
@@ -213,11 +218,9 @@ test("vertex editing prompts even before geometry changes", async ({
   await page.getByRole("button", { name: "编辑顶点", exact: true }).click();
   await exit(page);
   await expect(
-    page
-      .getByRole("dialog")
-      .filter({
-        has: page.getByRole("heading", { name: "退出 zGIS", exact: true }),
-      }),
+    page.getByRole("dialog").filter({
+      has: page.getByRole("heading", { name: "退出 zGIS", exact: true }),
+    }),
   ).toBeVisible();
   expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
 });

@@ -27,7 +27,9 @@ const page =
 await page.waitForSelector(".app");
 if (process.argv.includes("--recovery-only")) {
   await page.waitForFunction(() =>
-    document.querySelector(".operation-status")?.textContent?.includes("已恢复"),
+    document
+      .querySelector(".operation-status")
+      ?.textContent?.includes("已恢复"),
   );
   assert.equal(await page.locator('[data-node-kind="layer"]').count(), 1);
   await layerBasemapSmoke(page, true);
@@ -71,7 +73,10 @@ async function nativeDialog(filePath, cancel = false) {
     );
   });
 }
-assert.equal(await page.evaluate(() => Boolean(window.__TAURI_INTERNALS__)), true);
+assert.equal(
+  await page.evaluate(() => Boolean(window.__TAURI_INTERNALS__)),
+  true,
+);
 async function fileAction(name) {
   await page
     .locator(".app-header summary")
@@ -83,11 +88,18 @@ async function fileAction(name) {
     .click();
 }
 async function setName(value) {
-  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await editCell("name");
   await page
     .getByRole("textbox", { name: "属性 name", exact: true })
     .fill(value);
   await page.getByRole("button", { name: "应用", exact: true }).click();
+}
+async function editCell(field) {
+  const edit = page.getByRole("button", { name: "编辑属性", exact: true });
+  if ((await edit.getAttribute("aria-pressed")) !== "true") await edit.click();
+  await page
+    .locator(`.attribute-panel tbody tr.selected td[data-field="${field}"]`)
+    .dblclick();
 }
 const opening = nativeDialog("output/smoke/fixtures/native.geojson");
 await fileAction("打开文件…");
@@ -103,7 +115,9 @@ await page.locator("tbody tr").click();
 await setName("已原生保存");
 await fileAction("保存");
 await page.waitForFunction(() =>
-  document.querySelector(".operation-status")?.textContent?.includes("保存完成"),
+  document
+    .querySelector(".operation-status")
+    ?.textContent?.includes("保存完成"),
 );
 const source = JSON.parse(
   readFileSync("output/smoke/fixtures/native.geojson", "utf8"),
@@ -116,7 +130,9 @@ const cancelling = nativeDialog("", true);
 await page.getByRole("button", { name: "导出", exact: true }).click();
 await cancelling;
 await page.waitForFunction(() =>
-  document.querySelector(".operation-status")?.textContent?.includes("已取消导出"),
+  document
+    .querySelector(".operation-status")
+    ?.textContent?.includes("已取消导出"),
 );
 assert.equal(await page.getByRole("dialog").count(), 1);
 rmSync("output/desktop/native-export.csv", { force: true });
@@ -124,7 +140,9 @@ const saving = nativeDialog("output/desktop/native-export.csv");
 await page.getByRole("button", { name: "导出", exact: true }).click();
 await saving;
 await page.waitForFunction(() =>
-  document.querySelector(".operation-status")?.textContent?.includes("导出完成"),
+  document
+    .querySelector(".operation-status")
+    ?.textContent?.includes("导出完成"),
 );
 assert.match(readFileSync("output/desktop/native-export.csv", "utf8"), /POINT/);
 writeFileSync(
@@ -150,33 +168,56 @@ assert.equal(recovery, "[]");
 // Edit an owned SHP fixture and verify the native ZIP through an independent reader.
 const originalGroup = Object.fromEntries(
   ["shp", "shx", "dbf", "prj", "cpg"].map((ext) => [
-    ext, readFileSync(`output/smoke/fixtures/cities.${ext}`),
+    ext,
+    readFileSync(`output/smoke/fixtures/cities.${ext}`),
   ]),
 );
 const shpOpening = nativeDialog("output/smoke/fixtures/cities.shp");
 await fileAction("打开文件…");
 await shpOpening;
-await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 2);
+await page.waitForFunction(
+  () => document.querySelectorAll("tbody tr").length === 2,
+);
 await page.locator("tbody tr").first().click();
 await setName("北京编辑后");
+await page
+  .locator(".attribute-panel summary")
+  .filter({ hasText: /^更多$/ })
+  .click();
 await page.getByRole("button", { name: "WKT 几何…", exact: true }).click();
-await page.getByRole("textbox", { name: "WKT 几何", exact: true }).fill("POINT (117 40)");
+await page
+  .getByRole("textbox", { name: "WKT 几何", exact: true })
+  .fill("POINT (117 40)");
 await page.getByRole("button", { name: "应用几何", exact: true }).click();
-await page.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).first().click();
+await page
+  .getByRole("dialog")
+  .getByRole("button", { name: "关闭", exact: true })
+  .first()
+  .click();
 await fileAction("保存");
 await page.getByLabel("输出格式").selectOption("shp");
 const shpCancelling = nativeDialog("", true);
 await page.getByRole("button", { name: "导出", exact: true }).click();
 await shpCancelling;
-await page.waitForFunction(() => document.querySelector(".operation-status")?.textContent?.includes("已取消导出"));
+await page.waitForFunction(() =>
+  document
+    .querySelector(".operation-status")
+    ?.textContent?.includes("已取消导出"),
+);
 assert.equal(await page.getByRole("dialog").count(), 1);
 rmSync("output/desktop/edited-shp.zip", { force: true });
 const shpSaving = nativeDialog("output/desktop/edited-shp.zip");
 await page.getByRole("button", { name: "导出", exact: true }).click();
 await shpSaving;
-await page.waitForFunction(() => document.querySelector(".operation-status")?.textContent?.includes("导出完成"));
+await page.waitForFunction(() =>
+  document
+    .querySelector(".operation-status")
+    ?.textContent?.includes("导出完成"),
+);
 const zip = readFileSync("output/desktop/edited-shp.zip");
-const roundtrip = await shp(zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength));
+const roundtrip = await shp(
+  zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength),
+);
 assert.equal(roundtrip.features.length, 2);
 assert.equal(roundtrip.features[0].properties.name, "北京编辑后");
 assert.equal(roundtrip.features[0].properties.code, "001");
@@ -186,22 +227,32 @@ for (const [ext, bytes] of Object.entries(originalGroup))
 await page.screenshot({ path: "output/desktop/shp-edited-export.png" });
 await fileAction("移除图层");
 await page.getByRole("button", { name: "放弃并移除", exact: true }).click();
-await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 0);
-console.log("PASS: native SHP attribute/geometry editing, ZIP cancellation/save, independent Chinese/coordinate roundtrip and unchanged original group");
+await page.waitForFunction(
+  () => document.querySelectorAll("tbody tr").length === 0,
+);
+console.log(
+  "PASS: native SHP attribute/geometry editing, ZIP cancellation/save, independent Chinese/coordinate roundtrip and unchanged original group",
+);
 if (!process.argv.includes("--installation-only")) {
   await mcpNativeSmoke(page, nativeDialog, fileAction);
-} else console.log("Installation scope: external Codex CLI/MCP checks omitted; native file and restart checks retained.");
+} else
+  console.log(
+    "Installation scope: external Codex CLI/MCP checks omitted; native file and restart checks retained.",
+  );
 assert.deepEqual(errors, []);
 console.log(
   "PASS: desktop WebView2, native open/save/export/cancel, source ID preservation, external-file conflict protection and immediate discarded-recovery clearing",
 );
-await page.locator(".app-header summary").filter({ hasText: /^数据$/ }).click();
+await page
+  .locator(".app-header summary")
+  .filter({ hasText: /^数据$/ })
+  .click();
 await page
   .getByRole("button", { name: "城市示例", exact: true })
   .filter({ visible: true })
   .click();
 await page.locator("tbody tr").first().click();
-await page.getByRole("button", { name: "编辑", exact: true }).click();
+await editCell("城市");
 await page
   .getByRole("textbox", { name: "属性 城市", exact: true })
   .fill("跨进程恢复测试");
@@ -210,5 +261,7 @@ await layerBasemapSmoke(page);
 const closed = page.waitForEvent("close");
 await fileAction("退出");
 await closed;
-console.log("PASS: normal native exit automatically persists applied edits without a confirmation");
+console.log(
+  "PASS: normal native exit automatically persists applied edits without a confirmation",
+);
 await browser.close();

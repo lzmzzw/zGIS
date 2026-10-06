@@ -352,31 +352,22 @@ details button {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr) 236px;
-}
-.workspace[data-layers="false"] {
-  grid-template-columns: minmax(0, 1fr) 236px;
-}
-.workspace[data-inspector="false"] {
   grid-template-columns: 200px minmax(0, 1fr);
 }
-.workspace[data-layers="false"][data-inspector="false"] {
+.workspace[data-layers="false"] {
   grid-template-columns: minmax(0, 1fr);
 }
-.layers-panel,
-.inspector {
+.layers-panel {
   background: var(--panel);
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-.layers-panel {
   border-right: 1px solid var(--border);
 }
-.inspector {
-  border-left: 1px solid var(--border);
-}
+.layer-field-list { max-height: 180px; overflow: auto; margin: 8px 0; }
+.layer-field-list > div { display: flex; gap: 16px; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+.layer-field-list span { color: var(--muted); }
 .panel-heading {
   min-height: 42px;
   display: flex;
@@ -666,59 +657,81 @@ tbody tr:hover {
   color: var(--muted);
   text-align: center;
 }
-.inspector-tabs {
+.attribute-panel[data-maximized="true"] {
+  max-height: 100%;
+  flex: 1;
+}
+.map-column:has(.attribute-panel[data-maximized="true"]:not([hidden]))
+  > .map-container {
+  display: none;
+}
+.attribute-panel > header {
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 4;
+}
+.table-edit-note,
+.cell-error {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.cell-error {
+  color: var(--error, #df7373);
+}
+.attribute-cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.attribute-cell.editing {
+  overflow: visible;
+  min-width: 260px;
+}
+.cell-editor {
   display: flex;
-  padding: 8px 12px;
-  gap: 5px;
+  gap: 6px;
+  align-items: center;
 }
-.inspector-body {
-  padding: 14px 16px;
-  overflow: auto;
+.cell-editor > input,
+.cell-editor > select {
+  min-width: 100px;
+  flex: 1;
+  height: 28px;
 }
-.inspector-empty {
+.cell-editor > textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 300px;
+}
+.cell-null {
   display: flex;
   align-items: center;
-  flex-direction: column;
-  gap: 12px;
-  color: var(--muted);
-  padding: 40px 12px;
-}
-.feature-kind {
-  color: var(--muted);
-  font-size: 12px;
-  margin-bottom: 20px;
-}
-.property-fields,
-.form-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.property-fields label,
-.form-grid label,
-.editor-layout label {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  font-size: 12px;
-  min-width: 0;
-}
-.property-fields label span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  gap: 3px;
+  font-size: 11px;
   white-space: nowrap;
-  color: var(--muted);
 }
-.property-actions {
-  display: flex;
-  gap: 5px;
-  margin-top: 18px;
+.cell-null input {
+  width: 14px;
+  height: 14px;
+}
+.null-value {
+  color: var(--muted);
+  font-style: italic;
 }
 .layer-details > label {
-  display: flex;
+  display: grid;
+  grid-template-columns: 72px 50px minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0;
 }
+.layer-details > label > input[type="color"] { grid-column: 3; justify-self: end; }
+.layer-details > label > input[type="range"] { min-width: 0; width: 100%; }
+.modal:has(.layer-details) { display: flex; flex-direction: column; overflow: hidden; }
+.modal:has(.layer-details) > header, .modal:has(.layer-details) > .modal-actions { flex-shrink: 0; }
+.modal:has(.layer-details) .layer-details { min-height: 0; overflow: auto; padding-right: 4px; }
+
 dl {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -1082,9 +1095,7 @@ select[aria-invalid="true"] {
   }
 
   .workspace,
-  .workspace[data-layers="false"],
-  .workspace[data-inspector="false"],
-  .workspace[data-layers="false"][data-inspector="false"] {
+  .workspace[data-layers="false"] {
     display: flex;
   }
   .layers-panel {
@@ -1093,15 +1104,6 @@ select[aria-invalid="true"] {
   }
   .map-column {
     flex: 1;
-  }
-  .inspector {
-    position: absolute;
-    right: 0;
-    width: 236px;
-    height: calc(100% - 110px);
-    z-index: 4;
-    border-bottom: 1px solid var(--border);
-    box-shadow: -5px 0 18px #0002;
   }
   .attribute-panel > header {
     flex-wrap: wrap;
@@ -1139,9 +1141,6 @@ select[aria-invalid="true"] {
     height: auto;
     min-height: 32px;
     font-size: 12px;
-  }
-  .inspector {
-    max-width: 100%;
   }
   .modal {
     padding: 0 12px 12px;

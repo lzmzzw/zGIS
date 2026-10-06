@@ -10,7 +10,8 @@ test("one header entry opens independent settings and preserves edit draft", asy
  await page.getByRole("button",{name:"城市示例",exact:true}).filter({visible:true}).click();
  await page.locator(".header-actions").getByRole("button",{name:"属性表",exact:true}).click();
  await page.locator("tbody tr").first().click();
- await page.getByRole("button",{name:"编辑",exact:true}).click();
+ await page.getByRole("button",{name:"编辑属性",exact:true}).click();
+ await page.locator('.attribute-panel tbody tr.selected td[data-field="城市"]').dblclick();
  await page.getByRole("textbox",{name:"属性 城市",exact:true}).fill("尚未应用的草稿");
  await page.getByRole("button",{name:"设置",exact:true}).click();
  await expect(page.getByRole("main",{name:"后台设置"})).toBeVisible();
