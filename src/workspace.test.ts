@@ -4,6 +4,24 @@ import { expect, it } from "vitest";
 import { makeLayer } from "./domain";
 import { restoreLayers, snapshotLayers } from "./workspace";
 
+it("图层显示名与来源名分别恢复，旧快照仍可读取", () => {
+  const layer = makeLayer("source.geojson", [], "geojson", {
+    displayName: "行政边界",
+  });
+  const restored = restoreLayers(snapshotLayers([layer]))[0];
+  expect(restored.name).toBe("source.geojson");
+  expect(restored.displayName).toBe("行政边界");
+  const legacy = makeLayer("legacy.geojson", [], "geojson");
+  expect(
+    restoreLayers(snapshotLayers([legacy]))[0].displayName,
+  ).toBeUndefined();
+  for (const displayName of ["", 12, "x".repeat(121)]) {
+    const raw = JSON.parse(snapshotLayers([layer]));
+    raw[0].displayName = displayName;
+    expect(() => restoreLayers(JSON.stringify(raw))).toThrow("显示名");
+  }
+});
+
 it("恢复只保留内容和样式，数据库身份及基线不进入快照", () => {
   const layer = makeLayer(
     "database",
@@ -83,7 +101,9 @@ it("工作区分组与顺序恢复重映射ID，安全元数据与旧格式兼�
     { kind: "layer", id: restored.layers[0].id },
   ]);
   expect(restoreWorkspace(snapshotLayers([a])).tree[0].kind).toBe("layer");
-  expect(restoreWorkspace(snapshotWorkspace([], tree)).tree).toEqual([{ ...tree[0], children: [] }]);
+  expect(restoreWorkspace(snapshotWorkspace([], tree)).tree).toEqual([
+    { ...tree[0], children: [] },
+  ]);
 });
 it("恢复拒绝重复、未知与缺失图层引用", () => {
   const layer = makeLayer("a", [], "geojson");

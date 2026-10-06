@@ -12,6 +12,7 @@ export function snapshotLayers(layers: DocumentLayer[]): string {
     layers.map((layer) => ({
       id: layer.id,
       name: layer.name,
+      displayName: layer.displayName,
       features: layer.features.map(
         ({ id, geometry, properties, sourceFeatureId }) => ({
           id,
@@ -43,8 +44,16 @@ export function restoreLayers(raw: string): DocumentLayer[] {
       !Array.isArray(value.features)
     )
       throw new Error("恢复图层结构无效");
+    if (
+      value.displayName !== undefined &&
+      (typeof value.displayName !== "string" ||
+        !value.displayName.trim() ||
+        value.displayName.length > 120)
+    )
+      throw new Error("恢复图层显示名无效");
     const features = importGeoJSON(exportGeoJSON(value.features));
     return makeLayer(value.name, features, "geojson", {
+      displayName: value.displayName?.trim(),
       visible: value.visible !== false,
       color:
         typeof value.color === "string" && /^#[0-9a-f]{6}$/i.test(value.color)

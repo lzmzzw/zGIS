@@ -119,7 +119,7 @@ test("complex cells use an independent editor and maximized table restores the m
   await expect(page.locator(".map-container")).toBeVisible();
 });
 
-test("layer context properties target the clicked layer and support apply and cancel", async ({
+test("layer symbol styles target the clicked layer and support apply and cancel", async ({
   page,
 }) => {
   await setup(page);
@@ -127,17 +127,18 @@ test("layer context properties target the clicked layer and support apply and ca
   const row = page
     .locator(".tree-row")
     .filter({ hasText: "attributes.geojson" });
-  await row.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "图层属性…", exact: true }).click();
+  await page
+    .getByRole("button", { name: "attributes.geojson样式", exact: true })
+    .click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("来源详情");
-  await expect(dialog).toContainText("属性字段");
+  await expect(dialog).toHaveAccessibleName("图层样式：attributes.geojson");
   await page
     .getByLabel("attributes.geojson颜色", { exact: true })
     .fill("#ff0000");
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
-  await row.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "图层属性…", exact: true }).click();
+  await page
+    .getByRole("button", { name: "attributes.geojson样式", exact: true })
+    .click();
   await expect(
     page.getByLabel("attributes.geojson颜色", { exact: true }),
   ).not.toHaveValue("#ff0000");
@@ -145,8 +146,9 @@ test("layer context properties target the clicked layer and support apply and ca
     .getByLabel("attributes.geojson颜色", { exact: true })
     .fill("#00ff00");
   await dialog.getByRole("button", { name: "应用样式", exact: true }).click();
-  await row.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "图层属性…", exact: true }).click();
+  await page
+    .getByRole("button", { name: "attributes.geojson样式", exact: true })
+    .click();
   await expect(
     page.getByLabel("attributes.geojson颜色", { exact: true }),
   ).toHaveValue("#00ff00");
@@ -164,8 +166,9 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
   const row = page
     .locator(".tree-row")
     .filter({ hasText: "attributes.geojson" });
-  await row.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "图层属性…", exact: true }).click();
+  await page
+    .getByRole("button", { name: "attributes.geojson样式", exact: true })
+    .click();
   await page
     .getByLabel("attributes.geojson颜色", { exact: true })
     .fill("#123456");
@@ -186,7 +189,7 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
     .poll(() => page.evaluate(() => window.__ZG_TEST__.analysisResults.length))
     .toBe(0);
   await expect(page.getByRole("dialog")).toHaveAccessibleName(
-    "图层属性：attributes.geojson",
+    "图层样式：attributes.geojson",
   );
   await expect(
     page.locator(".layer-text").filter({ hasText: "分析结果" }),
@@ -204,8 +207,9 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
   await expect(
     page.locator(".layer-text").filter({ hasText: "分析结果" }),
   ).toBeVisible();
-  await row.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "图层属性…", exact: true }).click();
+  await page
+    .getByRole("button", { name: "attributes.geojson样式", exact: true })
+    .click();
   await expect(
     page.getByLabel("attributes.geojson颜色", { exact: true }),
   ).toHaveValue("#123456");
@@ -217,10 +221,8 @@ test("confirmed native exit includes deferred analysis layers but discards uncon
   await installDesktopMock(page);
   await setup(page);
   await page
-    .locator(".tree-row")
-    .filter({ hasText: "attributes.geojson" })
-    .click({ button: "right" });
-  await page.getByRole("menuitem", { name: "图层属性…", exact: true }).click();
+    .getByRole("button", { name: "attributes.geojson样式", exact: true })
+    .click();
   const originalColor = await page
     .getByLabel("attributes.geojson颜色", { exact: true })
     .inputValue();

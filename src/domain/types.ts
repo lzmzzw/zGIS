@@ -19,6 +19,8 @@ export interface ImportOptions {
 export interface DocumentLayer {
   id: string;
   name: string;
+  // name 保留来源/保存文件名，displayName 仅用于工作区显示。
+  displayName?: string;
   features: GeoFeature[];
   visible: boolean;
   color: string;

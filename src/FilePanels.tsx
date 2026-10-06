@@ -350,7 +350,7 @@ export function ExportPanel({
       <div className="split-dialog file-export">
         <div className="form-grid dialog-config">
           <label>
-            来源图层<span>{layer.name}</span>
+            来源图层<span>{layer.displayName ?? layer.name}</span>
           </label>
           <label>
             输出格式

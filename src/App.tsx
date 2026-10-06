@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type CSSProperties,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -262,6 +263,38 @@ export default function App() {
   const [annotations, setAnnotations] = useState(true);
   const [snapping, setSnapping] = useState(true);
   const [layersOpen, setLayersOpen] = useState(true);
+  const [layerPanelWidth, setLayerPanelWidth] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem("zgis.layerPanelWidth"));
+      return saved >= 200 && saved <= 480 ? Math.round(saved) : 260;
+    } catch {
+      return 260;
+    }
+  });
+  const [layerPanelMaxWidth, setLayerPanelMaxWidth] = useState(() =>
+    Math.max(200, Math.min(480, window.innerWidth - 360)),
+  );
+  const workspaceElement = useRef<HTMLElement>(null);
+  const shownLayerPanelWidth = Math.min(layerPanelWidth, layerPanelMaxWidth);
+  useEffect(() => {
+    try {
+      localStorage.setItem("zgis.layerPanelWidth", String(layerPanelWidth));
+    } catch {
+      /* 当前窗口仍可调整宽度。 */
+    }
+  }, [layerPanelWidth]);
+  useEffect(() => {
+    const workspace = workspaceElement.current;
+    if (!workspace) return;
+    const observer = new ResizeObserver(() =>
+      setLayerPanelMaxWidth(
+        Math.max(200, Math.min(480, workspace.clientWidth - 360)),
+      ),
+    );
+    observer.observe(workspace);
+    return () => observer.disconnect();
+  }, []);
+
   const [tree, setTree] = useState<LayerTreeNode[]>([]);
   const mapLayers = useMemo(
     () =>
@@ -331,6 +364,7 @@ export default function App() {
     | "field"
     | "cell"
     | "layer"
+    | "style"
     | "delete"
     | null
   >(null);
@@ -365,7 +399,7 @@ export default function App() {
     if (!desktop || !recoveryReady) return;
     const snapshot = layers.map((layer) => ({
       id: layer.id,
-      name: layer.name,
+      name: layer.displayName ?? layer.name,
       features: layer.features.map((feature) => ({
         type: "Feature",
         id: feature.id,
@@ -675,7 +709,7 @@ export default function App() {
     if (
       tool !== "select" ||
       cellDraft !== null ||
-      (modal === "layer" &&
+      (modal === "style" &&
         layerStyleDraft !== null &&
         (layerStyleDraft.color !== active?.color ||
           layerStyleDraft.opacity !== (active?.opacity ?? 1) ||
@@ -1638,8 +1672,11 @@ export default function App() {
               </button>
             </HeaderMenu>
           </nav>
-          <div className="document-title" title={active?.name}>
-            {active?.name ?? ""}
+          <div
+            className="document-title"
+            title={active?.displayName ?? active?.name}
+          >
+            {active?.displayName ?? active?.name ?? ""}
             {active?.dirty && <span className="dirty-dot" title="未保存" />}
           </div>
           <div className="header-actions">
@@ -1727,9 +1764,66 @@ export default function App() {
         <main
           hidden={modal === "settings"}
           className="workspace"
+          ref={workspaceElement}
+          style={
+            {
+              "--layer-panel-width": `${shownLayerPanelWidth}px`,
+            } as CSSProperties
+          }
           data-layers={layersOpen}
         >
           <aside className="layers-panel" hidden={!layersOpen}>
+            <div
+              className="layer-panel-resizer"
+              role="separator"
+              aria-label="调整图层栏宽度"
+              aria-orientation="vertical"
+              aria-valuenow={shownLayerPanelWidth}
+              aria-valuemin={200}
+              aria-valuemax={layerPanelMaxWidth}
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key))
+                  return;
+                e.preventDefault();
+                setLayerPanelWidth(
+                  e.key === "Home"
+                    ? 200
+                    : e.key === "End"
+                      ? layerPanelMaxWidth
+                      : Math.max(
+                          200,
+                          Math.min(
+                            layerPanelMaxWidth,
+                            shownLayerPanelWidth +
+                              (e.key === "ArrowRight" ? 20 : -20),
+                          ),
+                        ),
+                );
+              }}
+              onPointerDown={(e) => {
+                if (e.button === 0) {
+                  e.preventDefault();
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                }
+              }}
+              onPointerMove={(e) => {
+                if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+                const left =
+                  workspaceElement.current?.getBoundingClientRect().left ?? 0;
+                setLayerPanelWidth(
+                  Math.max(
+                    200,
+                    Math.min(layerPanelMaxWidth, Math.round(e.clientX - left)),
+                  ),
+                );
+              }}
+              onPointerUp={(e) => {
+                if (e.currentTarget.hasPointerCapture(e.pointerId))
+                  e.currentTarget.releasePointerCapture(e.pointerId);
+              }}
+            />
+
             <LayerTree
               tree={reconcileTree(
                 tree,
@@ -1752,6 +1846,12 @@ export default function App() {
               }}
               onProperties={(id) => {
                 if (cellDraft || busy) return;
+                if (!layers.some((l) => l.id === id)) return;
+                setActiveId(id);
+                openModal("layer");
+              }}
+              onStyle={(id) => {
+                if (cellDraft || busy) return;
                 const layer = layers.find((l) => l.id === id);
                 if (!layer) return;
                 setActiveId(id);
@@ -1761,7 +1861,29 @@ export default function App() {
                   opacity: layer.opacity ?? 1,
                   strokeWidth: layer.strokeWidth ?? 2,
                 });
-                openModal("layer");
+                openModal("style");
+              }}
+              onRenameLayer={(id, value) => {
+                const displayName = value.trim();
+                if (
+                  cellDraft ||
+                  busy ||
+                  !displayName ||
+                  displayName.length > 120
+                )
+                  return;
+                setLayers((old) =>
+                  old.map((l) =>
+                    l.id === id
+                      ? {
+                          ...l,
+                          displayName:
+                            displayName === l.name ? undefined : displayName,
+                        }
+                      : l,
+                  ),
+                );
+                setStatus("图层显示名已修改，来源文件名不变");
               }}
               onFit={(id) => {
                 if (cellDraft) return;
@@ -2455,23 +2577,100 @@ export default function App() {
             onClose={() => openModal(null)}
           />
         )}
-        {modal === "layer" && active && layerStyleDraft && (
+        {modal === "layer" && active && (
           <Modal
-            title={`图层属性：${active.name}`}
+            title={`图层属性：${active.displayName ?? active.name}`}
             onClose={() => openModal(null)}
           >
             <div className="layer-details">
-              <h3>{active.name}</h3>
+              <h3>{active.displayName ?? active.name}</h3>
               <span className="count">
                 {active.features.length.toLocaleString()} 个要素
               </span>
+              <details open>
+                <summary>属性字段 · {fields.length}</summary>
+                <div className="layer-field-list">
+                  {fields.length ? (
+                    fields.map((field) => (
+                      <div key={field}>
+                        <strong>{field}</strong>
+                        <span>{fieldSummary(field)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="form-note">没有属性字段</p>
+                  )}
+                </div>
+                <button
+                  disabled={
+                    !editable || busy || active.sourceKind === "postgis"
+                  }
+                  onClick={() => openModal("field")}
+                >
+                  <Plus size={14} />
+                  添加字段…
+                </button>
+                <button
+                  className="quiet"
+                  onClick={() => {
+                    setTableOpen(true);
+                    openModal(null);
+                  }}
+                >
+                  打开属性表
+                </button>
+              </details>
+              <details open>
+                <summary>来源详情</summary>
+                {active.restored && (
+                  <p className="form-note">恢复副本 · {active.restoredFrom}</p>
+                )}
+                <dl>
+                  <dt>来源名称</dt>
+                  <dd>{active.name}</dd>
+                  <dt>格式</dt>
+                  <dd>
+                    {active.sourceKind === "shp"
+                      ? "Shapefile · 可编辑 / 另存"
+                      : active.sourceKind}
+                  </dd>
+                  <dt>来源 CRS</dt>
+                  <dd>{active.originalCrs}</dd>
+                  <dt>工作坐标</dt>
+                  <dd>WGS84 · EPSG:4326</dd>
+                  <dt>要素数量</dt>
+                  <dd>{active.features.length.toLocaleString()}</dd>
+                </dl>
+                {!editable && (
+                  <p className="form-note">
+                    当前数据库副本不可编辑，请核对主键及提交状态。
+                  </p>
+                )}
+                {active.warnings?.map((warning, index) => (
+                  <p className="warning" key={index}>
+                    {warning}
+                  </p>
+                ))}
+              </details>
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => openModal(null)}>关闭</button>
+            </div>
+          </Modal>
+        )}
+        {modal === "style" && active && layerStyleDraft && (
+          <Modal
+            title={`图层样式：${active.displayName ?? active.name}`}
+            onClose={() => openModal(null)}
+          >
+            <div className="layer-details">
               <h4>样式</h4>
               <label>
                 <span>颜色</span>
                 <input
                   type="color"
                   value={layerStyleDraft.color}
-                  aria-label={`${active.name}颜色`}
+                  aria-label={`${active.displayName ?? active.name}颜色`}
                   onChange={(e) =>
                     setLayerStyleDraft((d) =>
                       d ? { ...d, color: e.target.value } : null,
@@ -2513,69 +2712,6 @@ export default function App() {
                   }
                 />
               </label>
-              <details open>
-                <summary>属性字段 · {fields.length}</summary>
-                <div className="layer-field-list">
-                  {fields.length ? (
-                    fields.map((field) => (
-                      <div key={field}>
-                        <strong>{field}</strong>
-                        <span>{fieldSummary(field)}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="form-note">没有属性字段</p>
-                  )}
-                </div>
-                <button
-                  disabled={
-                    !editable || busy || active.sourceKind === "postgis"
-                  }
-                  onClick={() => openModal("field")}
-                >
-                  <Plus size={14} />
-                  添加字段…
-                </button>
-                <button
-                  className="quiet"
-                  onClick={() => {
-                    setTableOpen(true);
-                    openModal(null);
-                  }}
-                >
-                  打开属性表
-                </button>
-              </details>
-              <details open>
-                <summary>来源详情</summary>
-                {active.restored && (
-                  <p className="form-note">恢复副本 · {active.restoredFrom}</p>
-                )}
-                <dl>
-                  <dt>格式</dt>
-                  <dd>
-                    {active.sourceKind === "shp"
-                      ? "Shapefile · 可编辑 / 另存"
-                      : active.sourceKind}
-                  </dd>
-                  <dt>来源 CRS</dt>
-                  <dd>{active.originalCrs}</dd>
-                  <dt>工作坐标</dt>
-                  <dd>WGS84 · EPSG:4326</dd>
-                  <dt>要素数量</dt>
-                  <dd>{active.features.length.toLocaleString()}</dd>
-                </dl>
-                {!editable && (
-                  <p className="form-note">
-                    当前数据库副本不可编辑，请核对主键及提交状态。
-                  </p>
-                )}
-                {active.warnings?.map((warning, index) => (
-                  <p className="warning" key={index}>
-                    {warning}
-                  </p>
-                ))}
-              </details>
             </div>
             <div className="modal-actions">
               <button onClick={() => openModal(null)}>取消</button>
@@ -2610,7 +2746,8 @@ export default function App() {
             showError={false}
           >
             <p className="form-note">
-              图层：{active?.name} · 要素：{cellDraft.featureId} ·{" "}
+              图层：{active?.displayName ?? active?.name} · 要素：
+              {cellDraft.featureId} ·{" "}
               {cellDraft.original == null
                 ? "输入 JSON 值"
                 : typeof cellDraft.original === "object"
@@ -2656,7 +2793,7 @@ export default function App() {
                 <h3>{modal === "json" ? "属性摘要" : "几何摘要"}</h3>
                 <dl>
                   <dt>图层</dt>
-                  <dd>{active?.name}</dd>
+                  <dd>{active?.displayName ?? active?.name}</dd>
                   <dt>要素</dt>
                   <dd>{selected.id}</dd>
                   <dt>{modal === "json" ? "草稿字段" : "草稿类型"}</dt>
@@ -2696,8 +2833,8 @@ export default function App() {
                 />
               </label>
               <p className="form-note">
-                {active?.name} · {active?.features.length ?? 0}{" "}
-                个要素，初始值为空字符串。
+                {active?.displayName ?? active?.name} ·{" "}
+                {active?.features.length ?? 0} 个要素，初始值为空字符串。
               </p>
             </div>
             <div className="modal-actions">
@@ -2831,7 +2968,7 @@ export default function App() {
             }}
           >
             <SubmitPanel
-              target={active.name}
+              target={active.displayName ?? active.name}
               changes={databaseChanges(
                 dbBaselines.current.get(active.id) ?? [],
                 active.features,
@@ -2846,7 +2983,7 @@ export default function App() {
         )}
         {modal === "close" && (
           <Modal title="移除未保存图层" onClose={() => setModal(null)}>
-            <p>“{active?.name}” 存在未保存修改。</p>
+            <p>“{active?.displayName ?? active?.name}” 存在未保存修改。</p>
             <div className="modal-actions">
               <button onClick={() => setModal(null)}>取消</button>
               <button className="danger" onClick={closeLayer}>

@@ -352,12 +352,13 @@ details button {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: var(--layer-panel-width, 260px) minmax(0, 1fr);
 }
 .workspace[data-layers="false"] {
   grid-template-columns: minmax(0, 1fr);
 }
 .layers-panel {
+  position: relative;
   background: var(--panel);
   min-height: 0;
   display: flex;
@@ -1099,7 +1100,7 @@ select[aria-invalid="true"] {
     display: flex;
   }
   .layers-panel {
-    width: 170px;
+    width: var(--layer-panel-width, 260px);
     flex-shrink: 0;
   }
   .map-column {
@@ -1300,4 +1301,19 @@ button, summary, select { transition: background-color 120ms ease, border-color 
 .modal-actions button:disabled { color: var(--disabled-text); background: var(--surface); border-color: var(--border); }
 @supports (appearance: base-select) {
   select option:checked:disabled { color: var(--disabled-text); }
+}
+
+.layer-panel-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 5;
+}
+.layer-panel-resizer:hover, .layer-panel-resizer:focus-visible {
+  background: var(--accent);
+  outline: none;
 }

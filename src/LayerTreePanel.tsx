@@ -1,12 +1,5 @@
-import { useEffect, useRef, useState, type DragEvent } from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  Eye,
-  EyeOff,
-  Folder,
-  LockKeyhole,
-} from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { ChevronDown, ChevronRight, Folder, LockKeyhole } from "lucide-react";
 import type { DocumentLayer } from "./domain";
 import type { LayerTreeNode, DropPosition } from "./layerTree";
 import "./layer-tree.css";
@@ -20,6 +13,8 @@ interface Props {
   onSelect(id: string): void;
   onFit(id: string): void;
   onProperties(id: string): void;
+  onStyle(id: string): void;
+  onRenameLayer(id: string, name: string): void;
   onToggleLayer(id: string): void;
   onToggleGroup(id: string): void;
   onCollapseGroup(id: string): void;
@@ -32,6 +27,32 @@ interface Props {
   onRemoveGroup?(id: string): void;
 }
 const MIME = "application/x-zgis-layer-node";
+type SymbolKind = "polygon" | "line" | "point" | "mixed" | "empty";
+const symbolLabels: Record<SymbolKind, string> = {
+  polygon: "面图层",
+  line: "线图层",
+  point: "点图层",
+  mixed: "混合几何图层",
+  empty: "无几何图层",
+};
+function symbolKind(layer: DocumentLayer): SymbolKind {
+  const kinds = new Set<SymbolKind>();
+  for (const feature of layer.features) {
+    const type = feature.geometry?.type;
+    if (!type) continue;
+    kinds.add(
+      type === "Polygon" || type === "MultiPolygon"
+        ? "polygon"
+        : type === "LineString" || type === "MultiLineString"
+          ? "line"
+          : type === "Point" || type === "MultiPoint"
+            ? "point"
+            : "mixed",
+    );
+    if (kinds.size > 1 || kinds.has("mixed")) return "mixed";
+  }
+  return kinds.values().next().value ?? "empty";
+}
 export default function LayerTree(props: Props) {
   const [menu, setMenu] = useState<
     | {
@@ -42,10 +63,14 @@ export default function LayerTree(props: Props) {
       }
     | undefined
   >(undefined);
-  const [dialog, setDialog] = useState<{ parentId?: string }>();
+  const [dialog, setDialog] = useState<
+    | { kind: "new-group"; parentId?: string }
+    | { kind: "rename-layer" | "rename-group"; id: string }
+  >();
   const [name, setName] = useState("");
   const [drop, setDrop] = useState<{ id: string; position: DropPosition }>();
   const menuRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLFormElement>(null);
   const dragId = useRef<string | undefined>(undefined);
   const pointerDrag = useRef<
     | {
@@ -59,6 +84,35 @@ export default function LayerTree(props: Props) {
     | undefined
   >(undefined);
   const suppressClick = useRef(false);
+  const layerById = useMemo(
+    () => new Map(props.layers.map((layer) => [layer.id, layer])),
+    [props.layers],
+  );
+  const symbols = useMemo(
+    () => new Map(props.layers.map((layer) => [layer.id, symbolKind(layer)])),
+    [props.layers],
+  );
+  useEffect(() => {
+    if (!dialog) return;
+    const form = dialogRef.current;
+    const returnId = dialog.kind === "new-group" ? dialog.parentId : dialog.id;
+    const returnTarget = returnId
+      ? [
+          ...document.querySelectorAll<HTMLElement>(
+            ".layer-tree [data-node-id]",
+          ),
+        ].find((row) => row.dataset.nodeId === returnId)
+      : document.querySelector<HTMLElement>(".layer-tree");
+    const guardFocus = (event: FocusEvent) => {
+      if (form && !form.contains(event.target as Node))
+        form.querySelector<HTMLInputElement>("input")?.focus();
+    };
+    document.addEventListener("focusin", guardFocus);
+    return () => {
+      document.removeEventListener("focusin", guardFocus);
+      if (returnTarget?.isConnected) returnTarget.focus();
+    };
+  }, [dialog]);
   useEffect(() => {
     if (!menu) return;
     const close = (event: PointerEvent) => {
@@ -97,14 +151,20 @@ export default function LayerTree(props: Props) {
     if (target)
       props.onMove(node.id, target.id, direction < 0 ? "before" : "after");
   };
-  const renderNodes = (nodes: LayerTreeNode[], level = 1) =>
+  const renderNodes = (
+    nodes: LayerTreeNode[],
+    level = 1,
+    ancestorsVisible = true,
+  ) =>
     nodes.map((node) => {
       const group = node.kind === "group";
-      const layer = group
-        ? undefined
-        : props.layers.find((item) => item.id === node.id);
+      const layer = group ? undefined : layerById.get(node.id);
       if (!group && !layer) return null;
       const visible = group ? node.visible : layer!.visible;
+      const displayName = group
+        ? node.name
+        : (layer!.displayName ?? layer!.name);
+      const symbol = symbols.get(node.id) ?? "empty";
       return (
         <div key={node.id} role="none">
           <div
@@ -116,8 +176,8 @@ export default function LayerTree(props: Props) {
             draggable={false}
             data-node-id={node.id}
             data-node-kind={node.kind}
-            className={`layer-row tree-row ${!group && node.id === props.activeId ? "selected" : ""} ${drop?.id === node.id ? `drop-${drop.position}` : ""}`}
-            style={{ paddingLeft: 8 + (level - 1) * 16 }}
+            className={`layer-row tree-row ${!ancestorsVisible || !visible ? "effective-hidden" : ""} ${!group && node.id === props.activeId ? "selected" : ""} ${drop?.id === node.id ? `drop-${drop.position}` : ""}`}
+            style={{ paddingLeft: 8 + (level - 1) * 20 }}
             onClick={() => {
               if (suppressClick.current) {
                 suppressClick.current = false;
@@ -129,7 +189,7 @@ export default function LayerTree(props: Props) {
               if (
                 props.busy ||
                 event.button !== 0 ||
-                (event.target as HTMLElement).closest("button")
+                (event.target as HTMLElement).closest("button, input")
               )
                 return;
               const forbidden = new Set<string>();
@@ -208,6 +268,7 @@ export default function LayerTree(props: Props) {
               group ? props.onCollapseGroup(node.id) : props.onFit(node.id)
             }
             onKeyDown={(event) => {
+              if (event.target !== event.currentTarget) return;
               if (
                 event.altKey &&
                 (event.key === "ArrowUp" || event.key === "ArrowDown")
@@ -278,9 +339,9 @@ export default function LayerTree(props: Props) {
               setDrop(undefined);
             }}
           >
-            {group && (
+            {group ? (
               <button
-                className="icon-button"
+                className="icon-button layer-expander"
                 aria-label={
                   node.collapsed ? `展开 ${node.name}` : `折叠 ${node.name}`
                 }
@@ -288,6 +349,7 @@ export default function LayerTree(props: Props) {
                   event.stopPropagation();
                   props.onCollapseGroup(node.id);
                 }}
+                onDoubleClick={(event) => event.stopPropagation()}
               >
                 {node.collapsed ? (
                   <ChevronRight size={14} />
@@ -295,33 +357,59 @@ export default function LayerTree(props: Props) {
                   <ChevronDown size={14} />
                 )}
               </button>
+            ) : (
+              <span className="layer-expander-placeholder" aria-hidden="true" />
             )}
-            <button
-              className="icon-button"
+            <input
+              type="checkbox"
+              className="layer-visibility"
+              checked={visible}
               disabled={props.busy}
-              aria-label={`${visible ? "隐藏" : "显示"}${group ? "分组" : "图层"}`}
-              onClick={(event) => {
-                event.stopPropagation();
+              aria-label={`显示${group ? "分组" : "图层"} ${displayName}`}
+              onClick={(event) => event.stopPropagation()}
+              onDoubleClick={(event) => event.stopPropagation()}
+              onChange={() => {
                 group
                   ? props.onToggleGroup(node.id)
                   : props.onToggleLayer(node.id);
               }}
-            >
-              {visible ? <Eye size={16} /> : <EyeOff size={16} />}
-            </button>
+            />
             {group ? (
-              <Folder size={14} />
+              <span className="layer-symbol-slot" aria-hidden="true">
+                <Folder size={16} />
+              </span>
             ) : (
-              <span
-                className="layer-swatch"
-                style={{ background: layer!.color }}
-              />
+              <button
+                className="layer-symbol-button"
+                disabled={props.busy}
+                aria-label={`${displayName}样式`}
+                title={`${symbolLabels[symbol]} · 点击设置样式`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onStyle(node.id);
+                }}
+                onDoubleClick={(event) => event.stopPropagation()}
+              >
+                <span
+                  className={`layer-swatch layer-swatch-${symbol}`}
+                  style={{
+                    background:
+                      symbol === "line" ||
+                      symbol === "empty" ||
+                      symbol === "mixed"
+                        ? undefined
+                        : layer!.color,
+                    color: layer!.color,
+                  }}
+                  aria-hidden="true"
+                />
+              </button>
             )}
             <span className="layer-text">
-              <strong title={group ? node.name : layer!.name}>
+              <strong title={displayName}>
                 {group
                   ? node.name
-                  : `${layer!.name}${layer!.dirty ? " *" : ""}`}
+                  : `${displayName}${layer!.dirty ? " *" : ""}`}
               </strong>
             </span>
             {!group && props.readonlyIds?.includes(node.id) && (
@@ -329,7 +417,13 @@ export default function LayerTree(props: Props) {
             )}
           </div>
           {group && !node.collapsed && (
-            <div role="group">{renderNodes(node.children, level + 1)}</div>
+            <div role="group">
+              {renderNodes(
+                node.children,
+                level + 1,
+                ancestorsVisible && visible,
+              )}
+            </div>
           )}
         </div>
       );
@@ -349,6 +443,7 @@ export default function LayerTree(props: Props) {
       </div>
       <div
         className="layer-tree"
+        tabIndex={-1}
         role="tree"
         aria-label="图层树"
         onContextMenu={(event) => {
@@ -406,7 +501,7 @@ export default function LayerTree(props: Props) {
             onClick={() =>
               act(() => {
                 setName("");
-                setDialog({ parentId: groupId });
+                setDialog({ kind: "new-group", parentId: groupId });
               })
             }
           >
@@ -422,6 +517,32 @@ export default function LayerTree(props: Props) {
                   onClick={() => act(() => props.onProperties(menu.node!.id))}
                 >
                   图层属性…
+                </button>
+              )}
+              {(menu.node.kind === "layer" || props.onRenameGroup) && (
+                <button
+                  role="menuitem"
+                  disabled={props.busy}
+                  onClick={() =>
+                    act(() => {
+                      const node = menu.node!;
+                      const layer = layerById.get(node.id);
+                      setName(
+                        node.kind === "group"
+                          ? node.name
+                          : (layer!.displayName ?? layer!.name),
+                      );
+                      setDialog({
+                        kind:
+                          node.kind === "group"
+                            ? "rename-group"
+                            : "rename-layer",
+                        id: node.id,
+                      });
+                    })
+                  }
+                >
+                  {menu.node.kind === "group" ? "重命名分组…" : "重命名图层…"}
                 </button>
               )}
               <button
@@ -461,11 +582,30 @@ export default function LayerTree(props: Props) {
         <div
           className="layer-group-backdrop"
           onKeyDown={(event) => {
-            if (event.key === "Escape") setDialog(undefined);
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setDialog(undefined);
+            } else if (event.key === "Tab") {
+              const focusable = [
+                ...(dialogRef.current?.querySelectorAll<HTMLElement>(
+                  "input:not(:disabled), button:not(:disabled)",
+                ) ?? []),
+              ];
+              const first = focusable[0];
+              const last = focusable.at(-1);
+              if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last?.focus();
+              } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first?.focus();
+              }
+            }
           }}
           onClick={() => setDialog(undefined)}
         >
           <form
+            ref={dialogRef}
             className="layer-group-dialog"
             role="dialog"
             aria-modal="true"
@@ -474,26 +614,44 @@ export default function LayerTree(props: Props) {
             onSubmit={(event) => {
               event.preventDefault();
               if (name.trim() && !props.busy) {
-                props.onNewGroup(name.trim(), dialog.parentId);
+                if (dialog.kind === "new-group")
+                  props.onNewGroup(name.trim(), dialog.parentId);
+                else if (dialog.kind === "rename-layer")
+                  props.onRenameLayer(dialog.id, name.trim());
+                else props.onRenameGroup?.(dialog.id, name.trim());
                 setDialog(undefined);
               }
             }}
           >
-            <h3 id="layer-group-title">新建分组</h3>
-            <label htmlFor="layer-group-name">分组名称</label>
+            <h3 id="layer-group-title">
+              {dialog.kind === "new-group"
+                ? "新建分组"
+                : dialog.kind === "rename-layer"
+                  ? "重命名图层"
+                  : "重命名分组"}
+            </h3>
+            <label htmlFor="layer-group-name">
+              {dialog.kind === "rename-layer" ? "显示名称" : "分组名称"}
+            </label>
             <input
               id="layer-group-name"
               autoFocus
+              onFocus={(event) => event.currentTarget.select()}
               value={name}
               maxLength={120}
               onChange={(event) => setName(event.target.value)}
             />
+            {dialog.kind === "rename-layer" && (
+              <p className="layer-rename-help">
+                仅修改图层显示名称，原始文件名保持不变。
+              </p>
+            )}
             <div>
               <button type="button" onClick={() => setDialog(undefined)}>
                 取消
               </button>
               <button type="submit" disabled={!name.trim() || props.busy}>
-                创建
+                {dialog.kind === "new-group" ? "创建" : "确定"}
               </button>
             </div>
           </form>

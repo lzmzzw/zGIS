@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import assert from "node:assert/strict";
 import shp from "shpjs";
 import { layerBasemapSmoke } from "./layer-basemap-smoke.mjs";
+import { layerTreeStyleSmoke } from "./layer-tree-style-smoke.mjs";
 import { mcpNativeSmoke } from "./mcp-native-smoke.mjs";
 const appPid = Number(process.argv[2]);
 if (!appPid) throw new Error("Pass the isolated zGIS test process ID");
@@ -33,6 +34,7 @@ if (process.argv.includes("--recovery-only")) {
   );
   assert.equal(await page.locator('[data-node-kind="layer"]').count(), 1);
   await layerBasemapSmoke(page, true);
+  await layerTreeStyleSmoke(page, true);
   await page.screenshot({ path: "output/desktop/installed-recovered.png" });
   await page
     .locator(".app-header summary")
@@ -258,6 +260,7 @@ await page
   .fill("跨进程恢复测试");
 await page.getByRole("button", { name: "应用", exact: true }).click();
 await layerBasemapSmoke(page);
+await layerTreeStyleSmoke(page);
 const closed = page.waitForEvent("close");
 await fileAction("退出");
 await closed;
