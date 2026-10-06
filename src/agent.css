@@ -1,9 +1,62 @@
-.gis-agent-panel{height:100%;display:flex;flex-direction:column;min-height:0;background:#141c23;color:#e0e8ec;border-left:1px solid #344552}
-.gis-agent-panel header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #344552}
-.gis-agent-panel header span{margin-left:12px;font-size:12px;color:#9cbbc7}
-.gis-agent-panel button{border:1px solid #536b79;border-radius:5px;background:#253844;color:#e0e8ec;padding:6px 10px;cursor:pointer}
-.gis-agent-panel button:disabled{opacity:.45;cursor:default}
-.gis-agent-toolbar{display:flex;gap:8px;padding:10px 14px 0}
-.gis-agent-hint{font-size:12px;line-height:1.6;color:#9fb3bf;margin:10px 14px}
-.gis-agent-error{font-size:12px;line-height:1.5;color:#ffc6bd;background:#512f2f;padding:9px;margin:0 14px 10px;overflow-wrap:anywhere}
-.gis-agent-terminal{flex:1;min-height:0;overflow:hidden;padding:0 8px 8px}
+.gis-agent-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  color: var(--text);
+  border-left: 1px solid var(--border);
+}
+.gis-agent-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.gis-agent-panel header span {
+  margin-left: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.gis-agent-panel button {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.gis-agent-panel button:hover:not(:disabled) {
+  background: var(--hover);
+}
+.gis-agent-panel button:disabled {
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+.gis-agent-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px 0;
+}
+.gis-agent-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin: 10px 14px;
+}
+.gis-agent-error {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--danger);
+  background: var(--danger-fill);
+  padding: 9px;
+  margin: 0 14px 10px;
+  overflow-wrap: anywhere;
+}
+.gis-agent-terminal {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 8px 8px;
+}

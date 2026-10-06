@@ -225,6 +225,15 @@ function HeaderMenu({
   );
 }
 export default function App() {
+  useEffect(() => {
+    // Escape closes the open picker before any enclosing settings page or menu.
+    const pickerEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && document.querySelector("select:open")) event.stopPropagation();
+    };
+    document.addEventListener("keydown", pickerEscape, true);
+    return () => document.removeEventListener("keydown", pickerEscape, true);
+  }, []);
+
   const [agentOpen, setAgentOpen] = useState(false);
   const [layers, setLayers] = useState<DocumentLayer[]>([]);
   const [activeId, setActiveId] = useState<string>();
