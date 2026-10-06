@@ -328,6 +328,7 @@ export default function App() {
   const [exportFilename, setExportFilename] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [tableLocateNonce, setTableLocateNonce] = useState(0);
   const [tableOpen, setTableOpen] = useState(false);
   const [propertyText, setPropertyText] = useState("{}");
   const [wktText, setWktText] = useState("");
@@ -463,8 +464,13 @@ export default function App() {
     setError("");
     setModal(value);
   }
-  function selectFeature(id?: string) {
+  function selectFeature(id?: string, locateInTable = false) {
     setSelectedId(id);
+    if (id && locateInTable) {
+      setSearch("");
+      setTableOpen(true);
+      setTableLocateNonce(n => n + 1);
+    }
     if (id) {
       setInspectorOpen(true);
       setInspectorTab("feature");
@@ -1136,6 +1142,15 @@ export default function App() {
   const pageSize = 100;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const shown = filtered.slice(page * pageSize, (page + 1) * pageSize);
+  const selectedRow = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    if (!tableOpen || !selectedId) return;
+    const index = filtered.findIndex(feature => feature.id === selectedId);
+    if (index >= 0) setPage(Math.floor(index / pageSize));
+  }, [selectedId, activeId, tableOpen, tableLocateNonce]);
+  useEffect(() => {
+    selectedRow.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [selectedId, page, tableOpen, tableLocateNonce]);
   const h = active ? histories.current.get(active.id) : undefined;
   const editable =
     Boolean(active) &&
@@ -1608,7 +1623,7 @@ export default function App() {
                 basemapVisible={basemapVisible}
                 tdtKey={tdtKey}
                 fitNonce={fitNonce}
-                onSelect={selectFeature}
+                onSelect={(id) => selectFeature(id, true)}
                 onEdit={onGeometry}
                 onPosition={setPosition}
                 onBounds={setBounds}
@@ -1775,6 +1790,8 @@ export default function App() {
                       {shown.map((f, index) => (
                         <tr
                           key={f.id}
+                          ref={selectedId === f.id ? selectedRow : undefined}
+                          aria-selected={selectedId === f.id}
                           className={selectedId === f.id ? "selected" : ""}
                           onClick={() => selectFeature(f.id)}
                           onDoubleClick={() => {

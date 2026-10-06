@@ -64,6 +64,7 @@ export default function MapView(props: Props) {
   );
   const tileRef = useRef<TileLayer | null>(null);
   const labelRef = useRef<TileLayer | null>(null);
+  const selectionRef = useRef<VectorLayer<VectorSource> | null>(null);
   const drawRef = useRef<Draw | null>(null);
   const current = useRef(props);
   current.current = props;
@@ -83,6 +84,10 @@ export default function MapView(props: Props) {
       view: new View({ center: fromLonLat([104, 34]), zoom: 4 }),
     });
     mapRef.current = map;
+    const selection = new VectorLayer({ source: new VectorSource() });
+    selection.setZIndex(1000000);
+    map.addLayer(selection);
+    selectionRef.current = selection;
     map.on("pointermove", (event) =>
       current.current.onPosition(toLonLat(event.coordinate)),
     );
@@ -126,6 +131,7 @@ export default function MapView(props: Props) {
       map.dispose();
       mapRef.current = null;
       vectorRefs.current.clear();
+      selectionRef.current = null;
     };
   }, []);
   useEffect(() => {
@@ -193,7 +199,7 @@ export default function MapView(props: Props) {
       layer.setStyle((feature) =>
         style(
           item.color,
-          feature.getId() === props.selectedId && item.id === props.activeId,
+          false,
           props.theme === "dark" ? "#78a8ff" : "#3e73d8",
           item.strokeWidth ?? 2,
         ),
@@ -223,6 +229,18 @@ export default function MapView(props: Props) {
       }
       layer.changed();
     });
+    const selection = selectionRef.current!;
+    const source = selection.getSource()!;
+    source.clear();
+    const active = props.layers.find(item => item.id === props.activeId);
+    const selected = active?.visible
+      ? vectorRefs.current.get(active.id)?.getSource()?.getFeatureById(props.selectedId ?? "")
+      : undefined;
+    if (selected) {
+      const copy = selected.clone();
+      copy.setStyle(style(active!.color, true, props.theme === "dark" ? "#78a8ff" : "#3e73d8", active!.strokeWidth ?? 2));
+      source.addFeature(copy);
+    }
   }, [props.layers, props.selectedId, props.activeId, props.theme]);
   useEffect(() => {
     const source = vectorRefs.current.get(props.activeId ?? "")?.getSource();
@@ -256,11 +274,7 @@ export default function MapView(props: Props) {
     const select = new Select({
       condition: click,
       layers: [layer],
-      style: style(
-        props.theme === "dark" ? "#78a8ff" : "#3e73d8",
-        true,
-        props.theme === "dark" ? "#78a8ff" : "#3e73d8",
-      ),
+      style: null,
     });
     map.addInteraction(select);
     select.setActive(props.tool === "select" || props.tool === "modify");
