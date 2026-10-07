@@ -188,6 +188,10 @@ assert.equal(await page.getByRole("button", { name: "编辑", exact: true }).isV
 assert.equal(await page.getByRole("button", { name: "新增点", exact: true }).count(), 0);
 console.log("PASS: native coordinate overlay, hand mode, explicit edit and successful save exit");
 await fileAction("导出 / 转换");
+assert.equal(await page.locator(".file-export .export-source").count(), 1);
+assert.equal(await page.locator(".file-export .dialog-summary").count(), 0);
+assert.equal((await page.getByRole("dialog").boundingBox()).width <= 562, true);
+await page.screenshot({ path: "output/desktop/export-compact.png" });
 await page.getByLabel("输出格式").selectOption("wkt");
 const cancelling = nativeDialog("", true);
 await page.getByRole("button", { name: "导出", exact: true }).click();

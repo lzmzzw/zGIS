@@ -347,11 +347,26 @@ export function ExportPanel({
   };
   return (
     <>
-      <div className="split-dialog file-export">
-        <div className="form-grid dialog-config">
-          <label>
-            来源图层<span>{layer.displayName ?? layer.name}</span>
-          </label>
+      <div className="file-export">
+        <div className="export-source">
+          <span>来源图层</span>
+          <div>
+            <span className="export-source-name">
+              {layer.displayName ?? layer.name}
+            </span>
+            <span className="export-source-meta">
+              {layer.features.length.toLocaleString()} 个要素 ·{" "}
+              {[
+                ...new Set(
+                  layer.features.map(
+                    (feature) => feature.geometry?.type ?? "空几何",
+                  ),
+                ),
+              ].join(" / ") || "无几何"}
+            </span>
+          </div>
+        </div>
+        <div className="export-fields">
           <label>
             输出格式
             <select
@@ -373,9 +388,10 @@ export function ExportPanel({
           </label>
           {mode === "postgis" ? (
             <>
-              <label>
-                连接<span>{connected ? "已连接" : "尚未连接"}</span>
-              </label>
+              <div className="export-readonly">
+                <span>数据库连接</span>
+                <span>{connected ? "已连接" : "尚未连接"}</span>
+              </div>
               <label>
                 Schema
                 <input
@@ -406,9 +422,6 @@ export function ExportPanel({
                   onChange={(event) => onFilename(event.target.value)}
                 />
               </label>
-              <label>
-                保存位置<span>{desktop ? "导出时选择" : "浏览器下载"}</span>
-              </label>
               {mode !== "postgis" && (
                 <label>
                   目标坐标系
@@ -424,6 +437,9 @@ export function ExportPanel({
                   </select>
                 </label>
               )}
+              <p className="export-location">
+                {desktop ? "导出时选择保存位置" : "保存到浏览器下载目录"}
+              </p>
             </>
           )}
           {issue && (
@@ -432,59 +448,34 @@ export function ExportPanel({
             </p>
           )}
         </div>
-        <aside className="dialog-summary">
-          <header>导出摘要</header>
-          <dl>
-            <dt>要素数量</dt>
-            <dd>{layer.features.length.toLocaleString()}</dd>
-            <dt>几何类型</dt>
-            <dd>
-              {[
-                ...new Set(
-                  layer.features.map(
-                    (feature) => feature.geometry?.type ?? "空几何",
-                  ),
-                ),
-              ].join(" / ")}
-            </dd>
-            <dt>格式</dt>
-            <dd>{formats[mode]}</dd>
-            <dt>输出坐标</dt>
-            <dd>
-              {mode === "postgis"
-                ? "WGS84 · EPSG:4326"
-                : crs}
-            </dd>
-            <dt>目标</dt>
-            <dd>
-              {mode === "postgis" ? `${schema}.${table || "…"}` : filename}
-            </dd>
-          </dl>
-          {mode === "geojson" && crs !== "EPSG:4326" && (
-            <p className="form-note">输出含 crs 标记的传统 GeoJSON；仅接受 RFC 7946 的软件可能不支持此文件。</p>
-          )}
-          {mode === "postgis" ? (
+        {mode === "geojson" && crs !== "EPSG:4326" && (
+          <p className="form-note">
+            输出含 crs 标记的传统 GeoJSON；仅接受 RFC 7946
+            的软件可能不支持此文件。
+          </p>
+        )}
+        {mode === "postgis" ? (
+          <p className="form-note">
+            EPSG:4326 · 新建 id、properties、geom 三列，不覆盖已有表。
+          </p>
+        ) : mode === "shp" ? (
+          <details className="export-limits" key="shp">
+            <summary>Shapefile 格式限制</summary>
             <p className="form-note">
-              新建 id、properties、geom 三列，不覆盖已有表。
-            </p>
-          ) : mode === "shp" ? (
-            <p className="form-note">
-              另存 ZIP（SHP、SHX、DBF、PRJ、CPG），按目标坐标系输出、UTF-8，须选择不存在的新文件。
+              另存
+              ZIP（SHP、SHX、DBF、PRJ、CPG），按目标坐标系输出、UTF-8，须选择不存在的新文件。
               每次仅支持一种几何族：Point、MultiPoint、线或面，Point 与
-              MultiPoint 不能混合。 DBF 字段名须为 ASCII 字母或下划线开头，最多 10
-              字符，可含数字和下划线；
+              MultiPoint 不能混合。 DBF 字段名须为 ASCII 字母或下划线开头，最多
+              10 字符，可含数字和下划线；
               属性仅支持文本、数值和布尔；空值、缺少字段、嵌套和类型冲突将提示错误。数值最多
               15 位有效数字、8 位小数。文本不接受空字符串或首尾空格。
-              导出后保留工作副本和修改状态；退出时可保留恢复副本或另存 GeoJSON。
             </p>
-          ) : mode !== "geojson" ? (
-            <p className="form-note">
-              嵌套属性转换为 JSON 文本；空字符串与 NULL 不保真。
-            </p>
-          ) : (
-            <p className="form-note">属性和几何随工作副本导出。</p>
-          )}
-        </aside>
+          </details>
+        ) : mode !== "geojson" ? (
+          <p className="form-note">
+            嵌套属性转换为 JSON 文本；空字符串与 NULL 不保真。
+          </p>
+        ) : null}
       </div>
       <div className="modal-actions">
         <button disabled={busy} onClick={onClose}>

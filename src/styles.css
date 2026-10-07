@@ -943,6 +943,80 @@ dd {
 .modal:has(.split-dialog) {
   width: 820px;
 }
+.modal:has(.file-export) {
+  width: 520px;
+}
+.file-export {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.export-source {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.export-source > span {
+  color: var(--muted);
+}
+.export-source > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+  align-items: baseline;
+}
+.export-source-name {
+  overflow-wrap: anywhere;
+  font-weight: var(--font-weight-medium);
+}
+.export-source-meta {
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.export-fields {
+  display: grid;
+  gap: 16px;
+}
+.export-fields > label,
+.export-readonly {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.export-fields input,
+.export-fields select {
+  width: 100%;
+  min-width: 0;
+}
+.export-location {
+  margin: 0 0 0 100px;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+.export-limits > summary {
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+}
+.export-limits > p {
+  margin-top: 8px;
+}
+@media (max-width: 440px) {
+  .export-source,
+  .export-fields > label,
+  .export-readonly {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .export-location {
+    margin-left: 0;
+  }
+}
 .split-dialog {
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr);
