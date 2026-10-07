@@ -43,6 +43,10 @@ import {
   Minimize2,
 } from "lucide-react";
 import BasemapControl from "./BasemapControl";
+import ContextMenu, {
+  type ContextMenuAnchor,
+  type ContextMenuItem,
+} from "./ContextMenu";
 import { cellText, parseCellValue } from "./attributeEditing";
 import LayerTree from "./LayerTreePanel";
 import {
@@ -50,6 +54,7 @@ import {
   orderedTreeLayers,
   moveTreeNode,
   addTreeGroup,
+  dissolveTreeGroup,
   updateTreeGroup,
   type LayerTreeNode,
 } from "./layerTree";
@@ -107,6 +112,29 @@ const stringify = (value: unknown) =>
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 const ErrorContext = createContext("");
+type WorkspaceContext =
+  | {
+      kind: "map";
+      anchor: ContextMenuAnchor;
+      layerId?: string;
+      featureId?: string;
+      coordinate: number[];
+    }
+  | {
+      kind: "record";
+      anchor: ContextMenuAnchor;
+      layerId: string;
+      featureId: string;
+      field?: string;
+    }
+  | { kind: "field"; anchor: ContextMenuAnchor; layerId: string; field: string }
+  | { kind: "text"; anchor: ContextMenuAnchor; text: string };
+const nativeTextTarget = (target: Element) =>
+  Boolean(
+    target.closest(
+      'textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]), [contenteditable="true"], .xterm',
+    ),
+  );
 function IconButton({
   label,
   children,
@@ -227,6 +255,16 @@ function HeaderMenu({
   );
 }
 export default function App() {
+  const [context, setContext] = useState<WorkspaceContext>();
+  useEffect(() => {
+    const suppressBrowserMenu = (event: MouseEvent) => {
+      if (event.target instanceof Element && !nativeTextTarget(event.target))
+        event.preventDefault();
+    };
+    document.addEventListener("contextmenu", suppressBrowserMenu, true);
+    return () =>
+      document.removeEventListener("contextmenu", suppressBrowserMenu, true);
+  }, []);
   useEffect(() => {
     // Escape closes the open picker before any enclosing settings page or menu.
     const pickerEscape = (event: KeyboardEvent) => {
@@ -504,6 +542,7 @@ export default function App() {
     }
   }, [theme]);
   function openModal(value: typeof modal) {
+    setContext(undefined);
     if (cellDraft && value && !["settings", "cell", "quit"].includes(value)) {
       setError("请先应用或取消当前单元格编辑");
       return;
@@ -961,8 +1000,18 @@ export default function App() {
       refreshHistory((n) => n + 1);
     }
   }
-  function beginCell(feature: GeoFeature, field: string) {
-    if (!active || !editable || busy || !tableEditing || cellDraft) return;
+  function beginCell(feature: GeoFeature, field: string, fromMenu = false) {
+    if (
+      !active ||
+      busy ||
+      cellDraft ||
+      (fromMenu ? !canEdit : !editable || !tableEditing)
+    )
+      return;
+    if (fromMenu) {
+      if (!editing) beginEditing();
+      else setTableEditing(true);
+    }
     const original = feature.properties[field];
     const expanded =
       (typeof original === "object" && original !== null) ||
@@ -1467,20 +1516,20 @@ export default function App() {
       setModal(null);
     });
   }
-  async function closeLayer() {
+  async function closeLayer(targetId = active?.id) {
     if (cellDraft) {
       setError("请先应用或取消当前单元格编辑");
       return;
     }
-    if (!active) return;
+    if (!targetId || !layers.some((layer) => layer.id === targetId)) return;
     await task(async () => {
-      const next = layers.filter((l) => l.id !== active.id);
+      const next = layers.filter((l) => l.id !== targetId);
       if (desktop) await writeSnapshot(next);
       setLayers(next);
       currentLayers.current = next;
-      histories.current.delete(active.id);
-      dbBaselines.current.delete(active.id);
-      dbBounds.current.delete(active.id);
+      histories.current.delete(targetId);
+      dbBaselines.current.delete(targetId);
+      dbBounds.current.delete(targetId);
       setActiveId(next[0]?.id);
       setModal(null);
     });
@@ -1522,7 +1571,15 @@ export default function App() {
   useLayoutEffect(() => {
     const row = selectedRow.current;
     const viewport = row?.closest<HTMLDivElement>(".table-scroll");
-    if (!row || !viewport || !tableOpen || cellDraft) return;
+    if (
+      !row ||
+      !viewport ||
+      !tableOpen ||
+      cellDraft ||
+      context?.kind === "record" ||
+      context?.kind === "map"
+    )
+      return;
     let frame = 0;
     let timer: ReturnType<typeof setTimeout>;
     const center = () => {
@@ -1566,6 +1623,7 @@ export default function App() {
     tableLocateNonce,
     Boolean(cellDraft),
     tableMaximized,
+    context?.kind,
   ]);
   const h = active ? histories.current.get(active.id) : undefined;
   const canEdit =
@@ -1611,9 +1669,243 @@ export default function App() {
     ).length;
     return `${types.join(" / ") || "空值"} · ${values.length} 条 · ${empty} 空值`;
   }
+  useEffect(() => setContext(undefined), [activeId, modal, busy]);
+
+  function copyText(text: string) {
+    if (!navigator.clipboard) {
+      setError("无法访问剪贴板，请选中文本后复制");
+      return;
+    }
+    void navigator.clipboard.writeText(text).then(
+      () => setStatus("已复制"),
+      () => setError("无法访问剪贴板，请选中文本后复制"),
+    );
+  }
+  function openRecordContext(
+    anchor: ContextMenuAnchor,
+    feature: GeoFeature,
+    field?: string,
+  ) {
+    if (!active) return;
+    if (
+      !busy &&
+      !cellDraft &&
+      (tool === "pan" || tool === "select" || tool === "modify")
+    )
+      selectFeature(feature.id);
+    setContext({
+      kind: "record",
+      anchor,
+      layerId: active.id,
+      featureId: feature.id,
+      field,
+    });
+  }
+  const contextFeature =
+    context &&
+    (context.kind === "record" || context.kind === "map") &&
+    context.layerId === activeId
+      ? active?.features.find((feature) => feature.id === context.featureId)
+      : undefined;
+  const contextBlocked = busy || Boolean(cellDraft);
+  const sketching = tool !== "pan" && tool !== "select" && tool !== "modify";
+  const contextItems: ContextMenuItem[] = [];
+  function contextAction(
+    id: string,
+    label: string,
+    action: () => void,
+    disabled = false,
+    danger = false,
+    title?: string,
+  ) {
+    contextItems.push({ id, label, onSelect: action, disabled, danger, title });
+  }
+  if (context?.kind === "text") {
+    contextAction("copy-text", "复制", () => copyText(context.text));
+  } else if (context?.kind === "field") {
+    contextAction("copy-name", "复制字段名", () => copyText(context.field));
+    contextAction("copy-summary", "复制字段摘要", () =>
+      copyText(`${context.field}：${fieldSummary(context.field)}`),
+    );
+    contextItems.push({ id: "field-separator", separator: true });
+    contextAction(
+      "add-field",
+      "添加字段…",
+      () => {
+        if (!editing) beginEditing();
+        openModal("field");
+      },
+      contextBlocked ||
+        sketching ||
+        !canEdit ||
+        active?.sourceKind === "postgis",
+      false,
+      active?.sourceKind === "postgis" ? "不支持修改数据库表结构" : undefined,
+    );
+  } else if (context) {
+    if (context.kind === "map") {
+      contextAction("copy-coordinate", "复制经纬度", () =>
+        copyText(
+          context.coordinate.map((value) => value.toFixed(6)).join(", "),
+        ),
+      );
+      contextAction(
+        "fit-layer",
+        "缩放至图层",
+        () => setFitNonce((n) => n + 1),
+        !active?.features.some((feature) => feature.geometry) ||
+          contextBlocked ||
+          sketching,
+      );
+      contextAction(
+        "open-table",
+        "打开属性表",
+        () => {
+          setTableOpen(true);
+          setTableMaximized(false);
+        },
+        !active || contextBlocked,
+      );
+      if (sketching) {
+        contextItems.push({ id: "draw-separator", separator: true });
+        contextAction(
+          "finish-draw",
+          "完成绘制",
+          () => setFinishNonce((n) => n + 1),
+          !editable ||
+            busy ||
+            nodeCount <
+              (tool === "Polygon" ? 3 : tool === "LineString" ? 2 : 1),
+        );
+        contextAction("cancel-draw", "取消绘制", () => setTool("select"), busy);
+      } else {
+        contextItems.push({ id: "navigation-separator", separator: true });
+        contextAction("pan", "手形平移", () => setTool("pan"), contextBlocked);
+        contextAction(
+          "select",
+          "选择要素",
+          () => setTool("select"),
+          contextBlocked || !active,
+        );
+        contextAction(
+          "clear-selection",
+          "清除选择",
+          () => selectFeature(undefined),
+          contextBlocked || !selected,
+        );
+      }
+    }
+    if (contextFeature) {
+      contextItems.push({ id: "feature-separator", separator: true });
+      const feature = contextFeature;
+      const featureBlocked =
+        contextBlocked || sketching || feature.id !== selectedId;
+      if (context.kind === "record" && context.field !== undefined) {
+        const field = context.field;
+        contextAction("copy-value", "复制单元格值", () =>
+          copyText(
+            feature.properties[field] === null
+              ? "NULL"
+              : stringify(feature.properties[field]),
+          ),
+        );
+        contextAction(
+          "edit-cell",
+          "编辑单元格",
+          () => beginCell(feature, field, true),
+          featureBlocked || !canEdit,
+          false,
+          !canEdit
+            ? "当前来源只读"
+            : cellDraft
+              ? "请先应用或取消当前编辑"
+              : undefined,
+        );
+      }
+      contextAction(
+        "fit-feature",
+        "定位到要素",
+        () => setFeatureFitNonce((n) => n + 1),
+        featureBlocked || !feature.geometry,
+      );
+      contextAction(
+        "json",
+        "JSON 属性…",
+        () => openModal("json"),
+        featureBlocked,
+      );
+      contextAction("wkt", "WKT 几何…", () => openModal("wkt"), featureBlocked);
+      contextAction("copy-properties", "复制属性 JSON", () =>
+        copyText(JSON.stringify(feature.properties, null, 2)),
+      );
+      contextAction(
+        "copy-wkt",
+        "复制 WKT",
+        () => copyText(geometryToWkt(feature.geometry!)),
+        !feature.geometry,
+      );
+      contextItems.push({ id: "edit-separator", separator: true });
+      contextAction(
+        "edit-vertices",
+        "编辑顶点",
+        () => {
+          if (!editing) beginEditing();
+          setTool("modify");
+        },
+        featureBlocked || !canEdit || !feature.geometry,
+      );
+      contextAction(
+        "delete-feature",
+        "删除要素…",
+        () => {
+          if (!editing) beginEditing();
+          openModal("delete");
+        },
+        featureBlocked || !canEdit,
+        true,
+        !canEdit ? "当前来源只读" : undefined,
+      );
+    }
+  }
   return (
     <ErrorContext.Provider value={error}>
-      <div className="app">
+      <div
+        className="app"
+        onContextMenu={(event) => {
+          const target = event.target as Element;
+          if (nativeTextTarget(target) || target.closest(".app-header")) return;
+          const textTarget = target.closest(
+            "pre, code, .inline-error, .warning, .error-banner, .form-note",
+          );
+          if (!textTarget?.textContent?.trim()) return;
+          event.preventDefault();
+          setContext({
+            kind: "text",
+            text: textTarget.textContent,
+            anchor: {
+              x: event.clientX,
+              y: event.clientY,
+              returnFocus: document.activeElement as HTMLElement,
+            },
+          });
+        }}
+      >
+        {context && (
+          <ContextMenu
+            anchor={context.anchor}
+            label={
+              context.kind === "map"
+                ? "地图操作"
+                : context.kind === "record"
+                  ? "要素操作"
+                  : context.kind === "field"
+                    ? "字段操作"
+                    : "文本操作"
+            }
+            items={contextItems}
+            onClose={() => setContext(undefined)}
+          />
+        )}
         <header
           className="app-header"
           onMouseDown={(event) => {
@@ -2001,6 +2293,24 @@ export default function App() {
               onRenameGroup={(id, name) =>
                 setTree((old) => updateTreeGroup(old, id, { name }))
               }
+              onOpenTable={(id) => {
+                if (busy || cellDraft) return;
+                setActiveId(id);
+                setTableOpen(true);
+                setTableMaximized(false);
+              }}
+              onRemoveLayer={(id) => {
+                if (busy || cellDraft) return;
+                const layer = layers.find((item) => item.id === id);
+                if (!layer) return;
+                setActiveId(id);
+                if (layer.dirty) openModal("close");
+                else void closeLayer(id);
+              }}
+              onDissolveGroup={(id) => {
+                if (busy || cellDraft) return;
+                setTree((old) => dissolveTreeGroup(old, id));
+              }}
             />
           </aside>
           <section className="map-column">
@@ -2152,6 +2462,23 @@ export default function App() {
               )}
 
               <MapView
+                onContextMenu={(value) => {
+                  const sketching =
+                    tool !== "pan" && tool !== "select" && tool !== "modify";
+                  if (value.featureId && !busy && !cellDraft && !sketching)
+                    selectFeature(value.featureId, true);
+                  setContext({
+                    kind: "map",
+                    anchor: {
+                      x: value.x,
+                      y: value.y,
+                      returnFocus: value.returnFocus,
+                    },
+                    coordinate: value.coordinate,
+                    layerId: activeId,
+                    featureId: sketching ? undefined : value.featureId,
+                  });
+                }}
                 disabled={busy || Boolean(cellDraft)}
                 editable={editable}
                 theme={theme}
@@ -2386,11 +2713,7 @@ export default function App() {
                       active={tableMaximized}
                       onClick={() => setTableMaximized((v) => !v)}
                     >
-                      {tableMaximized ? (
-                        <Minimize2 />
-                      ) : (
-                        <Maximize2 />
-                      )}
+                      {tableMaximized ? <Minimize2 /> : <Maximize2 />}
                     </IconButton>
                   )}
                   <IconButton
@@ -2401,11 +2724,7 @@ export default function App() {
                     }}
                     disabled={Boolean(cellDraft)}
                   >
-                    {tableOpen ? (
-                      <ChevronDown />
-                    ) : (
-                      <ChevronUp />
-                    )}
+                    {tableOpen ? <ChevronDown /> : <ChevronUp />}
                   </IconButton>
                 </div>
               </header>
@@ -2461,7 +2780,59 @@ export default function App() {
                           </button>
                         </th>
                         {fields.map((field) => (
-                          <th key={field} title={field}>
+                          <th
+                            key={field}
+                            title={field}
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              event.currentTarget
+                                .querySelector("details")
+                                ?.removeAttribute("open");
+                              if (active)
+                                setContext({
+                                  kind: "field",
+                                  layerId: active.id,
+                                  field,
+                                  anchor: {
+                                    x: event.clientX,
+                                    y: event.clientY,
+                                    returnFocus:
+                                      event.currentTarget.querySelector(
+                                        "summary",
+                                      ),
+                                  },
+                                });
+                            }}
+                            onKeyDown={(event) => {
+                              if (!(
+                                event.key === "ContextMenu" ||
+                                (event.shiftKey && event.key === "F10")
+                              ))
+                                return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              event.currentTarget
+                                .querySelector("details")
+                                ?.removeAttribute("open");
+                              const rect =
+                                event.currentTarget.getBoundingClientRect();
+                              if (active)
+                                setContext({
+                                  kind: "field",
+                                  layerId: active.id,
+                                  field,
+                                  anchor: {
+                                    x: rect.left,
+                                    y: rect.bottom,
+                                    returnFocus:
+                                      event.currentTarget.querySelector(
+                                        "summary",
+                                      ),
+                                  },
+                                });
+                            }}
+                          >
                             <HeaderMenu label={field}>
                               <span className="field-info">
                                 {fieldSummary(field)}
@@ -2489,6 +2860,52 @@ export default function App() {
                           ref={selectedId === f.id ? selectedRow : undefined}
                           aria-selected={selectedId === f.id}
                           className={selectedId === f.id ? "selected" : ""}
+                          tabIndex={
+                            selectedId === f.id || (!selectedId && index === 0)
+                              ? 0
+                              : -1
+                          }
+                          onContextMenu={(event) => {
+                            if (nativeTextTarget(event.target as Element))
+                              return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openRecordContext(
+                              {
+                                x: event.clientX,
+                                y: event.clientY,
+                                returnFocus: event.currentTarget,
+                              },
+                              f,
+                              (event.target as Element).closest<HTMLElement>(
+                                "td[data-field]",
+                              )?.dataset.field,
+                            );
+                          }}
+                          onKeyDown={(event) => {
+                            if (
+                              nativeTextTarget(event.target as Element) ||
+                              !(
+                                event.key === "ContextMenu" ||
+                                (event.shiftKey && event.key === "F10")
+                              )
+                            )
+                              return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const target = event.target as HTMLElement;
+                            const rect = target.getBoundingClientRect();
+                            openRecordContext(
+                              {
+                                x: rect.left,
+                                y: rect.bottom,
+                                returnFocus: target,
+                              },
+                              f,
+                              target.closest<HTMLElement>("td[data-field]")
+                                ?.dataset.field,
+                            );
+                          }}
                           onClick={() => selectFeature(f.id)}
                           onDoubleClick={() => {
                             if (cellDraft || tableEditing) return;
@@ -3083,7 +3500,7 @@ export default function App() {
             <p>“{active?.displayName ?? active?.name}” 存在未保存修改。</p>
             <div className="modal-actions">
               <button onClick={() => setModal(null)}>取消</button>
-              <button className="danger" onClick={closeLayer}>
+              <button className="danger" onClick={() => void closeLayer()}>
                 放弃并移除
               </button>
             </div>
@@ -3101,11 +3518,7 @@ export default function App() {
                 取消
               </button>
               <button disabled={busy} onClick={() => void processExit()}>
-                {busy ? (
-                  <LoaderCircle className="spin" />
-                ) : (
-                  <Check />
-                )}
+                {busy ? <LoaderCircle className="spin" /> : <Check />}
                 退出并保留工作区
               </button>
             </div>

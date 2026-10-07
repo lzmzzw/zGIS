@@ -14,7 +14,7 @@ export async function layerBasemapSmoke(page, restoring = false) {
   const create = async (name, parent) => {
     if (parent) await row(parent).click({button:"right"});
     else await tree.click({button:"right", position:{x:30,y:300}});
-    await page.getByRole("menuitem", {name:"新建分组…"}).click();
+    await page.getByRole("menuitem", {name:parent ? "新建子分组…" : "新建分组…"}).click();
     await page.getByLabel("分组名称").fill(name);
     await page.getByRole("button",{name:"创建",exact:true}).click();
   };

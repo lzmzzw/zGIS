@@ -6,6 +6,7 @@ import {
   orderedTreeLayers,
   addTreeGroup,
   updateTreeGroup,
+  dissolveTreeGroup,
   type LayerTreeNode,
 } from "./layerTree";
 const tree: LayerTreeNode[] = [
@@ -69,6 +70,7 @@ it("分组创建与更新保留原树且验证目标", () => {
     children: [],
   };
   const added = addTreeGroup(tree, group, "g");
+  expect(added[1]).toMatchObject({ collapsed: false });
   expect(added[1].kind === "group" && added[1].children[1]).toEqual(group);
   expect(
     updateTreeGroup(added, "new", { name: "改名", visible: false })[1],
@@ -78,6 +80,49 @@ it("分组创建与更新保留原树且验证目标", () => {
   expect(() => addTreeGroup(tree, group, "a")).toThrow("分组");
   expect(() => updateTreeGroup(tree, "g", { name: " " })).toThrow("不能为空");
   expect(tree[1]).toMatchObject({ name: "组", children: [{ id: "b" }] });
+});
+
+it("解散分组仅提升直属子节点，保留子组、图层、顺序且不修改原树", () => {
+  const child: LayerTreeNode = {
+    kind: "group",
+    id: "child",
+    name: "子组",
+    visible: false,
+    collapsed: true,
+    children: [{ kind: "layer", id: "c" }],
+  };
+  const group: LayerTreeNode = {
+    kind: "group",
+    id: "nested",
+    name: "待解散",
+    visible: true,
+    collapsed: false,
+    children: [{ kind: "layer", id: "b" }, child],
+  };
+  const parent: LayerTreeNode = {
+    kind: "group",
+    id: "parent",
+    name: "父组",
+    visible: false,
+    collapsed: false,
+    children: [{ kind: "layer", id: "a" }, group, { kind: "layer", id: "d" }],
+  };
+  expect(dissolveTreeGroup([parent], "nested")).toEqual([
+    {
+      ...parent,
+      children: [
+        { kind: "layer", id: "a" },
+        { kind: "layer", id: "b" },
+        child,
+        { kind: "layer", id: "d" },
+      ],
+    },
+  ]);
+  expect(dissolveTreeGroup([group], "nested")).toEqual(group.children);
+  expect(parent.children[1]).toBe(group);
+  expect(group.children[1]).toBe(child);
+  expect(() => dissolveTreeGroup([parent], "a")).toThrow("分组不存在");
+  expect(() => dissolveTreeGroup([parent], "missing")).toThrow("分组不存在");
 });
 
 it("整组移入其他子组时保留全部后代、顺序和状态并展开目标", () => {

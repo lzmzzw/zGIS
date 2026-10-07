@@ -59,17 +59,17 @@ test("nested groups move as a whole into collapsed subgroups without cycles", as
   await page.goto("/");
   const tree = page.getByRole("tree", { name: "图层树" });
   const row = (name: string) =>
-    tree
-      .locator(".tree-row")
-      .filter({
-        has: page
-          .locator(".layer-text")
-          .filter({ hasText: new RegExp(`^${name}$`) }),
-      });
+    tree.locator(".tree-row").filter({
+      has: page
+        .locator(".layer-text")
+        .filter({ hasText: new RegExp(`^${name}$`) }),
+    });
   const create = async (name: string, parent?: string) => {
     if (parent) await row(parent).click({ button: "right" });
     else await tree.click({ button: "right", position: { x: 30, y: 300 } });
-    await page.getByRole("menuitem", { name: "新建分组…" }).click();
+    await page
+      .getByRole("menuitem", { name: parent ? "新建子分组…" : "新建分组…" })
+      .click();
     await page.getByLabel("分组名称").fill(name);
     await page.getByRole("button", { name: "创建", exact: true }).click();
   };
@@ -93,15 +93,13 @@ test("nested groups move as a whole into collapsed subgroups without cycles", as
   await create("甲孙组", "甲子组");
   await create("乙组");
   await create("乙子组", "乙组");
-  await page
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "nested.geojson",
-      mimeType: "application/json",
-      buffer: Buffer.from(
-        '{"type":"Feature","properties":{"name":"保留属性"},"geometry":{"type":"Point","coordinates":[116,40,19]}}',
-      ),
-    });
+  await page.locator("input[type=file]").setInputFiles({
+    name: "nested.geojson",
+    mimeType: "application/json",
+    buffer: Buffer.from(
+      '{"type":"Feature","properties":{"name":"保留属性"},"geometry":{"type":"Point","coordinates":[116,40,19]}}',
+    ),
+  });
   await page.getByRole("button", { name: "导入", exact: true }).click();
   await drag("nested.geojson", "甲孙组");
   await row("乙子组").getByRole("button", { name: "折叠 乙子组" }).click();

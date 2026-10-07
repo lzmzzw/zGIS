@@ -8,6 +8,7 @@ import { layerBasemapSmoke } from "./layer-basemap-smoke.mjs";
 import { layerTreeStyleSmoke } from "./layer-tree-style-smoke.mjs";
 import { mcpNativeSmoke } from "./mcp-native-smoke.mjs";
 import { mcpConnectionSmoke } from "./mcp-connection-smoke.mjs";
+import { contextMenuSmoke } from "./context-menu-smoke.mjs";
 const appPid = Number(process.argv[2]);
 if (!appPid) throw new Error("Pass the isolated zGIS test process ID");
 mkdirSync("output/desktop", { recursive: true });
@@ -311,6 +312,7 @@ await page
   .getByRole("textbox", { name: "属性 城市", exact: true })
   .fill("跨进程恢复测试");
 await page.getByRole("button", { name: "应用", exact: true }).click();
+await contextMenuSmoke(page);
 await layerBasemapSmoke(page);
 await layerTreeStyleSmoke(page);
 const closed = page.waitForEvent("close");

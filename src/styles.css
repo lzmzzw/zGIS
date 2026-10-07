@@ -1170,7 +1170,7 @@ pre, code { font-family: var(--font-mono); }
 small { font-size: var(--font-size-sm); }
 strong, b { font-weight: var(--font-weight-semibold); }
 button, summary, select { transition: background-color 120ms ease, border-color 120ms ease; }
-.menu-items > button:hover:disabled, .layer-tree-menu button:hover:disabled { background: transparent; }
+.menu-items > button:hover:disabled { background: transparent; }
 .mcp-panel > p { margin: 0; line-height: 1.65; }
 .mcp-panel > label { display: grid; gap: 7px; }
 .mcp-panel > .checkbox-label { display: flex; }

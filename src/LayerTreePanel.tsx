@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { ChevronDown, ChevronRight, Folder, LockKeyhole } from "lucide-react";
 import type { DocumentLayer } from "./domain";
 import type { LayerTreeNode, DropPosition } from "./layerTree";
+import ContextMenu, {
+  type ContextMenuAnchor,
+  type ContextMenuItem,
+} from "./ContextMenu";
 import "./layer-tree.css";
 
 interface Props {
@@ -13,6 +17,8 @@ interface Props {
   onSelect(id: string): void;
   onFit(id: string): void;
   onProperties(id: string): void;
+  onOpenTable?(id: string): void;
+  onRemoveLayer?(id: string): void;
   onStyle(id: string): void;
   onRenameLayer(id: string, name: string): void;
   onToggleLayer(id: string): void;
@@ -24,7 +30,7 @@ interface Props {
   desktop: boolean;
   onNewGroup(name: string, parentId?: string): void;
   onRenameGroup?(id: string, name: string): void;
-  onRemoveGroup?(id: string): void;
+  onDissolveGroup?(id: string): void;
 }
 const MIME = "application/x-zgis-layer-node";
 type SymbolKind = "polygon" | "line" | "point" | "mixed" | "empty";
@@ -56,20 +62,18 @@ function symbolKind(layer: DocumentLayer): SymbolKind {
 export default function LayerTree(props: Props) {
   const [menu, setMenu] = useState<
     | {
-        x: number;
-        y: number;
-        node?: LayerTreeNode;
-        siblings: LayerTreeNode[];
+        anchor: ContextMenuAnchor;
+        nodeId?: string;
       }
     | undefined
   >(undefined);
   const [dialog, setDialog] = useState<
     | { kind: "new-group"; parentId?: string }
     | { kind: "rename-layer" | "rename-group"; id: string }
+    | { kind: "dissolve-group"; id: string }
   >();
   const [name, setName] = useState("");
   const [drop, setDrop] = useState<{ id: string; position: DropPosition }>();
-  const menuRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLFormElement>(null);
   const dragId = useRef<string | undefined>(undefined);
   const pointerDrag = useRef<
@@ -105,29 +109,15 @@ export default function LayerTree(props: Props) {
       : document.querySelector<HTMLElement>(".layer-tree");
     const guardFocus = (event: FocusEvent) => {
       if (form && !form.contains(event.target as Node))
-        form.querySelector<HTMLInputElement>("input")?.focus();
+        form.querySelector<HTMLElement>("input, button")?.focus();
     };
     document.addEventListener("focusin", guardFocus);
     return () => {
       document.removeEventListener("focusin", guardFocus);
       if (returnTarget?.isConnected) returnTarget.focus();
+      else document.querySelector<HTMLElement>(".layer-tree")?.focus();
     };
   }, [dialog]);
-  useEffect(() => {
-    if (!menu) return;
-    const close = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenu(undefined);
-    };
-    const key = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenu(undefined);
-    };
-    document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", key);
-    return () => {
-      document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", key);
-    };
-  }, [menu]);
   const position = (
     event: DragEvent<HTMLDivElement>,
     group: boolean,
@@ -250,7 +240,7 @@ export default function LayerTree(props: Props) {
                 window.setTimeout(() => {
                   suppressClick.current = false;
                 }, 0);
-                if (state.target)
+                if (state.target && !props.busy)
                   props.onMove(
                     state.id,
                     state.target.id || null,
@@ -265,7 +255,8 @@ export default function LayerTree(props: Props) {
               setDrop(undefined);
             }}
             onDoubleClick={() =>
-              group ? props.onCollapseGroup(node.id) : props.onFit(node.id)
+              !props.busy &&
+              (group ? props.onCollapseGroup(node.id) : props.onFit(node.id))
             }
             onKeyDown={(event) => {
               if (event.target !== event.currentTarget) return;
@@ -281,8 +272,8 @@ export default function LayerTree(props: Props) {
                   (event.key === "ArrowLeft" && !node.collapsed))
               ) {
                 event.preventDefault();
-                props.onCollapseGroup(node.id);
-              } else if (event.key === "Enter")
+                if (!props.busy) props.onCollapseGroup(node.id);
+              } else if (event.key === "Enter" && !props.busy)
                 group
                   ? props.onCollapseGroup(node.id)
                   : props.onSelect(node.id);
@@ -293,10 +284,12 @@ export default function LayerTree(props: Props) {
                 event.preventDefault();
                 const rect = event.currentTarget.getBoundingClientRect();
                 setMenu({
-                  x: rect.left + 16,
-                  y: rect.bottom,
-                  node,
-                  siblings: nodes,
+                  anchor: {
+                    x: rect.left + 16,
+                    y: rect.bottom,
+                    returnFocus: event.currentTarget,
+                  },
+                  nodeId: node.id,
                 });
               }
             }}
@@ -304,10 +297,12 @@ export default function LayerTree(props: Props) {
               event.preventDefault();
               event.stopPropagation();
               setMenu({
-                x: event.clientX,
-                y: event.clientY,
-                node,
-                siblings: nodes,
+                anchor: {
+                  x: event.clientX,
+                  y: event.clientY,
+                  returnFocus: event.currentTarget,
+                },
+                nodeId: node.id,
               });
             }}
             onDragStart={(event) => {
@@ -345,17 +340,14 @@ export default function LayerTree(props: Props) {
                 aria-label={
                   node.collapsed ? `展开 ${node.name}` : `折叠 ${node.name}`
                 }
+                disabled={props.busy}
                 onClick={(event) => {
                   event.stopPropagation();
                   props.onCollapseGroup(node.id);
                 }}
                 onDoubleClick={(event) => event.stopPropagation()}
               >
-                {node.collapsed ? (
-                  <ChevronRight />
-                ) : (
-                  <ChevronDown />
-                )}
+                {node.collapsed ? <ChevronRight /> : <ChevronDown />}
               </button>
             ) : (
               <span className="layer-expander-placeholder" aria-hidden="true" />
@@ -428,14 +420,177 @@ export default function LayerTree(props: Props) {
         </div>
       );
     });
-  const groupId = menu?.node?.kind === "group" ? menu.node.id : undefined;
+  const findContext = (
+    nodes: LayerTreeNode[],
+    id: string,
+    parentId?: string,
+  ):
+    | { node: LayerTreeNode; siblings: LayerTreeNode[]; parentId?: string }
+    | undefined => {
+    for (const node of nodes) {
+      if (node.id === id) return { node, siblings: nodes, parentId };
+      if (node.kind === "group") {
+        const found = findContext(node.children, id, node.id);
+        if (found) return found;
+      }
+    }
+  };
+  const context = menu?.nodeId
+    ? findContext(props.tree, menu.nodeId)
+    : undefined;
+  const node = context?.node;
+  const menuLayer = node?.kind === "layer" ? layerById.get(node.id) : undefined;
+  const dialogTarget = dialog
+    ? findContext(
+        props.tree,
+        dialog.kind === "new-group" ? (dialog.parentId ?? "") : dialog.id,
+      )?.node
+    : undefined;
+  const dialogTargetValid =
+    dialog?.kind === "new-group"
+      ? !dialog.parentId || dialogTarget?.kind === "group"
+      : dialog?.kind === "rename-layer"
+        ? dialogTarget?.kind === "layer" && layerById.has(dialogTarget.id)
+        : dialogTarget?.kind === "group";
+  const groupId = node?.kind === "group" ? node.id : undefined;
   const act = (action: () => void) => {
+    if (props.busy) return;
     setMenu(undefined);
     action();
   };
+  const items: ContextMenuItem[] = [];
+  const addItem = (
+    id: string,
+    label: string,
+    action: () => void,
+    disabled = false,
+    shortcut?: string,
+    danger?: boolean,
+  ) => {
+    items.push({
+      id,
+      label,
+      onSelect: () => act(action),
+      disabled: props.busy || disabled,
+      shortcut,
+      danger,
+    });
+  };
+  if (!node || node.kind === "group") {
+    addItem("add-files", "添加文件…", () => props.onAddFiles(groupId));
+    addItem(
+      "add-postgis",
+      "添加 PostGIS…",
+      () => props.onAddPostgis(groupId),
+      !props.desktop,
+    );
+    addItem("new-group", groupId ? "新建子分组…" : "新建分组…", () => {
+      setName("");
+      setDialog({ kind: "new-group", parentId: groupId });
+    });
+  }
+  if (node && context) {
+    if (node.kind === "group") {
+      items.push({ id: "group-controls", separator: true });
+      addItem("toggle-group", node.visible ? "隐藏分组" : "显示分组", () =>
+        props.onToggleGroup(node.id),
+      );
+      addItem("collapse-group", node.collapsed ? "展开分组" : "折叠分组", () =>
+        props.onCollapseGroup(node.id),
+      );
+    } else {
+      addItem(
+        "fit-layer",
+        "缩放至图层",
+        () => props.onFit(node.id),
+        !menuLayer?.features.some((feature) => feature.geometry),
+      );
+      addItem(
+        "open-table",
+        "打开属性表",
+        () => props.onOpenTable?.(node.id),
+        !props.onOpenTable,
+      );
+      addItem(
+        "toggle-layer",
+        menuLayer?.visible ? "隐藏图层" : "显示图层",
+        () => props.onToggleLayer(node.id),
+      );
+      addItem("properties", "图层属性…", () => props.onProperties(node.id));
+    }
+    addItem(
+      "rename",
+      node.kind === "group" ? "重命名分组…" : "重命名图层…",
+      () => {
+        setName(
+          node.kind === "group"
+            ? node.name
+            : (menuLayer?.displayName ?? menuLayer?.name ?? ""),
+        );
+        setDialog({
+          kind: node.kind === "group" ? "rename-group" : "rename-layer",
+          id: node.id,
+        });
+      },
+      node.kind === "group" && !props.onRenameGroup,
+    );
+    items.push({ id: "reorder", separator: true });
+    addItem(
+      "move-up",
+      "上移",
+      () => moveSibling(node, context.siblings, -1),
+      context.siblings[0]?.id === node.id,
+      "Alt+↑",
+    );
+    addItem(
+      "move-down",
+      "下移",
+      () => moveSibling(node, context.siblings, 1),
+      context.siblings.at(-1)?.id === node.id,
+      "Alt+↓",
+    );
+    addItem(
+      "move-root",
+      "移到顶层",
+      () => props.onMove(node.id, null, "inside"),
+      !context.parentId,
+    );
+    items.push({ id: "remove", separator: true });
+    if (node.kind === "group") {
+      addItem(
+        "dissolve-group",
+        "解散分组…",
+        () => setDialog({ kind: "dissolve-group", id: node.id }),
+        !props.onDissolveGroup,
+        undefined,
+        true,
+      );
+    } else {
+      addItem(
+        "remove-layer",
+        "移除图层…",
+        () => props.onRemoveLayer?.(node.id),
+        !props.onRemoveLayer,
+        undefined,
+        true,
+      );
+    }
+  }
   return (
     <>
-      <div className="panel-heading">
+      <div
+        className="panel-heading"
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setMenu({
+            anchor: {
+              x: event.clientX,
+              y: event.clientY,
+              returnFocus: document.querySelector<HTMLElement>(".layer-tree"),
+            },
+          });
+        }}
+      >
         <strong>图层</strong>
         {props.layers.length > 0 && (
           <span className="count">{props.layers.length}</span>
@@ -443,12 +598,35 @@ export default function LayerTree(props: Props) {
       </div>
       <div
         className="layer-tree"
-        tabIndex={-1}
+        tabIndex={0}
         role="tree"
         aria-label="图层树"
         onContextMenu={(event) => {
           event.preventDefault();
-          setMenu({ x: event.clientX, y: event.clientY, siblings: props.tree });
+          setMenu({
+            anchor: {
+              x: event.clientX,
+              y: event.clientY,
+              returnFocus: event.currentTarget,
+            },
+          });
+        }}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (
+            event.key === "ContextMenu" ||
+            (event.shiftKey && event.key === "F10")
+          ) {
+            event.preventDefault();
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMenu({
+              anchor: {
+                x: rect.left + 16,
+                y: rect.top + 16,
+                returnFocus: event.currentTarget,
+              },
+            });
+          }
         }}
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes(MIME) && !props.busy) {
@@ -467,117 +645,15 @@ export default function LayerTree(props: Props) {
       >
         {renderNodes(props.tree)}
       </div>
-      {menu && (
-        <div
-          ref={menuRef}
-          className="layer-tree-menu"
-          role="menu"
-          aria-label="图层操作"
-          style={{
-            left: Math.max(4, Math.min(menu.x, window.innerWidth - 200)),
-            top: Math.max(
-              4,
-              Math.min(menu.y, window.innerHeight - (menu.node ? 260 : 130)),
-            ),
-          }}
-        >
-          <button
-            role="menuitem"
-            disabled={props.busy}
-            onClick={() => act(() => props.onAddFiles(groupId))}
-          >
-            添加文件…
-          </button>
-          <button
-            role="menuitem"
-            disabled={props.busy || !props.desktop}
-            onClick={() => act(() => props.onAddPostgis(groupId))}
-          >
-            添加 PostGIS…
-          </button>
-          <button
-            role="menuitem"
-            disabled={props.busy}
-            onClick={() =>
-              act(() => {
-                setName("");
-                setDialog({ kind: "new-group", parentId: groupId });
-              })
-            }
-          >
-            新建分组…
-          </button>
-          {menu.node && (
-            <>
-              <hr />
-              {menu.node.kind === "layer" && (
-                <button
-                  role="menuitem"
-                  disabled={props.busy}
-                  onClick={() => act(() => props.onProperties(menu.node!.id))}
-                >
-                  图层属性…
-                </button>
-              )}
-              {(menu.node.kind === "layer" || props.onRenameGroup) && (
-                <button
-                  role="menuitem"
-                  disabled={props.busy}
-                  onClick={() =>
-                    act(() => {
-                      const node = menu.node!;
-                      const layer = layerById.get(node.id);
-                      setName(
-                        node.kind === "group"
-                          ? node.name
-                          : (layer!.displayName ?? layer!.name),
-                      );
-                      setDialog({
-                        kind:
-                          node.kind === "group"
-                            ? "rename-group"
-                            : "rename-layer",
-                        id: node.id,
-                      });
-                    })
-                  }
-                >
-                  {menu.node.kind === "group" ? "重命名分组…" : "重命名图层…"}
-                </button>
-              )}
-              <button
-                role="menuitem"
-                disabled={props.busy || menu.siblings[0]?.id === menu.node.id}
-                onClick={() =>
-                  act(() => moveSibling(menu.node!, menu.siblings, -1))
-                }
-              >
-                上移 <span>Alt+↑</span>
-              </button>
-              <button
-                role="menuitem"
-                disabled={
-                  props.busy || menu.siblings.at(-1)?.id === menu.node.id
-                }
-                onClick={() =>
-                  act(() => moveSibling(menu.node!, menu.siblings, 1))
-                }
-              >
-                下移 <span>Alt+↓</span>
-              </button>
-              <button
-                role="menuitem"
-                disabled={props.busy}
-                onClick={() =>
-                  act(() => props.onMove(menu.node!.id, null, "inside"))
-                }
-              >
-                移到顶层
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      {menu &&
+        (!menu.nodeId || (node && (node.kind === "group" || menuLayer))) && (
+          <ContextMenu
+            anchor={menu.anchor}
+            label="图层操作"
+            items={items}
+            onClose={() => setMenu(undefined)}
+          />
+        )}
       {dialog && (
         <div
           className="layer-group-backdrop"
@@ -613,11 +689,17 @@ export default function LayerTree(props: Props) {
             onClick={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
-              if (name.trim() && !props.busy) {
+              if (
+                !props.busy &&
+                dialogTargetValid &&
+                (dialog.kind === "dissolve-group" || name.trim())
+              ) {
                 if (dialog.kind === "new-group")
                   props.onNewGroup(name.trim(), dialog.parentId);
                 else if (dialog.kind === "rename-layer")
                   props.onRenameLayer(dialog.id, name.trim());
+                else if (dialog.kind === "dissolve-group")
+                  props.onDissolveGroup?.(dialog.id);
                 else props.onRenameGroup?.(dialog.id, name.trim());
                 setDialog(undefined);
               }
@@ -625,33 +707,58 @@ export default function LayerTree(props: Props) {
           >
             <h3 id="layer-group-title">
               {dialog.kind === "new-group"
-                ? "新建分组"
+                ? dialog.parentId
+                  ? "新建子分组"
+                  : "新建分组"
                 : dialog.kind === "rename-layer"
                   ? "重命名图层"
-                  : "重命名分组"}
+                  : dialog.kind === "rename-group"
+                    ? "重命名分组"
+                    : "解散分组"}
             </h3>
-            <label htmlFor="layer-group-name">
-              {dialog.kind === "rename-layer" ? "显示名称" : "分组名称"}
-            </label>
-            <input
-              id="layer-group-name"
-              autoFocus
-              onFocus={(event) => event.currentTarget.select()}
-              value={name}
-              maxLength={120}
-              onChange={(event) => setName(event.target.value)}
-            />
-            {dialog.kind === "rename-layer" && (
+            {dialog.kind === "dissolve-group" ? (
               <p className="layer-rename-help">
-                原始文件名不变。
+                解散“
+                {dialogTarget?.kind === "group" ? dialogTarget.name : "分组"}
+                ”？图层和子分组将保留在上一级。
               </p>
+            ) : (
+              <>
+                <label htmlFor="layer-group-name">
+                  {dialog.kind === "rename-layer" ? "显示名称" : "分组名称"}
+                </label>
+                <input
+                  id="layer-group-name"
+                  autoFocus
+                  disabled={props.busy}
+                  onFocus={(event) => event.currentTarget.select()}
+                  value={name}
+                  maxLength={120}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </>
             )}
             <div>
-              <button type="button" onClick={() => setDialog(undefined)}>
+              <button
+                type="button"
+                autoFocus={dialog.kind === "dissolve-group"}
+                onClick={() => setDialog(undefined)}
+              >
                 取消
               </button>
-              <button type="submit" disabled={!name.trim() || props.busy}>
-                {dialog.kind === "new-group" ? "创建" : "确定"}
+              <button
+                type="submit"
+                disabled={
+                  (dialog.kind !== "dissolve-group" && !name.trim()) ||
+                  props.busy ||
+                  !dialogTargetValid
+                }
+              >
+                {dialog.kind === "new-group"
+                  ? "创建"
+                  : dialog.kind === "dissolve-group"
+                    ? "解散"
+                    : "确定"}
               </button>
             </div>
           </form>

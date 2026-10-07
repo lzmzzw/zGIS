@@ -93,8 +93,23 @@ export function addTreeGroup(
     throw new Error("目标分组不存在");
   return mapGroups(tree, parentId, (node) => ({
     ...node,
+    collapsed: false,
     children: [...node.children, groupNode],
   }));
+}
+export function dissolveTreeGroup(
+  tree: LayerTreeNode[],
+  id: string,
+): LayerTreeNode[] {
+  if (findNode(tree, id)?.kind !== "group") throw new Error("分组不存在");
+  const visit = (nodes: LayerTreeNode[]): LayerTreeNode[] =>
+    nodes.flatMap((node) => {
+      if (node.kind !== "group") return [node];
+      if (node.id === id) return node.children;
+      const children = visit(node.children);
+      return [{ ...node, children }];
+    });
+  return visit(tree);
 }
 export function moveTreeNode(
   tree: LayerTreeNode[],

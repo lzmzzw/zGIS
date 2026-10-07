@@ -41,6 +41,13 @@ interface Props {
   onEdit: (feature: GeoFeature, insert: boolean) => void;
   onPosition: (xy: number[]) => void;
   onBounds?: (bbox: number[]) => void;
+  onContextMenu?: (context: {
+    x: number;
+    y: number;
+    coordinate: number[];
+    featureId?: string;
+    returnFocus: HTMLElement;
+  }) => void;
 }
 const format = new GeoJSON();
 function style(color: string, selected = false, accent = "#3e73d8", width = 2) {
@@ -392,6 +399,50 @@ export default function MapView(props: Props) {
       className={`map-surface ${props.tool === "pan" ? "pan-mode" : ""}`}
       ref={element}
       aria-label="地理数据地图"
+      tabIndex={0}
+      onContextMenu={(event) => {
+        if ((event.target as Element).closest(".ol-control")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const map = mapRef.current;
+        if (!map) return;
+        const pixel = map.getEventPixel(event.nativeEvent);
+        const active = vectorRefs.current.get(current.current.activeId ?? "");
+        const feature = active?.getVisible()
+          ? map.forEachFeatureAtPixel(pixel, (candidate) => candidate, {
+              layerFilter: (layer) => layer === active,
+              hitTolerance: 5,
+            })
+          : undefined;
+        props.onContextMenu?.({
+          x: event.clientX,
+          y: event.clientY,
+          coordinate: toLonLat(map.getCoordinateFromPixel(pixel)),
+          featureId: feature?.getId()?.toString(),
+          returnFocus: event.currentTarget,
+        });
+      }}
+      onKeyDown={(event) => {
+        if (
+          event.target !== event.currentTarget ||
+          !(
+            event.key === "ContextMenu" ||
+            (event.shiftKey && event.key === "F10")
+          )
+        )
+          return;
+        event.preventDefault();
+        const map = mapRef.current;
+        const coordinate = map?.getView().getCenter();
+        if (!coordinate) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        props.onContextMenu?.({
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+          coordinate: toLonLat(coordinate),
+          returnFocus: event.currentTarget,
+        });
+      }}
     />
   );
 }
