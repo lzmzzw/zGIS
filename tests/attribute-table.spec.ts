@@ -27,8 +27,8 @@ async function setup(page: Page) {
   });
   await page.getByRole("button", { name: "导入", exact: true }).click();
   await page
-    .locator(".header-actions")
-    .getByRole("button", { name: "属性表", exact: true })
+    .locator(".attribute-panel")
+    .getByRole("button", { name: "展开属性表", exact: true })
     .click();
   await page.locator("tbody tr").first().click();
   await page.getByRole("button", { name: "编辑属性", exact: true }).click();

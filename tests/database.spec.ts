@@ -69,8 +69,8 @@ async function loadSource(page: Page, table = "roads") {
   await expect(page.getByRole("dialog")).toContainText("加载摘要");
   await page.getByRole("button", { name: "载入", exact: true }).click();
   await page
-    .locator(".header-actions")
-    .getByRole("button", { name: "属性表", exact: true })
+    .locator(".attribute-panel")
+    .getByRole("button", { name: "展开属性表", exact: true })
     .click();
   await page.locator(".attribute-panel tbody tr").first().click();
 }

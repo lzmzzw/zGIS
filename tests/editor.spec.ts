@@ -66,8 +66,8 @@ async function fileAction(page: Page, name: string) {
 }
 async function showTable(page: Page) {
   await page
-    .locator(".header-actions")
-    .getByRole("button", { name: "属性表", exact: true })
+    .locator(".attribute-panel")
+    .getByRole("button", { name: "展开属性表", exact: true })
     .click();
 }
 async function demo(page: Page) {
@@ -418,7 +418,8 @@ test("single header, panels, theme persistence, resizing and canvas rendering", 
   page,
 }) => {
   await page.goto("/");
-  await expect(page.locator(".attribute-panel")).toBeHidden();
+  await expect(page.locator(".attribute-panel")).toBeVisible();
+  await expect(page.locator(".table-scroll")).toHaveCount(0);
   await expect(page.locator(".inspector")).toHaveCount(0);
   await expect(page.locator(".map-empty")).toHaveCount(0);
   await page.getByRole("button", { name: "设置", exact: true }).click();

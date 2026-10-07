@@ -124,8 +124,8 @@ test("configured services stay single-select, toggle preserves selection and vec
   await expect.poll(hasBusinessPixels).toBe(true);
   await page.setViewportSize({ width: 960, height: 640 });
   await page
-    .locator(".header-actions")
-    .getByRole("button", { name: "属性表", exact: true })
+    .locator(".attribute-panel")
+    .getByRole("button", { name: "展开属性表", exact: true })
     .click();
   await page.locator(".layer-row").click();
   await page.getByRole("button", { name: "底图", exact: true }).click();

@@ -1,14 +1,36 @@
 import { test, expect } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
 
-test("one header entry opens independent settings and preserves edit draft", async ({page}) => {
+test("left menu settings and collapsed table preserve edit draft", async ({page}) => {
  await page.goto("/");
+ await expect(page.locator(".header-menus").getByRole("button", {name:"设置",exact:true})).toBeVisible();
+ await expect(page.locator(".header-actions").getByRole("button", {name:"设置",exact:true})).toHaveCount(0);
+ await expect(page.locator(".app-header summary").filter({hasText:/^视图$/})).toHaveCount(0);
+ await expect(page.locator(".header-actions").getByRole("button", {name:"属性表",exact:true})).toHaveCount(0);
+ await expect(page.locator(".layers-panel")).toBeVisible();
+ await expect(page.locator(".attribute-panel")).toBeVisible();
+ await expect(page.locator(".table-scroll")).toHaveCount(0);
+ await expect(page.locator(".attribute-title")).toHaveText("属性表");
+ await expect(page.locator(".attribute-panel > header button")).toHaveCount(1);
+ await expect(page.getByRole("separator", {name:"调整属性表高度"})).toBeHidden();
  await expect(page.getByRole("button", {name:"设置",exact:true})).toHaveCount(1);
  await expect(page.getByRole("button", {name:"底图设置",exact:true})).toHaveCount(0);
  await expect(page.locator(".header-menus").getByRole("button", {name:"设置…",exact:true})).toHaveCount(0);
  await page.locator(".app-header summary").filter({hasText: /^数据$/}).click();
  await page.getByRole("button",{name:"城市示例",exact:true}).filter({visible:true}).click();
- await page.locator(".header-actions").getByRole("button",{name:"属性表",exact:true}).click();
+ await page.locator(".attribute-panel").getByRole("button",{name:"展开属性表",exact:true}).click();
+ await expect(page.locator(".table-scroll")).toBeVisible();
+ await page.getByRole("button", {name:"最大化属性表",exact:true}).click();
+ await expect(page.locator(".map-container")).toBeHidden();
+ await page.getByRole("button", {name:"收起属性表",exact:true}).click();
+ await expect(page.locator(".attribute-title")).toHaveText("属性表");
+ await expect(page.locator(".attribute-panel > header button")).toHaveCount(1);
+ await page.screenshot({path:"output/smoke/attribute-collapsed.png"});
+ await expect(page.locator(".attribute-panel")).toBeVisible();
+ await expect(page.locator(".table-scroll")).toHaveCount(0);
+ await expect(page.locator(".map-container")).toBeVisible();
+ await page.getByRole("button", {name:"展开属性表",exact:true}).click();
+ await expect(page.getByRole("button", {name:"最大化属性表",exact:true})).toBeVisible();
  await page.locator("tbody tr").first().click();
  await page.getByRole("button",{name:"编辑属性",exact:true}).click();
  await page.locator('.attribute-panel tbody tr.selected td[data-field="城市"]').dblclick();

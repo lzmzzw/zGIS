@@ -25,7 +25,7 @@ async function importPolygons(page: Page, count: number) {
   });
   await page.getByRole("button", { name: "导入", exact: true }).click();
   await expect(page.locator(".layer-text")).toContainText("selection.geojson");
-  await page.locator(".header-actions").getByRole("button", { name: "属性表", exact: true }).click();
+  await page.locator(".attribute-panel").getByRole("button", { name: "展开属性表", exact: true }).click();
 }
 
 test("map selection locates its record across pages without filtering the attribute table", async ({ page }) => {

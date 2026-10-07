@@ -519,6 +519,12 @@ details button {
   flex-direction: column;
   flex-shrink: 0;
 }
+.attribute-title {
+  padding: 0 8px;
+}
+.attribute-panel.collapsed > header > .icon-button:last-child {
+  margin-left: auto;
+}
 .table-resizer {
   position: absolute;
   top: -4px;

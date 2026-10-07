@@ -77,7 +77,7 @@ export default function SettingsPage(props: Props) {
       window.removeEventListener("keydown", escape);
       document
         .querySelector<HTMLButtonElement>(
-          '.header-actions button[aria-label="设置"]',
+          '.header-menus button[aria-label="设置"]',
         )
         ?.focus();
     };

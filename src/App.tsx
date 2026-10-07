@@ -25,16 +25,14 @@ import {
   Trash2,
   LocateFixed,
   Database,
-  Layers,
   Eye,
   EyeOff,
   LockKeyhole,
-  Table2,
   Magnet,
   ChevronDown,
+  ChevronUp,
   Plus,
   X,
-  Settings2,
   Check,
   LoaderCircle,
   FileJson,
@@ -1714,25 +1712,18 @@ export default function App() {
                 城市示例
               </button>
             </HeaderMenu>
-            <HeaderMenu label="视图">
-              <button
-                aria-pressed={layersOpen}
-                onClick={() => {
-                  setLayersOpen((v) => !v);
-                }}
-              >
-                <Layers size={16} />
-                图层
-              </button>
-              <button
-                aria-pressed={tableOpen}
-                disabled={Boolean(cellDraft)}
-                onClick={() => setTableOpen((v) => !v)}
-              >
-                <Table2 size={16} />
-                属性表
-              </button>
-            </HeaderMenu>
+            <button
+              className="quiet"
+              aria-label="设置"
+              aria-pressed={modal === "settings"}
+              disabled={busy}
+              onClick={() => {
+                setSettingCategory("appearance");
+                openModal("settings");
+              }}
+            >
+              设置
+            </button>
           </nav>
           <div
             className="document-title"
@@ -1753,25 +1744,6 @@ export default function App() {
                 </IconButton>
               </>
             )}
-            <IconButton
-              label="属性表"
-              active={tableOpen}
-              disabled={modal === "settings" || Boolean(cellDraft)}
-              onClick={() => setTableOpen((v) => !v)}
-            >
-              <Table2 size={16} />
-            </IconButton>
-            <IconButton
-              label="设置"
-              active={modal === "settings"}
-              disabled={busy}
-              onClick={() => {
-                setSettingCategory("appearance");
-                openModal("settings");
-              }}
-            >
-              <Settings2 size={16} />
-            </IconButton>
           </div>
           {desktop && (
             <div className="window-controls">
@@ -2222,9 +2194,14 @@ export default function App() {
             </div>
             <section
               className={`attribute-panel ${tableOpen ? "" : "collapsed"}`}
-              hidden={!tableOpen}
               data-maximized={tableMaximized}
-              style={{ height: tableMaximized ? "100%" : tableHeight }}
+              style={{
+                height: tableOpen
+                  ? tableMaximized
+                    ? "100%"
+                    : tableHeight
+                  : "auto",
+              }}
             >
               <div
                 className="table-resizer"
@@ -2232,7 +2209,7 @@ export default function App() {
                 aria-label="调整属性表高度"
                 aria-orientation="horizontal"
                 aria-valuenow={tableHeight}
-                hidden={tableMaximized}
+                hidden={!tableOpen || tableMaximized}
                 aria-valuemin={140}
                 aria-valuemax={600}
                 tabIndex={0}
@@ -2269,14 +2246,17 @@ export default function App() {
                 }
               />
               <header>
-                <button
-                  className="quiet"
-                  onClick={() => setTableOpen((v) => !v)}
-                  disabled={Boolean(cellDraft)}
-                >
-                  属性表{" "}
-                  <span className="count">{active?.features.length ?? 0}</span>
-                </button>
+                <span className="attribute-title">
+                  属性表
+                  {tableOpen && (
+                    <>
+                      {" "}
+                      <span className="count">
+                        {active?.features.length ?? 0}
+                      </span>
+                    </>
+                  )}
+                </span>
                 {tableOpen && (
                   <>
                     <div className="search-field">
@@ -2402,38 +2382,44 @@ export default function App() {
                   </>
                 )}
                 <IconButton
-                  label="收起属性表"
+                  label={tableOpen ? "收起属性表" : "展开属性表"}
                   onClick={() => {
-                    setTableOpen(false);
+                    setTableOpen((v) => !v);
                     setTableMaximized(false);
                   }}
                   disabled={Boolean(cellDraft)}
                 >
-                  <ChevronDown size={16} />
+                  {tableOpen ? (
+                    <ChevronDown size={16} />
+                  ) : (
+                    <ChevronUp size={16} />
+                  )}
                 </IconButton>
               </header>
-              {tableEditing && (
+              {tableOpen && tableEditing && (
                 <div className="table-edit-note">
                   {editable
                     ? "双击单元格或 Enter 编辑 · Enter 应用 · Tab 下一字段 · Esc 取消"
                     : "当前来源只读"}
                 </div>
               )}
-              {selected && !filtered.some((f) => f.id === selected.id) && (
-                <div className="table-edit-note">
-                  选中要素已被筛选隐藏{" "}
-                  <button
-                    className="quiet"
-                    disabled={Boolean(cellDraft)}
-                    onClick={() => {
-                      setSearch("");
-                      setTableLocateNonce((n) => n + 1);
-                    }}
-                  >
-                    显示选中项
-                  </button>
-                </div>
-              )}
+              {tableOpen &&
+                selected &&
+                !filtered.some((f) => f.id === selected.id) && (
+                  <div className="table-edit-note">
+                    选中要素已被筛选隐藏{" "}
+                    <button
+                      className="quiet"
+                      disabled={Boolean(cellDraft)}
+                      onClick={() => {
+                        setSearch("");
+                        setTableLocateNonce((n) => n + 1);
+                      }}
+                    >
+                      显示选中项
+                    </button>
+                  </div>
+                )}
               {cellDraft?.error && !cellDraft.expanded && (
                 <div className="cell-error" role="alert">
                   {cellDraft.field}：{cellDraft.error}
