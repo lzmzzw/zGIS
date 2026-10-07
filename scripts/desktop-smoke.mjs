@@ -133,7 +133,7 @@ const maximizeTable = tableControls.getByRole("button", { name: "最大化属性
 const collapseTable = tableControls.getByRole("button", { name: "收起属性表", exact: true });
 const maximizeBounds = await maximizeTable.boundingBox();
 const collapseBounds = await collapseTable.boundingBox();
-assert.ok(maximizeBounds.x >= collapseBounds.x + collapseBounds.width);
+assert.ok(maximizeBounds.x + maximizeBounds.width <= collapseBounds.x);
 await maximizeTable.click();
 const restoreTable = tableControls.getByRole("button", { name: "还原属性表", exact: true });
 assert.equal(await restoreTable.getAttribute("aria-pressed"), "true");

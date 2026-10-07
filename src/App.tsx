@@ -2383,6 +2383,19 @@ export default function App() {
                   role="group"
                   aria-label="属性表显示控制"
                 >
+                  {tableOpen && (
+                    <IconButton
+                      label={tableMaximized ? "还原属性表" : "最大化属性表"}
+                      active={tableMaximized}
+                      onClick={() => setTableMaximized((v) => !v)}
+                    >
+                      {tableMaximized ? (
+                        <Minimize2 size={16} />
+                      ) : (
+                        <Maximize2 size={16} />
+                      )}
+                    </IconButton>
+                  )}
                   <IconButton
                     label={tableOpen ? "收起属性表" : "展开属性表"}
                     onClick={() => {
@@ -2397,19 +2410,6 @@ export default function App() {
                       <ChevronUp size={16} />
                     )}
                   </IconButton>
-                  {tableOpen && (
-                    <IconButton
-                      label={tableMaximized ? "还原属性表" : "最大化属性表"}
-                      active={tableMaximized}
-                      onClick={() => setTableMaximized((v) => !v)}
-                    >
-                      {tableMaximized ? (
-                        <Minimize2 size={16} />
-                      ) : (
-                        <Maximize2 size={16} />
-                      )}
-                    </IconButton>
-                  )}
                 </div>
               </header>
               {tableOpen && tableEditing && (

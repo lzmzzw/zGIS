@@ -126,7 +126,7 @@ test("maximized table has natural scroll boundaries and right-side state control
   });
   const maxBounds = await maximize.boundingBox(),
     collapseBounds = await collapse.boundingBox();
-  expect(collapseBounds!.x + collapseBounds!.width).toBeLessThanOrEqual(maxBounds!.x);
+  expect(maxBounds!.x + maxBounds!.width).toBeLessThanOrEqual(collapseBounds!.x);
   expect(Math.abs(maxBounds!.y - collapseBounds!.y)).toBeLessThan(1);
   await maximize.click();
   await page.screenshot({path:"output/smoke/table-maximized.png"});
