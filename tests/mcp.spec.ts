@@ -1,14 +1,15 @@
 import { test, expect } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
+import { CITY_TEST_FILENAME, importCityFixture } from "./data-fixtures";
 
 test("MCP controls, snapshot isolation and generated layers keep source intact", async ({ page }) => {
   await installDesktopMock(page);
   await page.goto("/");
-  await page.locator(".app-header summary").filter({hasText: /^数据$/}).click();
-  await page.getByRole("button", { name: "城市示例", exact: true }).filter({ visible: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_workspace_sync").length)).toBeGreaterThan(0);
+  await importCityFixture(page);
+  await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_workspace_sync").at(-1)?.args.layers)).toHaveLength(1);
   const snapshot = await page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_workspace_sync").at(-1)?.args);
   const source = (snapshot!.layers as { id: string; name: string; features: unknown[] }[])[0];
+  expect(source.name).toBe(CITY_TEST_FILENAME);
   expect(source.features).toHaveLength(4);
   expect(JSON.stringify(snapshot)).not.toContain("connectionId");
   await page.getByRole("button", { name: "设置", exact: true }).click();

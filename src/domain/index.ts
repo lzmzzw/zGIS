@@ -479,19 +479,3 @@ export async function importFiles(
   if (!layers.length) throw new Error("未找到可导入图层");
   return layers;
 }
-export function createDemoLayer(): DocumentLayer {
-  return makeLayer(
-    "中国城市 · 内置示例",
-    [
-      ["北京", 116.4074, 39.9042],
-      ["上海", 121.4737, 31.2304],
-      ["广州", 113.2644, 23.1291],
-      ["成都", 104.0665, 30.5723],
-    ].map(([name, x, y]) => ({
-      id: id(),
-      geometry: { type: "Point", coordinates: [x as number, y as number] },
-      properties: { 城市: name, 资料: "内置城市坐标示例" },
-    })),
-    "geojson",
-  );
-}

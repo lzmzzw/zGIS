@@ -19,4 +19,8 @@ const files={'cities.shp':shp,'cities.shx':shx,'cities.dbf':dbf,'cities.prj':Buf
 for(const [name,bytes] of Object.entries(files))writeFileSync(`${root}/${name}`,bytes);
 writeFileSync(`${root}/cities.zip`,zipSync(files));
 writeFileSync(`${root}/native.geojson`,JSON.stringify({type:'FeatureCollection',features:[{type:'Feature',id:'native-1',geometry:{type:'Point',coordinates:points[0]},properties:{name:'原生文件测试',code:'001'}}]}));
+writeFileSync(`${root}/editing.geojson`, JSON.stringify({type:'FeatureCollection',features:[
+  ['北京',116.4074,39.9042],['上海',121.4737,31.2304],
+  ['广州',113.2644,23.1291],['成都',104.0665,30.5723],
+].map(([name,x,y],index)=>({type:'Feature',id:`editing-${index}`,geometry:{type:'Point',coordinates:[x,y]},properties:{城市:name,资料:'编辑回归数据'}}))}));
 console.log('Created owned SHP/ZIP/GeoJSON smoke fixtures');

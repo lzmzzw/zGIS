@@ -31,7 +31,7 @@ export async function layerTreeStyleSmoke(page, restoring = false) {
   await page.locator(".app-header summary").filter({ hasText: /^文件$/ }).click();
   await page.getByRole("button", { name: "导出 / 转换", exact: true }).click();
   await page.getByLabel("输出格式", { exact: true }).selectOption("geojson");
-  await expect(page.getByLabel("文件名", { exact: true })).toHaveValue(`${sourceName}.geojson`);
+  await expect(page.getByLabel("文件名", { exact: true })).toHaveValue(sourceName);
   await page.keyboard.press("Escape");
   const handle = await width.boundingBox();
   await page.mouse.move(handle.x + 2, handle.y + 160);

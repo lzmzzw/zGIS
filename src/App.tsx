@@ -72,7 +72,6 @@ import {
 import { databaseChanges } from "./dbChanges";
 import { restoreWorkspace, snapshotWorkspace } from "./workspace";
 import {
-  createDemoLayer,
   exportGeoJSON,
   exportCsv,
   cloneFeatures,
@@ -1994,14 +1993,6 @@ export default function App() {
               <button onClick={openSources} disabled={!desktop || busy}>
                 <Database />
                 PostGIS 数据源…
-              </button>
-              <hr />
-              <button
-                onClick={() => addLayers([createDemoLayer()])}
-                disabled={busy}
-              >
-                <Plus />
-                城市示例
               </button>
             </HeaderMenu>
             <button

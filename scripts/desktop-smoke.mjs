@@ -298,14 +298,15 @@ assert.deepEqual(errors, []);
 console.log(
   "PASS: desktop WebView2, native open/save/export/cancel, source ID preservation, external-file conflict protection and immediate discarded-recovery clearing",
 );
-await page
-  .locator(".app-header summary")
-  .filter({ hasText: /^数据$/ })
-  .click();
-await page
-  .getByRole("button", { name: "城市示例", exact: true })
-  .filter({ visible: true })
-  .click();
+await page.locator(".app-header summary").filter({ hasText: /^数据$/ }).click();
+assert.deepEqual(await page.locator(".app-header .header-menu[open] button").allTextContents(), ["导入数据…", "PostGIS 数据源…"]);
+await page.keyboard.press("Escape");
+const editingOpening = nativeDialog("output/smoke/fixtures/editing.geojson");
+await fileAction("打开文件…");
+await editingOpening;
+await page.getByRole("button", { name: "导入", exact: true }).click();
+await page.waitForFunction(() => document.querySelectorAll(".attribute-panel tbody tr").length === 4);
+assert.equal(await page.locator("tbody tr").count(), 4);
 await page.locator("tbody tr").first().click();
 await editCell("城市");
 await page

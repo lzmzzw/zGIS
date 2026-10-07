@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { CITY_TEST_FILENAME, importCityFixture } from "./data-fixtures";
 test("configured services stay single-select, toggle preserves selection and vector layers remain above tiles", async ({
   page,
 }) => {
@@ -72,11 +73,7 @@ test("configured services stay single-select, toggle preserves selection and vec
     .toBe(true);
   await page.screenshot({ path: "output/smoke/basemap-configured.png" });
   await page.keyboard.press("Escape");
-  await page
-    .locator(".app-header summary")
-    .filter({ hasText: /^数据$/ })
-    .click();
-  await page.getByRole("button", { name: "城市示例", exact: true }).click();
+  await importCityFixture(page);
   const color = await page
     .locator(".layer-swatch")
     .evaluate((el) =>
@@ -119,7 +116,7 @@ test("configured services stay single-select, toggle preserves selection and vec
   await page.getByRole("button", { name: "底图", exact: true }).click();
   await page.getByLabel("显示底图", { exact: true }).uncheck();
   await expect.poll(hasBusinessPixels).toBe(true);
-  await expect(page.locator(".layer-text")).toContainText("中国城市");
+  await expect(page.locator(".layer-text")).toContainText(CITY_TEST_FILENAME);
   await page.getByLabel("显示底图", { exact: true }).check();
   await expect.poll(hasBusinessPixels).toBe(true);
   await page.setViewportSize({ width: 960, height: 640 });

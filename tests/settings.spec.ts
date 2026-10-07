@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
+import { importCityFixture } from "./data-fixtures";
 
 test("left menu settings and collapsed table preserve edit draft", async ({page}) => {
  await page.goto("/");
@@ -7,6 +8,7 @@ test("left menu settings and collapsed table preserve edit draft", async ({page}
  await expect(page.locator(".header-actions").getByRole("button", {name:"设置",exact:true})).toHaveCount(0);
  await expect(page.locator(".app-header summary").filter({hasText:/^视图$/})).toHaveCount(0);
  await expect(page.locator(".header-actions").getByRole("button", {name:"属性表",exact:true})).toHaveCount(0);
+ await expect(page.locator(".app-header").getByRole("button", {name:"城市示例",exact:true,includeHidden:true})).toHaveCount(0);
  await expect(page.locator(".layers-panel")).toBeVisible();
  await expect(page.locator(".attribute-panel")).toBeVisible();
  await expect(page.locator(".table-scroll")).toHaveCount(0);
@@ -16,8 +18,7 @@ test("left menu settings and collapsed table preserve edit draft", async ({page}
  await expect(page.getByRole("button", {name:"设置",exact:true})).toHaveCount(1);
  await expect(page.getByRole("button", {name:"底图设置",exact:true})).toHaveCount(0);
  await expect(page.locator(".header-menus").getByRole("button", {name:"设置…",exact:true})).toHaveCount(0);
- await page.locator(".app-header summary").filter({hasText: /^数据$/}).click();
- await page.getByRole("button",{name:"城市示例",exact:true}).filter({visible:true}).click();
+ await importCityFixture(page);
  await page.locator(".attribute-panel").getByRole("button",{name:"展开属性表",exact:true}).click();
  await expect(page.locator(".table-scroll")).toBeVisible();
  await page.getByRole("button", {name:"最大化属性表",exact:true}).click();

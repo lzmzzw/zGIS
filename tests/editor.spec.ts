@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
+import { importCityFixture } from "./data-fixtures";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
@@ -70,16 +71,9 @@ async function showTable(page: Page) {
     .getByRole("button", { name: "展开属性表", exact: true })
     .click();
 }
-async function demo(page: Page) {
+async function cities(page: Page) {
   await page.goto("/");
-  await page
-    .locator(".app-header summary")
-    .filter({ hasText: /^数据$/ })
-    .click();
-  await page
-    .getByRole("button", { name: "城市示例", exact: true })
-    .filter({ visible: true })
-    .click();
+  await importCityFixture(page);
   await showTable(page);
   await expect(page.locator("tbody tr")).toHaveCount(4);
 }
@@ -104,7 +98,7 @@ test("city attributes use explicit apply, independent geometry editor, undo and 
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await demo(page);
+  await cities(page);
   await page.locator("tbody tr").first().click();
   const city = page.getByRole("textbox", { name: "属性 城市", exact: true });
   await expect(city).toHaveCount(0);
@@ -311,7 +305,7 @@ test("SHP ZIP is editable and save routes to conversion", async ({ page }) => {
 test("field menu protects duplicates and adds to every feature", async ({
   page,
 }) => {
-  await demo(page);
+  await cities(page);
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await page
     .locator("th summary")
@@ -339,7 +333,7 @@ test("field menu protects duplicates and adds to every feature", async ({
 test("drawing completion, cancellation, vertices, deletion and undo", async ({
   page,
 }) => {
-  await demo(page);
+  await cities(page);
   await page.locator("tbody tr").first().click();
   await page.getByRole("button", { name: "底图", exact: true }).click();
   await page.getByLabel("显示底图", { exact: true }).uncheck();
@@ -443,14 +437,7 @@ test("single header, panels, theme persistence, resizing and canvas rendering", 
   await expect(
     page.getByRole("button", { name: "设置", exact: true }),
   ).toBeFocused();
-  await page
-    .locator(".app-header summary")
-    .filter({ hasText: /^数据$/ })
-    .click();
-  await page
-    .getByRole("button", { name: "城市示例", exact: true })
-    .filter({ visible: true })
-    .click();
+  await importCityFixture(page);
   await showTable(page);
   await page.locator("tbody tr").first().click();
   const resizer = page.getByRole("separator", { name: "调整属性表高度" });
