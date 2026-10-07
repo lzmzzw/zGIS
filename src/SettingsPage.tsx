@@ -10,6 +10,7 @@ import {
   Info,
   Plus,
   X,
+  Pencil,
 } from "lucide-react";
 import McpPanel from "./McpPanel";
 import { desktop } from "./bridge";
@@ -24,12 +25,6 @@ interface Props {
   onCategory: (value: SettingsCategory) => void;
   theme: "light" | "dark";
   onTheme: (value: "light" | "dark") => void;
-  basemap: string;
-  onBasemap: (value: string) => void;
-  annotations: boolean;
-  onAnnotations: (value: boolean) => void;
-  tdtKey: string;
-  onTdtKey: (value: string) => void;
   error: string;
   onClose: () => void;
 }
@@ -40,20 +35,23 @@ const categories = [
   { id: "about", label: "关于", icon: Info },
 ] as const;
 
-function BasemapAddDialog({
-  onAdd,
+function BasemapServiceDialog({
+  service,
+  onSave,
   onClose,
   returnFocus,
 }: {
-  onAdd: (service: BasemapService) => void;
+  service?: BasemapService;
+  onSave: (service: BasemapService) => void;
   onClose: () => void;
   returnFocus: HTMLButtonElement | null;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [attribution, setAttribution] = useState("");
+  const [name, setName] = useState(service?.name ?? "");
+  const [url, setUrl] = useState(service?.url ?? "");
+  const [attribution, setAttribution] = useState(service?.attribution ?? "");
+  const [enabled, setEnabled] = useState(service?.enabled !== false);
   const [error, setError] = useState("");
   useEffect(() => {
     const element = dialog.current;
@@ -68,14 +66,14 @@ function BasemapAddDialog({
     <dialog
       ref={dialog}
       className="modal basemap-add-dialog"
-      aria-label="添加底图"
+      aria-label={service ? "编辑底图" : "添加底图"}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
       }}
     >
       <header>
-        <h2>添加底图</h2>
+        <h2>{service ? "编辑底图" : "添加底图"}</h2>
         <button
           type="button"
           className="icon-button"
@@ -98,13 +96,16 @@ function BasemapAddDialog({
             setError("XYZ 地址须为 HTTP(S)，并包含 {z}、{x}、{y}。");
             return;
           }
-          onAdd({
-            id: `xyz-${crypto.randomUUID()}`,
+          onSave({
+            ...(service ?? {
+              id: `xyz-${crypto.randomUUID()}`,
+              type: "XYZ 瓦片服务",
+              preview: "street" as const,
+            }),
             name: name.trim(),
-            type: "XYZ 瓦片服务",
-            preview: "street",
             url: url.trim(),
             attribution: attribution.trim(),
+            enabled,
           });
           onClose();
         }}
@@ -112,7 +113,7 @@ function BasemapAddDialog({
         <label>
           名称
           <input
-            aria-label="新底图名称"
+            aria-label={service ? "底图名称" : "新底图名称"}
             ref={nameInput}
             autoFocus
             maxLength={100}
@@ -139,6 +140,15 @@ function BasemapAddDialog({
             onChange={(event) => setAttribution(event.target.value)}
           />
         </label>
+        <label className="checkbox-label basemap-enabled-toggle">
+          <input
+            aria-label="在地图中显示"
+            type="checkbox"
+            checked={enabled}
+            onChange={(event) => setEnabled(event.target.checked)}
+          />
+          在地图中显示
+        </label>
         {error && (
           <p className="warning" role="alert">
             {error}
@@ -148,7 +158,7 @@ function BasemapAddDialog({
           <button type="button" onClick={onClose}>
             取消
           </button>
-          <button type="submit">添加</button>
+          <button type="submit">{service ? "保存" : "添加"}</button>
         </div>
       </form>
     </dialog>
@@ -156,7 +166,10 @@ function BasemapAddDialog({
 }
 
 export default function SettingsPage(props: Props) {
-  const [adding, setAdding] = useState(false);
+  const [serviceDialog, setServiceDialog] = useState<{
+    service?: BasemapService;
+    returnFocus: HTMLButtonElement | null;
+  } | null>(null);
   const addButton = useRef<HTMLButtonElement>(null);
   const [removed, setRemoved] = useState<{
     service: BasemapService;
@@ -244,153 +257,130 @@ export default function SettingsPage(props: Props) {
             </div>
           )}
           {props.category === "map" && (
-            <div className="map-settings-grid">
-              <section
-                className="map-display-settings"
-                aria-labelledby="map-display-title"
-              >
-                <h3 id="map-display-title">地图显示</h3>
-                <div className="map-display-fields">
-                  <label>
-                    <span>底图类型</span>
-                    <select
-                      aria-label="底图类型"
-                      value={props.basemap}
-                      onChange={(event) => props.onBasemap(event.target.value)}
-                    >
-                      {props.services.map((service) => (
-                        <option key={service.id} value={service.id}>
-                          {service.name}
-                        </option>
-                      ))}
-                      <option value="none">无底图</option>
-                    </select>
-                  </label>
-                  <label className="checkbox-label map-annotation-toggle">
-                    <input
-                      aria-label="显示注记"
-                      type="checkbox"
-                      checked={props.annotations}
-                      onChange={(event) =>
-                        props.onAnnotations(event.target.checked)
-                      }
-                    />
-                    显示注记
-                  </label>
-                  <label>
-                    <span>天地图 tk</span>
-                    <input
-                      aria-label="天地图 tk"
-                      type="password"
-                      autoComplete="off"
-                      value={props.tdtKey}
-                      onChange={(event) => props.onTdtKey(event.target.value)}
-                    />
-                  </label>
-                  {props.basemap.startsWith("tdt") && !props.tdtKey.trim() && (
-                    <p className="warning">填写 tk 后可载入天地图。</p>
-                  )}
-                </div>
-              </section>
-              <section className="basemap-settings" aria-label="底图服务管理">
-                <header className="basemap-settings-heading">
-                  <h3>
-                    底图服务{" "}
-                    <span className="count">{props.services.length}</span>
-                  </h3>
-                  <button ref={addButton} onClick={() => setAdding(true)}>
-                    <Plus />
-                    添加底图
-                  </button>
-                </header>
-                <ol className="basemap-service-list">
-                  {props.services.map((service, index) => (
-                    <li key={service.id}>
-                      <div className="basemap-service-name">
-                        <strong title={service.name}>{service.name}</strong>
-                        <span className="basemap-service-badge">
-                          {service.url ? "XYZ" : "内置"}
-                        </span>
-                      </div>
-                      <div className="basemap-service-actions">
-                        <button
-                          className="icon-button"
-                          aria-label={`上移 ${service.name}`}
-                          title="上移"
-                          disabled={index === 0}
-                          onClick={() =>
-                            props.onServices(
-                              moveBasemap(props.services, service.id, -1),
-                            )
-                          }
-                        >
-                          <ArrowUp />
-                        </button>
-                        <button
-                          className="icon-button"
-                          aria-label={`下移 ${service.name}`}
-                          title="下移"
-                          disabled={index === props.services.length - 1}
-                          onClick={() =>
-                            props.onServices(
-                              moveBasemap(props.services, service.id, 1),
-                            )
-                          }
-                        >
-                          <ArrowDown />
-                        </button>
-                        {service.url && (
-                          <button
-                            className="icon-button"
-                            aria-label={`删除 ${service.name}`}
-                            title="删除"
-                            onClick={() => {
-                              setRemoved({ service, index });
-                              props.onServices(
-                                props.services.filter(
-                                  (item) => item.id !== service.id,
-                                ),
-                              );
-                            }}
-                          >
-                            <Trash2 />
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-                {removed && (
-                  <p className="basemap-undo" role="status">
-                    已移除 {removed.service.name}
-                    <button
-                      className="quiet"
-                      onClick={() => {
-                        const next = [...props.services];
-                        next.splice(
-                          Math.min(removed.index, next.length),
-                          0,
-                          removed.service,
-                        );
-                        props.onServices(next);
-                        setRemoved(null);
-                      }}
-                    >
-                      撤销
-                    </button>
-                  </p>
-                )}
-              </section>
-              {adding && (
-                <BasemapAddDialog
-                  returnFocus={addButton.current}
-                  onAdd={(service) =>
-                    props.onServices([...props.services, service])
+            <section className="basemap-settings" aria-label="底图服务管理">
+              <header className="basemap-settings-heading">
+                <h3>
+                  底图服务{" "}
+                  <span className="count">{props.services.length}</span>
+                </h3>
+                <button
+                  ref={addButton}
+                  onClick={(event) =>
+                    setServiceDialog({ returnFocus: event.currentTarget })
                   }
-                  onClose={() => setAdding(false)}
+                >
+                  <Plus />
+                  添加底图
+                </button>
+              </header>
+              <ol className="basemap-service-list">
+                {props.services.map((service, index) => (
+                  <li key={service.id}>
+                    <div className="basemap-service-name">
+                      <strong title={service.name}>{service.name}</strong>
+                      {service.enabled === false && (
+                        <span className="basemap-service-badge">已隐藏</span>
+                      )}
+                    </div>
+                    <div className="basemap-service-actions">
+                      <button
+                        className="icon-button"
+                        aria-label={`上移 ${service.name}`}
+                        title="上移"
+                        disabled={index === 0}
+                        onClick={() =>
+                          props.onServices(
+                            moveBasemap(props.services, service.id, -1),
+                          )
+                        }
+                      >
+                        <ArrowUp />
+                      </button>
+                      <button
+                        className="icon-button"
+                        aria-label={`下移 ${service.name}`}
+                        title="下移"
+                        disabled={index === props.services.length - 1}
+                        onClick={() =>
+                          props.onServices(
+                            moveBasemap(props.services, service.id, 1),
+                          )
+                        }
+                      >
+                        <ArrowDown />
+                      </button>
+                      <button
+                        className="icon-button"
+                        aria-label={`编辑 ${service.name}`}
+                        title="编辑"
+                        onClick={(event) =>
+                          setServiceDialog({
+                            service,
+                            returnFocus: event.currentTarget,
+                          })
+                        }
+                      >
+                        <Pencil />
+                      </button>
+                      <button
+                        className="icon-button"
+                        aria-label={`删除 ${service.name}`}
+                        title="删除"
+                        onClick={() => {
+                          setRemoved({ service, index });
+                          props.onServices(
+                            props.services.filter(
+                              (item) => item.id !== service.id,
+                            ),
+                          );
+                        }}
+                      >
+                        <Trash2 />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              {props.services.length === 0 && (
+                <p className="basemap-empty">暂无底图服务</p>
+              )}
+              {removed && (
+                <p className="basemap-undo" role="status">
+                  已移除 {removed.service.name}
+                  <button
+                    className="quiet"
+                    onClick={() => {
+                      const next = [...props.services];
+                      next.splice(
+                        Math.min(removed.index, next.length),
+                        0,
+                        removed.service,
+                      );
+                      props.onServices(next);
+                      setRemoved(null);
+                    }}
+                  >
+                    撤销
+                  </button>
+                </p>
+              )}
+              {serviceDialog && (
+                <BasemapServiceDialog
+                  service={serviceDialog.service}
+                  returnFocus={serviceDialog.returnFocus}
+                  onSave={(service) =>
+                    props.onServices(
+                      serviceDialog.service
+                        ? props.services.map((item) =>
+                            item.id === service.id ? service : item,
+                          )
+                        : [...props.services, service],
+                    )
+                  }
+                  onClose={() => setServiceDialog(null)}
                 />
               )}
-            </div>
+            </section>
           )}
           {props.category === "mcp" &&
             (desktop ? (

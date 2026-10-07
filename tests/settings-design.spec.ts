@@ -23,6 +23,7 @@ async function setup(page: Page) {
 
 async function addService(page: Page, name: string, host: string) {
   await opener(page).click();
+  await expect(page.getByLabel("在地图中显示", { exact: true })).toBeChecked();
   await page.getByLabel("新底图名称", { exact: true }).fill(name);
   await page
     .getByLabel("XYZ 瓦片地址", { exact: true })
@@ -61,7 +62,10 @@ test("add-service controls appear on demand and cancel or Escape returns focus b
   await opener(page).click();
   await expect(dialog(page)).toBeVisible();
   await expect(dialog(page)).toHaveCSS("width", "460px");
-  await expect(dialog(page).getByRole("heading")).toHaveCSS("font-size", "15px");
+  await expect(dialog(page).getByRole("heading")).toHaveCSS(
+    "font-size",
+    "15px",
+  );
   await page.screenshot({ path: "output/smoke/settings-add-basemap.png" });
   await expect(page.getByLabel("新底图名称", { exact: true })).toBeFocused();
   await page.getByLabel("新底图名称", { exact: true }).fill("取消添加");
@@ -70,7 +74,7 @@ test("add-service controls appear on demand and cancel or Escape returns focus b
   await expect(settings(page)).toBeVisible();
   await expect(category(page, "地图")).toHaveAttribute("aria-current", "page");
   await expect(opener(page)).toBeFocused();
-  await expect(page.locator(".basemap-service-list li")).toHaveCount(3);
+  await expect(page.locator(".basemap-service-list li")).toHaveCount(1);
   await opener(page).click();
   await page.keyboard.press("Escape");
   await expect(dialog(page)).toHaveCount(0);
@@ -105,20 +109,22 @@ test("invalid service URLs preserve the form and sequential additions remain ind
   await expect(page.getByLabel("底图来源说明", { exact: true })).toHaveValue(
     "保留来源",
   );
-  await expect(page.locator(".basemap-service-list li")).toHaveCount(3);
+  await expect(page.locator(".basemap-service-list li")).toHaveCount(1);
   await page
     .getByLabel("XYZ 瓦片地址", { exact: true })
     .fill("https://first.example/{z}/{x}/{y}.png");
   await dialog(page).getByRole("button", { name: "添加", exact: true }).click();
   await expect(dialog(page)).toHaveCount(0);
   await addService(page, "第二个底图", "second.example");
-  await expect(page.locator(".basemap-service-list li")).toHaveCount(5);
-  await expect(page.getByLabel("底图类型", { exact: true })).toContainText(
-    "保留输入的底图",
-  );
-  await expect(page.getByLabel("底图类型", { exact: true })).toContainText(
-    "第二个底图",
-  );
+  await expect(page.locator(".basemap-service-list li")).toHaveCount(3);
+  await expect(
+    page
+      .locator(".basemap-service-list li")
+      .filter({ hasText: "保留输入的底图" }),
+  ).toHaveCount(1);
+  await expect(
+    page.locator(".basemap-service-list li").filter({ hasText: "第二个底图" }),
+  ).toHaveCount(1);
 });
 
 test("four settings categories retain concise labels and an accessible icon back button", async ({
@@ -136,6 +142,20 @@ test("four settings categories retain concise labels and an accessible icon back
     await expect(
       settings(page).getByRole("heading", { name, exact: true }),
     ).toBeVisible();
+    if (name === "地图") {
+      await expect(
+        settings(page).getByRole("heading", { name: "地图显示", exact: true }),
+      ).toHaveCount(0);
+      for (const label of ["底图类型", "显示注记", "天地图 tk"])
+        await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
+      await expect(page.locator(".basemap-service-list li")).toHaveCount(1);
+      await expect(
+        page.getByRole("button", { name: "编辑 OpenStreetMap", exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "删除 OpenStreetMap", exact: true }),
+      ).toBeVisible();
+    }
     await expect(
       settings(page).locator(
         ".settings-page-heading p, .settings-page-content > header p",
@@ -171,6 +191,14 @@ for (const theme of ["dark", "light"]) {
     await page.getByLabel("主题", { exact: true }).selectOption(theme);
     await category(page, "地图").click();
     await addService(page, longName, "long-name.example");
+    await page
+      .getByRole("button", { name: `编辑 ${longName}`, exact: true })
+      .click();
+    await page.getByLabel("在地图中显示", { exact: true }).uncheck();
+    await page
+      .getByRole("dialog", { name: "编辑底图", exact: true })
+      .getByRole("button", { name: "保存", exact: true })
+      .click();
     for (const width of [1440, 960]) {
       await page.setViewportSize({ width, height: width === 960 ? 640 : 900 });
       for (const name of categories) {
@@ -192,6 +220,23 @@ for (const theme of ["dark", "light"]) {
           await expect(
             page.getByLabel("新底图名称", { exact: true }),
           ).toHaveCount(0);
+          await page
+            .getByRole("button", { name: `编辑 ${longName}`, exact: true })
+            .click();
+          await expect(
+            page.getByLabel("底图名称", { exact: true }),
+          ).toHaveValue(longName);
+          await expect(
+            page.getByLabel("在地图中显示", { exact: true }),
+          ).not.toBeChecked();
+          await page.mouse.move(width - 150, 50);
+          await page.screenshot({
+            path: `output/playwright/settings-design-edit-${theme}-${width}.png`,
+          });
+          await page.keyboard.press("Escape");
+          await expect(
+            page.getByRole("button", { name: `编辑 ${longName}`, exact: true }),
+          ).toBeFocused();
         }
         await page.mouse.move(width - 150, 50);
         await page.screenshot({

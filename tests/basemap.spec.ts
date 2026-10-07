@@ -1,5 +1,17 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { CITY_TEST_FILENAME, importCityFixture } from "./data-fixtures";
+
+async function addService(page: Page, name: string, layer: string) {
+  await page.getByRole("button", { name: "添加底图", exact: true }).click();
+  await page.getByLabel("新底图名称", { exact: true }).fill(name);
+  await page
+    .getByLabel("XYZ 瓦片地址", { exact: true })
+    .fill(`https://t0.tianditu.gov.cn/test-${layer}/{z}/{x}/{y}.png`);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "添加", exact: true })
+    .click();
+}
 test("configured services stay single-select, toggle preserves selection and vector layers remain above tiles", async ({
   page,
 }) => {
@@ -31,45 +43,40 @@ test("configured services stay single-select, toggle preserves selection and vec
     .getByRole("navigation", { name: "设置分类" })
     .getByRole("button", { name: "地图", exact: true })
     .click();
-  await page.getByLabel("天地图 tk").fill("ui-test-placeholder");
+  await addService(page, "测试影像", "imagery");
+  await addService(page, "测试矢量", "vector");
   await page.getByRole("button", { name: "返回地图", exact: true }).click();
   await page.getByRole("button", { name: "底图", exact: true }).click();
   await expect(page.getByRole("radio")).toHaveCount(3);
   await page
     .locator(".basemap-card")
     .filter({
-      has: page.getByRole("radio", { name: "天地图 · 影像", exact: true }),
+      has: page.getByRole("radio", { name: "测试影像", exact: true }),
     })
     .click();
   await expect(
-    page.getByRole("radio", { name: "天地图 · 影像", exact: true }),
+    page.getByRole("radio", { name: "测试影像", exact: true }),
   ).toBeChecked();
   await expect
-    .poll(() => requests.some((url) => url.includes("LAYER=img")))
-    .toBe(true);
-  await expect
-    .poll(() => requests.some((url) => url.includes("LAYER=cia")))
+    .poll(() => requests.some((url) => url.includes("test-imagery")))
     .toBe(true);
   await page.getByLabel("显示底图", { exact: true }).uncheck();
   await page
     .locator(".basemap-card")
     .filter({
-      has: page.getByRole("radio", { name: "天地图 · 矢量", exact: true }),
+      has: page.getByRole("radio", { name: "测试矢量", exact: true }),
     })
     .click();
   await expect(page.getByLabel("显示底图", { exact: true })).not.toBeChecked();
   await expect(
-    page.getByRole("radio", { name: "天地图 · 矢量", exact: true }),
+    page.getByRole("radio", { name: "测试矢量", exact: true }),
   ).toBeChecked();
   await expect(
-    page.getByRole("radio", { name: "天地图 · 影像", exact: true }),
+    page.getByRole("radio", { name: "测试影像", exact: true }),
   ).not.toBeChecked();
   await page.getByLabel("显示底图", { exact: true }).check();
   await expect
-    .poll(() => requests.some((url) => url.includes("LAYER=vec")))
-    .toBe(true);
-  await expect
-    .poll(() => requests.some((url) => url.includes("LAYER=cva")))
+    .poll(() => requests.some((url) => url.includes("test-vector")))
     .toBe(true);
   await page.screenshot({ path: "output/smoke/basemap-configured.png" });
   await page.keyboard.press("Escape");
@@ -150,7 +157,16 @@ test("configured services stay single-select, toggle preserves selection and vec
     .getByRole("navigation", { name: "设置分类" })
     .getByRole("button", { name: "地图", exact: true })
     .click();
-  await page.getByLabel("天地图 tk").fill("");
+  for (const name of ["测试影像", "测试矢量"]) {
+    await page
+      .getByRole("button", { name: `编辑 ${name}`, exact: true })
+      .click();
+    await page.getByLabel("在地图中显示", { exact: true }).uncheck();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "保存", exact: true })
+      .click();
+  }
   await page.getByRole("button", { name: "返回地图", exact: true }).click();
   await page.getByRole("button", { name: "底图", exact: true }).click();
   await expect(page.getByRole("radio")).toHaveCount(1);

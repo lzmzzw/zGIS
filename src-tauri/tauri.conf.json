@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob: https://tile.openstreetmap.org https://*.tianditu.gov.cn; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; connect-src 'self' ipc: http://ipc.localhost https://tile.openstreetmap.org https://*.tianditu.gov.cn; font-src 'self' data:"
+      "csp": "default-src 'self'; img-src 'self' asset: data: blob: http: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; connect-src 'self' ipc: http: https:; font-src 'self' data:"
     }
   },
   "bundle": {

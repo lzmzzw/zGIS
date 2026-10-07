@@ -46,3 +46,10 @@ MCP 工具及计算边界见 [空间分析说明](../docs/spatial-mcp.md)。zGIS
 `query_layer.srid` 省略时默认 4326。文本 WKT 按所选 4326/4490/3857 解析后转换到 WGS84；几何提交转换回来源。geometry 列声明 SRID=0 时，仅对实际 SRID=0 的记录在查询表达式中赋予 4326，保留已有非零 SRID；地图范围过滤在 4326 中比较。读取不会持久化重标记，后续几何修改以有效来源 SRID（缺失时 4326）写回。
 
 外部 GeoJSON 支持命名 `crs` 的 EPSG 标记；无标记默认 4326，显式来源与标记冲突或未知标记拒绝。内部同步和数据库传入的工作 GeoJSON 仍为 4326。
+
+### 底图配置
+
+- `save_preferences {content}`：保存 JSON 字符串，Windows 使用当前用户 DPAPI 加密，最大 1 MB。
+- `load_preferences`：返回解密后的 JSON 字符串或 null；读取失败不覆盖旧配置。
+- 当前配置为 `{version:2, services, selected, visible}`。服务包含 `id/name/type/preview/url/attribution/enabled`，`enabled` 缺省为 true；可选 `maxZoom` 为 0–42 的整数，预置 OpenStreetMap 为 19。`url` 为包含 `{z}`、`{x}`、`{y}` 的 HTTP(S) 地址。
+- 前端兼容旧配置：补齐 OSM 地址，移除无自定义地址的旧天地图预置，保留自定义服务和顺序；不再保存全局注记或 tk。空服务列表合法，隐藏服务不参与当前选择；没有可显示服务时 `selected` 为 `none`。服务内容校验失败时保留旧文件并显示错误。

@@ -4,7 +4,6 @@ import View from "ol/View";
 import TileLayer from "ol/layer/Tile";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
-import OSM from "ol/source/OSM";
 import XYZ from "ol/source/XYZ";
 import GeoJSON from "ol/format/GeoJSON";
 import { Draw, Modify, Select, Snap } from "ol/interaction";
@@ -15,7 +14,7 @@ import { defaults as defaultControls } from "ol/control";
 import type Feature from "ol/Feature";
 import type Geometry from "ol/geom/Geometry";
 import type { DocumentLayer, GeoFeature } from "./domain/types";
-import { isTdtService, validateXyzUrl, type BasemapService } from "./basemaps";
+import { validateXyzUrl, type BasemapService } from "./basemaps";
 
 export type Tool =
   "pan" | "select" | "modify" | "Point" | "LineString" | "Polygon";
@@ -24,7 +23,6 @@ interface Props {
   disabled?: boolean;
   editable?: boolean;
   theme: "light" | "dark";
-  annotations: boolean;
   snapping: boolean;
   finishNonce: number;
   featureFitNonce: number;
@@ -35,7 +33,6 @@ interface Props {
   tool: Tool;
   basemap: string;
   basemapVisible: boolean;
-  tdtKey: string;
   fitNonce: number;
   onSelect: (id?: string) => void;
   onEdit: (feature: GeoFeature, insert: boolean) => void;
@@ -71,21 +68,17 @@ export default function MapView(props: Props) {
     new globalThis.Map<string, VectorLayer<VectorSource>>(),
   );
   const tileRef = useRef<TileLayer | null>(null);
-  const labelRef = useRef<TileLayer | null>(null);
   const selectionRef = useRef<VectorLayer<VectorSource> | null>(null);
   const drawRef = useRef<Draw | null>(null);
   const current = useRef(props);
   current.current = props;
   useEffect(() => {
-    const base = new TileLayer({ source: new OSM() });
+    const base = new TileLayer();
     base.setZIndex(0);
     tileRef.current = base;
-    const labels = new TileLayer({ visible: false });
-    labels.setZIndex(1);
-    labelRef.current = labels;
     const map = new Map({
       target: element.current!,
-      layers: [base, labels],
+      layers: [base],
       controls: defaultControls({ rotate: false, attribution: false }),
       view: new View({ center: fromLonLat([104, 34]), zoom: 4 }),
     });
@@ -146,49 +139,28 @@ export default function MapView(props: Props) {
   }, []);
   useEffect(() => {
     const base = tileRef.current!;
-    const labels = labelRef.current!;
-    const service = props.services.find((item) => item.id === props.basemap);
-    labels.setSource(null);
-    if (props.basemap === "osm") base.setSource(new OSM());
-    else if (service && isTdtService(service) && props.tdtKey.trim()) {
-      const type = props.basemap === "tdt-img" ? "img" : "vec";
-      const annotation = type === "img" ? "cia" : "cva";
-      const source = (layer: string) =>
-        new XYZ({
-          url: `https://t0.tianditu.gov.cn/${layer}_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${layer}&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk=${encodeURIComponent(props.tdtKey)}`,
-          maxZoom: 18,
-          attributions: "© 天地图",
-        });
-      base.setSource(source(type));
-      labels.setSource(source(annotation));
-    } else if (service?.url && validateXyzUrl(service.url)) {
-      base.setSource(
-        new XYZ({ url: service.url, attributions: service.attribution }),
-      );
-    } else base.setSource(null);
-  }, [props.basemap, props.tdtKey, props.services]);
+    const service = props.services.find(
+      (item) => item.id === props.basemap && item.enabled !== false,
+    );
+    base.setSource(
+      service?.url && validateXyzUrl(service.url)
+        ? new XYZ({
+            url: service.url,
+            attributions: service.attribution,
+            maxZoom: service.maxZoom,
+          })
+        : null,
+    );
+  }, [props.basemap, props.services]);
   useEffect(() => {
-    const service = props.services.find((item) => item.id === props.basemap);
-    const configured = Boolean(
-      service &&
-      (service.id === "osm" ||
-        (isTdtService(service) && Boolean(props.tdtKey.trim())) ||
-        (service.url && validateXyzUrl(service.url))),
+    const service = props.services.find(
+      (item) => item.id === props.basemap && item.enabled !== false,
     );
-    tileRef.current?.setVisible(props.basemapVisible && configured);
-    labelRef.current?.setVisible(
+    tileRef.current?.setVisible(
       props.basemapVisible &&
-        configured &&
-        Boolean(service && isTdtService(service)) &&
-        props.annotations,
+        Boolean(service?.url && validateXyzUrl(service.url)),
     );
-  }, [
-    props.basemapVisible,
-    props.basemap,
-    props.tdtKey,
-    props.annotations,
-    props.services,
-  ]);
+  }, [props.basemapVisible, props.basemap, props.services]);
   useEffect(() => {
     const map = mapRef.current!;
     for (const [id, layer] of vectorRefs.current)

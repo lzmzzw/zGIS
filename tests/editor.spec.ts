@@ -427,12 +427,8 @@ test("single header, panels, theme persistence, resizing and canvas rendering", 
     .getByRole("navigation", { name: "设置分类" })
     .getByRole("button", { name: "地图", exact: true })
     .click();
-  await page.getByLabel("底图类型", { exact: true }).selectOption("tdt-vec");
-  await expect(page.getByRole("main", { name: "后台设置" })).toContainText(
-    "填写 tk 后可载入天地图",
-  );
-  await page.getByLabel("显示注记", { exact: true }).uncheck();
-  await page.getByLabel("底图类型", { exact: true }).selectOption("osm");
+  await expect(page.locator(".basemap-service-list li")).toHaveCount(1);
+  await expect(page.getByLabel("天地图 tk")).toHaveCount(0);
   await page.getByRole("button", { name: "返回地图", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "设置", exact: true }),

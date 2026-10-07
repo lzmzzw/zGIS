@@ -1,11 +1,24 @@
 import { expect } from "@playwright/test";
 export async function layerBasemapSmoke(page, restoring = false) {
+  const tile = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 256;
+    canvas.getContext("2d").fillRect(0, 0, 256, 256);
+    return canvas.toDataURL().split(",")[1];
+  });
+  const requests = [];
+  await page.route("https://tiles.zgis-test.invalid/**", async route => {
+    requests.push(route.request().url());
+    await route.fulfill({contentType:"image/png",body:Buffer.from(tile,"base64")});
+  });
   if (restoring) {
     await page.getByRole("button", { name: "底图", exact: true }).click();
     await expect(page.getByRole("radio", { name: "恢复底图", exact: true })).toBeChecked();
     await expect(page.getByRole("radio").first()).toHaveAttribute("aria-label", "恢复底图");
     await expect(page.getByRole("checkbox", { name: "显示底图", exact: true })).toBeChecked();
     await page.keyboard.press("Escape");
+    await page.getByLabel("地理数据地图",{exact:true}).getByRole("button",{name:"+",exact:true}).click();
+    await expect.poll(() => requests.length).toBeGreaterThan(0);
     await expect(page.getByRole("tree").locator(".tree-row").filter({hasText: "甲孙组"})).toHaveAttribute("aria-level", "5");
     return;
   }
@@ -50,15 +63,39 @@ export async function layerBasemapSmoke(page, restoring = false) {
   await expect(page.getByRole("button",{name:"添加底图",exact:true})).toBeFocused();
   await page.getByRole("button",{name:"添加底图",exact:true}).click();
   await page.getByLabel("新底图名称").fill("恢复底图");
-  await page.getByLabel("XYZ 瓦片地址").fill("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
+  await page.getByLabel("XYZ 瓦片地址").fill("https://tiles.zgis-test.invalid/{z}/{x}/{y}.png");
   await page.screenshot({path:"output/desktop/basemap-add-dialog.png"});
   await page.getByRole("dialog",{name:"添加底图",exact:true}).getByRole("button",{name:"添加",exact:true}).click();
-  for(let i=0;i<3;i++) await page.getByRole("button",{name:"上移 恢复底图",exact:true}).click();
-  await page.getByLabel("底图类型").selectOption({label:"恢复底图"});
+  await page.getByRole("button",{name:"上移 恢复底图",exact:true}).click();
   await page.screenshot({path:"output/desktop/basemap-settings.png"});
   await page.getByRole("button",{name:"返回地图",exact:true}).click();
   await page.getByRole("button",{name:"底图",exact:true}).click();
+  await page.getByRole("radio", {name:"恢复底图",exact:true}).check();
+  await expect.poll(() => requests.length).toBeGreaterThan(0);
   await expect(page.getByRole("radio").first()).toBeChecked();
   await page.screenshot({path:"output/desktop/nested-basemap.png"});
   await page.keyboard.press("Escape");
+  await page.getByRole("button",{name:"设置",exact:true}).click();
+  await page.getByRole("navigation",{name:"设置分类"}).getByRole("button",{name:"地图",exact:true}).click();
+  await page.getByRole("button",{name:"编辑 恢复底图",exact:true}).click();
+  await page.getByLabel("在地图中显示",{exact:true}).uncheck();
+  await page.getByRole("dialog",{name:"编辑底图"}).getByRole("button",{name:"保存",exact:true}).click();
+  await page.getByRole("button",{name:"返回地图",exact:true}).click();
+  await page.getByRole("button",{name:"底图",exact:true}).click();
+  await expect(page.getByRole("radio",{name:"恢复底图",exact:true})).toHaveCount(0);
+  await expect(page.getByRole("radio",{name:"OpenStreetMap",exact:true})).toBeChecked();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button",{name:"设置",exact:true}).click();
+  await page.getByRole("navigation",{name:"设置分类"}).getByRole("button",{name:"地图",exact:true}).click();
+  await page.getByRole("button",{name:"编辑 恢复底图",exact:true}).click();
+  await page.getByLabel("在地图中显示",{exact:true}).check();
+  await page.getByLabel("XYZ 瓦片地址").fill("https://tiles.zgis-test.invalid/edited/{z}/{x}/{y}.png");
+  await page.screenshot({path:"output/desktop/basemap-edit-dialog.png"});
+  await page.getByRole("dialog",{name:"编辑底图"}).getByRole("button",{name:"保存",exact:true}).click();
+  await page.getByRole("button",{name:"返回地图",exact:true}).click();
+  await page.getByRole("button",{name:"底图",exact:true}).click();
+  await page.getByRole("radio",{name:"恢复底图",exact:true}).check();
+  await expect.poll(() => requests.some(url => url.includes("/edited/"))).toBe(true);
+  await page.keyboard.press("Escape");
+  console.log("PASS: native custom XYZ CSP, edit visibility, selected fallback and edited URL requests");
 }

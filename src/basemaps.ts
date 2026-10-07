@@ -5,6 +5,8 @@ export interface BasemapService {
   preview: "street" | "vector" | "imagery";
   url?: string;
   attribution?: string;
+  enabled?: boolean;
+  maxZoom?: number;
 }
 
 export const defaultBasemaps: BasemapService[] = [
@@ -13,21 +15,10 @@ export const defaultBasemaps: BasemapService[] = [
     name: "OpenStreetMap",
     type: "道路与地名",
     preview: "street",
+    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
     attribution: "© OpenStreetMap contributors",
-  },
-  {
-    id: "tdt-vec",
-    name: "天地图 · 矢量",
-    type: "矢量地图",
-    preview: "vector",
-    attribution: "© 天地图",
-  },
-  {
-    id: "tdt-img",
-    name: "天地图 · 影像",
-    type: "卫星影像",
-    preview: "imagery",
-    attribution: "© 天地图",
+    enabled: true,
+    maxZoom: 19,
   },
 ];
 
@@ -47,8 +38,77 @@ export function validateXyzUrl(value: string): boolean {
   }
 }
 
-export function isTdtService(service: BasemapService): boolean {
-  return service.id === "tdt-vec" || service.id === "tdt-img";
+export function availableBasemaps(
+  services: BasemapService[],
+): BasemapService[] {
+  return services.filter((service) => service.enabled !== false);
+}
+
+export function selectBasemap(
+  services: BasemapService[],
+  selected: string,
+): string {
+  const available = availableBasemaps(services);
+  return available.some((service) => service.id === selected)
+    ? selected
+    : (available[0]?.id ?? "none");
+}
+
+export function loadBasemapPreferences(raw: string): {
+  services: BasemapService[];
+  selected: string;
+  visible: boolean;
+} {
+  const value = JSON.parse(raw);
+  if (!value || !Array.isArray(value.services)) throw new Error("底图配置无效");
+  const services: BasemapService[] = [];
+  const ids = new Set<string>();
+  for (const item of value.services) {
+    if (
+      !item ||
+      typeof item.id !== "string" ||
+      !item.id ||
+      typeof item.name !== "string" ||
+      !item.name.trim() ||
+      ids.has(item.id)
+    )
+      throw new Error("底图配置无效");
+    ids.add(item.id);
+    // 移除旧版预置天地图；用户配置的 XYZ 服务按原顺序保留。
+    if ((item.id === "tdt-vec" || item.id === "tdt-img") && !item.url) continue;
+    const url =
+      item.url ?? (item.id === "osm" ? defaultBasemaps[0].url : undefined);
+    if (typeof url !== "string" || !validateXyzUrl(url))
+      throw new Error("底图配置无效");
+    if (item.enabled !== undefined && typeof item.enabled !== "boolean")
+      throw new Error("底图配置无效");
+    if (
+      item.maxZoom !== undefined &&
+      (!Number.isInteger(item.maxZoom) || item.maxZoom < 0 || item.maxZoom > 42)
+    )
+      throw new Error("底图配置无效");
+    services.push({
+      id: item.id,
+      name: item.name,
+      url,
+      type: typeof item.type === "string" ? item.type : "XYZ 瓦片服务",
+      preview: ["street", "vector", "imagery"].includes(item.preview)
+        ? item.preview
+        : "street",
+      attribution: typeof item.attribution === "string" ? item.attribution : "",
+      enabled: item.enabled !== false,
+      ...(item.maxZoom !== undefined
+        ? { maxZoom: item.maxZoom }
+        : item.id === "osm" && url === defaultBasemaps[0].url
+          ? { maxZoom: 19 }
+          : {}),
+    });
+  }
+  return {
+    services,
+    selected: selectBasemap(services, value.selected),
+    visible: value.visible !== false,
+  };
 }
 
 export function moveBasemap(

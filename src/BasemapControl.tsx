@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Map as MapIcon, Check, X } from "lucide-react";
 import "./basemap-control.css";
-import { isTdtService, type BasemapService } from "./basemaps";
+import { availableBasemaps, type BasemapService } from "./basemaps";
 interface Props {
   services: BasemapService[];
   value: string;
   visible: boolean;
-  tdtConfigured: boolean;
   onChange(value: string): void;
   onVisible(visible: boolean): void;
 }
@@ -33,9 +32,7 @@ export default function BasemapControl(props: Props) {
       document.removeEventListener("keydown", escape);
     };
   }, [open]);
-  const available = props.services.filter(
-    (s) => !isTdtService(s) || props.tdtConfigured,
-  );
+  const available = availableBasemaps(props.services);
   return (
     <div ref={root} className="basemap-control">
       {open && (
@@ -121,7 +118,8 @@ export default function BasemapControl(props: Props) {
             ))}
           </div>
           <p className="basemap-source">
-            {props.value === "osm" ? (
+            {props.services.find((service) => service.id === props.value)
+              ?.attribution === "© OpenStreetMap contributors" ? (
               <a
                 href="https://www.openstreetmap.org/copyright"
                 target="_blank"
@@ -134,9 +132,7 @@ export default function BasemapControl(props: Props) {
                 ?.attribution ?? "")
             )}
           </p>
-          {!props.tdtConfigured && (
-            <p className="form-note">天地图服务需先在设置中配置 tk。</p>
-          )}
+          {!available.length && <p className="form-note">暂无可显示的底图</p>}
         </section>
       )}
       <button

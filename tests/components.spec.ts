@@ -34,13 +34,7 @@ for (const theme of ["dark", "light"])
     await page.keyboard.press("Escape");
     await expect(page.getByRole("main", { name: "后台设置" })).toBeVisible();
     await page.getByRole("button", { name: "地图", exact: true }).click();
-    await page.getByLabel("底图类型").click();
-    await expect(
-      page
-        .getByRole("option", { name: "OpenStreetMap", exact: true })
-        .filter({ visible: true }),
-    ).toBeVisible();
-    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: "编辑 OpenStreetMap", exact: true })).toBeVisible();
     await page
       .getByRole("button", { name: "空间分析 MCP", exact: true })
       .click();

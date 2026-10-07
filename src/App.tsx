@@ -58,7 +58,7 @@ import {
   updateTreeGroup,
   type LayerTreeNode,
 } from "./layerTree";
-import { defaultBasemaps, type BasemapService } from "./basemaps";
+import { defaultBasemaps, loadBasemapPreferences, selectBasemap, type BasemapService } from "./basemaps";
 import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
 import MapView, { type Tool } from "./MapView";
@@ -287,13 +287,12 @@ export default function App() {
   const exportSaveLayerId = useRef<string | undefined>(undefined);
   const editing = Boolean(activeId && editingLayerId === activeId);
   const [services, setServices] = useState<BasemapService[]>(defaultBasemaps);
-  const [configReady, setConfigReady] = useState(!desktop);
+  const [configReady, setConfigReady] = useState(false);
   const configQueue = useRef<Promise<unknown>>(Promise.resolve());
   const configError = useRef("");
   const configBlocked = useRef(false);
   const [basemap, setBasemap] = useState("osm");
   const [basemapVisible, setBasemapVisible] = useState(true);
-  const [tdtKey, setTdtKey] = useState("");
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     try {
       return localStorage.getItem("zgis.theme") === "light" ? "light" : "dark";
@@ -303,7 +302,6 @@ export default function App() {
   });
   const [settingCategory, setSettingCategory] =
     useState<SettingsCategory>("appearance");
-  const [annotations, setAnnotations] = useState(true);
   const [snapping, setSnapping] = useState(true);
   const [layersOpen, setLayersOpen] = useState(true);
   const [layerPanelWidth, setLayerPanelWidth] = useState(() => {
@@ -656,27 +654,10 @@ export default function App() {
     load
       .then((raw) => {
         if (disposed || !raw) return;
-        const value = JSON.parse(raw);
-        if (
-          !Array.isArray(value.services) ||
-          !value.services.length ||
-          !value.services.every(
-            (s: BasemapService) =>
-              typeof s.id === "string" &&
-              typeof s.name === "string" &&
-              (!s.url || /^https?:\/\//.test(s.url)),
-          )
-        )
-          throw new Error("底图配置无效");
+        const value = loadBasemapPreferences(raw);
         setServices(value.services);
-        setBasemap(
-          value.services.some((s: BasemapService) => s.id === value.selected)
-            ? value.selected
-            : value.services[0].id,
-        );
-        setBasemapVisible(value.visible !== false);
-        setAnnotations(value.annotations !== false);
-        setTdtKey(typeof value.tdtKey === "string" ? value.tdtKey : "");
+        setBasemap(value.selected);
+        setBasemapVisible(value.visible);
       })
       .catch(() => {
         configBlocked.current = true;
@@ -695,8 +676,7 @@ export default function App() {
       services,
       selected: basemap,
       visible: basemapVisible,
-      annotations,
-      tdtKey,
+      version: 2,
     });
     configQueue.current = configQueue.current
       .catch(() => {})
@@ -710,23 +690,10 @@ export default function App() {
           setError(configError.current);
         }
       });
-  }, [services, basemap, basemapVisible, annotations, tdtKey, configReady]);
+  }, [services, basemap, basemapVisible, configReady]);
   function changeServices(next: BasemapService[]) {
     setServices(next);
-    if (!next.some((s) => s.id === basemap)) setBasemap(next[0].id);
-  }
-  function changeBasemap(value: string) {
-    if (value === "none") {
-      setBasemapVisible(false);
-      return;
-    }
-    setBasemap(value);
-    setBasemapVisible(true);
-    if (value.startsWith("tdt") && !tdtKey) {
-      setSettingCategory("map");
-      openModal("settings");
-      return;
-    }
+    setBasemap(selectBasemap(next, basemap));
   }
   function writeSnapshot(documents: DocumentLayer[]) {
     const content = snapshotWorkspace(documents, currentTree.current);
@@ -1999,7 +1966,7 @@ export default function App() {
               className="quiet"
               aria-label="设置"
               aria-pressed={modal === "settings"}
-              disabled={busy}
+              disabled={busy || !configReady}
               onClick={() => {
                 setSettingCategory("appearance");
                 openModal("settings");
@@ -2473,7 +2440,6 @@ export default function App() {
                 disabled={busy || Boolean(cellDraft)}
                 editable={editable}
                 theme={theme}
-                annotations={annotations}
                 snapping={snapping}
                 finishNonce={finishNonce}
                 featureFitNonce={featureFitNonce}
@@ -2482,10 +2448,9 @@ export default function App() {
                 activeId={activeId}
                 selectedId={selectedId}
                 tool={tool}
-                services={services}
+                services={configReady ? services : []}
                 basemap={basemap}
-                basemapVisible={basemapVisible}
-                tdtKey={tdtKey}
+                basemapVisible={configReady && basemapVisible}
                 fitNonce={fitNonce}
                 onSelect={(id) => selectFeature(id, true)}
                 onEdit={onGeometry}
@@ -2493,10 +2458,9 @@ export default function App() {
                 onBounds={setBounds}
               />
               <BasemapControl
-                services={services}
+                services={configReady ? services : []}
                 value={basemap}
                 visible={basemapVisible}
-                tdtConfigured={Boolean(tdtKey.trim())}
                 onChange={setBasemap}
                 onVisible={setBasemapVisible}
               />
@@ -3069,15 +3033,6 @@ export default function App() {
             onCategory={setSettingCategory}
             theme={theme}
             onTheme={setTheme}
-            basemap={basemapVisible ? basemap : "none"}
-            onBasemap={changeBasemap}
-            annotations={annotations}
-            onAnnotations={setAnnotations}
-            tdtKey={tdtKey}
-            onTdtKey={(value) => {
-              setTdtKey(value);
-              if (!value.trim() && basemap.startsWith("tdt")) setBasemap("osm");
-            }}
             error={error}
             onClose={() => openModal(null)}
           />

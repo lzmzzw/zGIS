@@ -1,43 +1,11 @@
-.map-settings-grid {
-  display: grid;
-  grid-template-columns: minmax(240px, 0.85fr) minmax(330px, 1.15fr);
-  align-items: start;
-  gap: 32px;
-  max-width: 1100px;
-}
-.map-display-settings,
 .basemap-settings {
   min-width: 0;
+  max-width: 1000px;
 }
-.map-display-settings h3,
 .basemap-settings-heading h3 {
   margin: 0;
   font-size: var(--font-size-section);
   font-weight: var(--font-weight-semibold);
-}
-.map-display-fields {
-  display: grid;
-  gap: 22px;
-  margin-top: 22px;
-}
-.map-display-fields > label:not(.checkbox-label) {
-  display: grid;
-  gap: 8px;
-}
-.map-display-fields > label > span {
-  color: var(--muted);
-}
-.map-display-fields input:not([type="checkbox"]),
-.map-display-fields select {
-  width: 100%;
-  min-width: 0;
-}
-.map-display-fields .map-annotation-toggle {
-  display: flex;
-  justify-content: flex-start;
-}
-.map-display-fields > .warning {
-  margin: -8px 0 0;
 }
 .basemap-settings-heading {
   display: flex;
@@ -116,7 +84,7 @@
   display: grid;
   gap: 8px;
 }
-.basemap-add-form input {
+.basemap-add-form input:not([type="checkbox"]) {
   width: 100%;
   min-width: 0;
 }
@@ -131,10 +99,12 @@
   color: var(--muted);
   margin: 12px 0 0;
 }
-@media (max-width: 1000px) {
-  .map-settings-grid {
-    grid-template-columns: minmax(0, 1fr);
-    max-width: 620px;
-    gap: 32px;
-  }
+.basemap-add-form .basemap-enabled-toggle {
+  display: flex;
+  justify-content: flex-start;
+}
+.basemap-empty {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--muted);
 }
