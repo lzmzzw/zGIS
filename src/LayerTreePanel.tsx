@@ -352,9 +352,9 @@ export default function LayerTree(props: Props) {
                 onDoubleClick={(event) => event.stopPropagation()}
               >
                 {node.collapsed ? (
-                  <ChevronRight size={14} />
+                  <ChevronRight />
                 ) : (
-                  <ChevronDown size={14} />
+                  <ChevronDown />
                 )}
               </button>
             ) : (
@@ -376,7 +376,7 @@ export default function LayerTree(props: Props) {
             />
             {group ? (
               <span className="layer-symbol-slot" aria-hidden="true">
-                <Folder size={16} />
+                <Folder />
               </span>
             ) : (
               <button
@@ -413,7 +413,7 @@ export default function LayerTree(props: Props) {
               </strong>
             </span>
             {!group && props.readonlyIds?.includes(node.id) && (
-              <LockKeyhole size={13} aria-label="只读图层" />
+              <LockKeyhole aria-label="只读图层" />
             )}
           </div>
           {group && !node.collapsed && (
@@ -643,7 +643,7 @@ export default function LayerTree(props: Props) {
             />
             {dialog.kind === "rename-layer" && (
               <p className="layer-rename-help">
-                仅修改图层显示名称，原始文件名保持不变。
+                原始文件名不变。
               </p>
             )}
             <div>

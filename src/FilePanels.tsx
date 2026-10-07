@@ -200,7 +200,7 @@ export function ImportPanel({
             <>
               {loading ? (
                 <p className="form-note">
-                  <LoaderCircle size={14} className="spin" />
+                  <LoaderCircle className="spin" />
                   预览中
                 </p>
               ) : (
@@ -251,7 +251,7 @@ export function ImportPanel({
             <div className="import-file-list">
               {files.map((item) => (
                 <div key={item.name}>
-                  <FolderOpen size={15} />
+                  <FolderOpen />
                   <span>{item.name}</span>
                   <span className="count">
                     {(item.bytes.length / 1024).toFixed(1)} KB
@@ -276,9 +276,9 @@ export function ImportPanel({
           onClick={() => onImport(configurations)}
         >
           {busy ? (
-            <LoaderCircle size={15} className="spin" />
+            <LoaderCircle className="spin" />
           ) : (
-            <Check size={15} />
+            <Check />
           )}
           {file || !error ? "导入" : "重试导入"}
         </button>
@@ -499,7 +499,7 @@ export function ExportPanel({
           }
           onClick={onExport}
         >
-          <Download size={15} />
+          <Download />
           {busy ? "导出中" : "导出"}
         </button>
       </div>

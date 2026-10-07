@@ -59,7 +59,7 @@ export default function McpToolCatalog() {
           if (!expanded && tools === null && !loading) void load();
         }}
       >
-        {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        {expanded ? <ChevronDown /> : <ChevronRight />}
         <strong>工具详情</strong>
         {tools !== null && <span>{tools.length} 个工具</span>}
       </button>

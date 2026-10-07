@@ -16,8 +16,8 @@ test("MCP controls, snapshot isolation and generated layers keep source intact",
   await page.getByRole("button", { name: "启用 MCP", exact: true }).click();
   await expect(page.getByLabel("MCP 访问令牌")).toHaveAttribute("type", "password");
   await expect(page.getByRole("main", {name:"后台设置"})).toContainText("http://127.0.0.1:9999/mcp");
-  await page.getByRole("button", { name: "选择可读文件…", exact: true }).click();
-  await expect(page.getByRole("main", {name:"后台设置"})).toContainText("C:/owned-test/vector.geojson");
+  await expect(page.getByRole("button", { name: "选择可读文件…", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("main", {name:"后台设置"})).toContainText("Agent 负责文件访问授权");
   await page.getByRole("button", { name: "返回地图", exact: true }).click();
   await page.evaluate(() => window.__ZG_TEST__.analysisResults.push({ id: "result-1", name: "空间筛选结果", features: [{ type: "Feature", id: "selected", geometry: { type: "Point", coordinates: [116, 40] }, properties: { name: "结果" } }] }));
   await expect(page.locator(".layer-row")).toHaveCount(2);

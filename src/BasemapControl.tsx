@@ -62,7 +62,7 @@ export default function BasemapControl(props: Props) {
                 trigger.current?.focus();
               }}
             >
-              <X size={15} />
+              <X />
             </button>
           </header>
           <div
@@ -111,7 +111,7 @@ export default function BasemapControl(props: Props) {
                   </svg>
                   {props.value === service.id && (
                     <span className="basemap-check">
-                      <Check size={13} />
+                      <Check />
                     </span>
                   )}
                 </span>
@@ -148,7 +148,7 @@ export default function BasemapControl(props: Props) {
         aria-controls="basemap-services"
         onClick={() => setOpen((v) => !v)}
       >
-        <MapIcon size={21} />
+        <MapIcon />
       </button>
     </div>
   );

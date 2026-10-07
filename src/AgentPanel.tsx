@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -19,13 +20,13 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     let disposed = false;
     const term = new Terminal({
-      fontSize: 12,
-      fontFamily: "Consolas, monospace",
       cursorBlink: true,
       scrollback: 5000,
     });
     const syncTheme = () => {
       const styles = getComputedStyle(document.documentElement);
+      term.options.fontSize = parseFloat(styles.getPropertyValue("--font-size-sm"));
+      term.options.fontFamily = styles.getPropertyValue("--font-mono").trim();
       term.options.theme = {
         background: styles.getPropertyValue("--panel").trim(),
         foreground: styles.getPropertyValue("--text").trim(),
@@ -168,11 +169,12 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
           <span>{running ? "运行中" : "未连接"}</span>
         </div>
         <button
+          className="icon-button"
           aria-label="隐藏助手侧栏"
           onClick={onClose}
           title="隐藏侧栏，保留会话"
         >
-          ×
+          <X />
         </button>
       </header>
       <div className="gis-agent-toolbar">
@@ -184,8 +186,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
       <p className="gis-agent-hint">
-        MCP 默认随应用启动，可连接本机已安装并登录的 Codex
-        CLI。分析结果留在图层中，由你决定是否另存。
+        需在本机安装并登录 Codex CLI。MCP 随应用启动，分析结果保留为图层，可另存。
       </p>
       {error && (
         <p role="alert" className="gis-agent-error">

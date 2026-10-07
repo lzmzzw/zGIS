@@ -28,7 +28,7 @@ export function SourcePanel({
   return (
     <div className="source-panel">
       <div className="source-heading">
-        <Database size={15} />
+        <Database />
         <span>{connected ? label : "未连接"}</span>
         <button
           className="icon-button"
@@ -37,7 +37,7 @@ export function SourcePanel({
           disabled={!connected || busy}
           onClick={onRefresh}
         >
-          <RefreshCw size={15} />
+          <RefreshCw />
         </button>
       </div>
       <button
@@ -71,7 +71,7 @@ export function SourcePanel({
                   onClick={() => onIndex(row)}
                   onDoubleClick={() => onLoad(row)}
                 >
-                  <Database size={14} />
+                  <Database />
                   <span>
                     <strong>
                       {layer.schema}.{layer.table}
@@ -84,7 +84,7 @@ export function SourcePanel({
                     </small>
                   </span>
                   {!layer.keyColumns.length && (
-                    <LockKeyhole size={13} aria-label="无主键只读" />
+                    <LockKeyhole aria-label="无主键只读" />
                   )}
                 </button>
               ))}
@@ -96,7 +96,7 @@ export function SourcePanel({
             disabled={!layers.length || busy}
             onClick={() => onLoad(index)}
           >
-            <FolderOpen size={14} />
+            <FolderOpen />
             加载设置…
           </button>
         </>
@@ -223,7 +223,7 @@ export function ConnectionPanel({
           取消
         </button>
         <button disabled={busy || !valid} onClick={onConnect}>
-          <Database size={15} />
+          <Database />
           {busy ? "连接中" : connected ? "重新连接" : "连接"}
         </button>
       </div>
@@ -361,7 +361,7 @@ export function LoadPanel({
             <dt>读取上限</dt>
             <dd>{limit.toLocaleString()}</dd>
           </dl>
-          <p className="form-note">读取结果受上限限制，不代表已载入全表。</p>
+          <p className="form-note">读取受上限限制，未必载入全表。</p>
         </aside>
       </div>
       <div className="modal-actions">
@@ -369,7 +369,7 @@ export function LoadPanel({
           取消
         </button>
         <button disabled={busy || !valid} onClick={onLoad}>
-          <FolderOpen size={15} />
+          <FolderOpen />
           {busy ? "加载中" : "载入"}
         </button>
       </div>
@@ -435,7 +435,7 @@ export function SubmitPanel({
           disabled={busy || blocked || !changes.length}
           onClick={onSubmit}
         >
-          <Database size={15} />
+          <Database />
           {busy ? "提交中" : "提交到数据库"}
         </button>
       </div>

@@ -20,8 +20,8 @@ export default function McpPanel() {
     finally { setBusy(false); }
   }
   return <div className="mcp-panel">
-    <p>向本机 AI 客户端提供当前图层的空间查询、关联和拓扑检查。分析生成独立结果，原图层与源文件不会自动改写。</p>
-    <p className="form-note">MCP 随应用自动启动；手动停止仅影响本次运行，下次打开 zGIS 会再次启动。</p>
+    <p>本机 AI 客户端可对当前图层执行空间查询、关联与拓扑检查。分析生成独立结果，不自动改写原图层或源文件。</p>
+    <p className="form-note">MCP 随应用启动；手动停止仅本次有效。</p>
     <div className="modal-actions">
       <button disabled={busy} onClick={() => void action(async () => {
         setStatus(await api.mcpEnable(!status.enabled));
@@ -35,12 +35,12 @@ export default function McpPanel() {
     {status.enabled && <>
       <label>访问令牌<input aria-label="MCP 访问令牌" readOnly type={showToken ? "text" : "password"} value={status.token ?? ""} /></label>
       <label className="checkbox-label"><input type="checkbox" checked={showToken} onChange={(e) => setShowToken(e.target.checked)} />显示固定令牌</label>
-      <p className="form-note">Codex 通过安装包内的认证助手读取 Windows 凭据管理器中的固定令牌；重启服务后无需修改配置。</p>
+      <p className="form-note">认证助手从 Windows 凭据管理器读取固定令牌；服务重启后无需重新配置 Codex。</p>
       <pre>{`[mcp_servers.zgis]\nurl = ${JSON.stringify(status.endpoint)}\nhttp_headers_helper = ${JSON.stringify(status.headersHelper)}`}</pre>
     </>}
     <McpToolCatalog />
     <h3>外部矢量文件</h3>
-    <p className="form-note">Agent 可直接传入 GeoJSON、CSV、SHP 或 ZIP 路径。文件访问授权由 Agent 判断，zGIS 提供空间读取与分析能力。</p>
+    <p className="form-note">支持 GeoJSON、CSV、SHP 和 ZIP 路径；Agent 负责文件访问授权。</p>
     <h3>最近工具调用</h3>
     <pre className="mcp-audit">{audit.length ? JSON.stringify(audit, null, 2) : "尚无工具调用"}</pre>
     {error && <p role="alert">{error}</p>}

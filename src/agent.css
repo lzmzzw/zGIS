@@ -16,23 +16,8 @@
 }
 .gis-agent-panel header span {
   margin-left: 12px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--muted);
-}
-.gis-agent-panel button {
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface);
-  color: var(--text);
-  padding: 6px 10px;
-  cursor: pointer;
-}
-.gis-agent-panel button:hover:not(:disabled) {
-  background: var(--hover);
-}
-.gis-agent-panel button:disabled {
-  color: var(--disabled-text);
-  cursor: not-allowed;
 }
 .gis-agent-toolbar {
   display: flex;
@@ -40,13 +25,13 @@
   padding: 10px 14px 0;
 }
 .gis-agent-hint {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   line-height: 1.6;
   color: var(--muted);
   margin: 10px 14px;
 }
 .gis-agent-error {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--danger);
   background: var(--danger-fill);

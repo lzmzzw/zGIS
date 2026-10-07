@@ -25,9 +25,6 @@ import {
   Trash2,
   LocateFixed,
   Database,
-  Eye,
-  EyeOff,
-  LockKeyhole,
   Magnet,
   ChevronDown,
   ChevronUp,
@@ -173,7 +170,7 @@ function Modal({
       <header>
         <h2>{title}</h2>
         <IconButton label="关闭" onClick={onClose}>
-          <X size={18} />
+          <X />
         </IconButton>
       </header>
       {showError && error && (
@@ -438,7 +435,7 @@ export default function App() {
           }),
         ),
         "geojson",
-        { dirty: true, warnings: ["空间分析结果副本，请核对后保存或导出。"] },
+        { dirty: true, warnings: ["空间分析结果副本，核对后可保存或导出。"] },
       ),
     );
     pendingAnalysis.current = [];
@@ -1123,7 +1120,7 @@ export default function App() {
               openModal("cell");
             }}
           >
-            <Square size={13} />
+            <Square />
           </IconButton>
         )}
       </div>
@@ -1653,7 +1650,7 @@ export default function App() {
           >
             <HeaderMenu label="文件">
               <button onClick={openFiles} disabled={busy}>
-                <FolderOpen size={16} />
+                <FolderOpen />
                 打开文件…
               </button>
               <button
@@ -1664,21 +1661,21 @@ export default function App() {
                   (active.sourceKind === "postgis" && !canEdit)
                 }
               >
-                <Save size={16} />
+                <Save />
                 {active?.sourceKind === "postgis" ? "提交修改" : "保存"}
               </button>
               <button
                 onClick={() => void save(true)}
                 disabled={!active || busy || active.sourceKind === "postgis"}
               >
-                <Save size={16} />
+                <Save />
                 另存为…
               </button>
               <button
                 disabled={!active || busy}
                 onClick={() => openModal("export")}
               >
-                <Download size={16} />
+                <Download />
                 导出 / 转换
               </button>
               <hr />
@@ -1688,22 +1685,22 @@ export default function App() {
                   active?.dirty ? openModal("close") : void closeLayer()
                 }
               >
-                <X size={16} />
+                <X />
                 移除图层
               </button>
               <hr />
               <button disabled={busy || !recoveryReady} onClick={requestExit}>
-                <X size={16} />
+                <X />
                 退出
               </button>
             </HeaderMenu>
             <HeaderMenu label="数据">
               <button onClick={openFiles} disabled={busy}>
-                <FolderOpen size={16} />
+                <FolderOpen />
                 导入数据…
               </button>
               <button onClick={openSources} disabled={!desktop || busy}>
-                <Database size={16} />
+                <Database />
                 PostGIS 数据源…
               </button>
               <hr />
@@ -1711,7 +1708,7 @@ export default function App() {
                 onClick={() => addLayers([createDemoLayer()])}
                 disabled={busy}
               >
-                <Plus size={16} />
+                <Plus />
                 城市示例
               </button>
             </HeaderMenu>
@@ -1743,7 +1740,7 @@ export default function App() {
                   active={agentOpen}
                   onClick={() => setAgentOpen((v) => !v)}
                 >
-                  <Bot size={16} />
+                  <Bot />
                 </IconButton>
               </>
             )}
@@ -1758,7 +1755,7 @@ export default function App() {
                     .catch((reason) => setError(errorText(reason)))
                 }
               >
-                <Minus size={16} />
+                <Minus />
               </IconButton>
               <IconButton
                 label="最大化 / 还原"
@@ -1768,14 +1765,14 @@ export default function App() {
                     .catch((reason) => setError(errorText(reason)))
                 }
               >
-                <Square size={14} />
+                <Square />
               </IconButton>
               <IconButton
                 label="关闭窗口"
                 disabled={busy || !recoveryReady}
                 onClick={() => void requestExit()}
               >
-                <X size={18} />
+                <X />
               </IconButton>
             </div>
           )}
@@ -2037,7 +2034,7 @@ export default function App() {
                         active={tool === item.value}
                         onClick={() => setTool(item.value)}
                       >
-                        <item.icon size={18} />
+                        <item.icon />
                       </IconButton>
                     ))}
                   {editing && (
@@ -2048,7 +2045,7 @@ export default function App() {
                       }
                       onClick={() => openModal("delete")}
                     >
-                      <Trash2 size={18} />
+                      <Trash2 />
                     </IconButton>
                   )}
                 </div>
@@ -2063,7 +2060,7 @@ export default function App() {
                   }
                   onClick={() => (editing ? void save() : beginEditing())}
                 >
-                  {editing ? <Save size={18} /> : <Pencil size={18} />}
+                  {editing ? <Save /> : <Pencil />}
                 </IconButton>
                 <span className="map-edit-state">
                   {editing ? "编辑中" : "浏览"}
@@ -2081,7 +2078,7 @@ export default function App() {
                         }
                         onClick={() => history("undo")}
                       >
-                        <Undo2 size={18} />
+                        <Undo2 />
                       </IconButton>
                       <IconButton
                         label="重做"
@@ -2093,7 +2090,7 @@ export default function App() {
                         }
                         onClick={() => history("redo")}
                       >
-                        <Redo2 size={18} />
+                        <Redo2 />
                       </IconButton>
                     </div>
                     <IconButton
@@ -2102,7 +2099,7 @@ export default function App() {
                       disabled={!editable || busy}
                       onClick={() => setSnapping((v) => !v)}
                     >
-                      <Magnet size={17} />
+                      <Magnet />
                     </IconButton>
                     {tool !== "select" && tool !== "pan" && (
                       <div className="editing-tools">
@@ -2123,7 +2120,7 @@ export default function App() {
                             }
                             onClick={() => setFinishNonce((n) => n + 1)}
                           >
-                            <Check size={16} />
+                            <Check />
                           </IconButton>
                         )}
                         <IconButton
@@ -2132,7 +2129,7 @@ export default function App() {
                           }
                           onClick={() => setTool("select")}
                         >
-                          <X size={16} />
+                          <X />
                         </IconButton>
                       </div>
                     )}
@@ -2191,7 +2188,7 @@ export default function App() {
                   disabled={!active}
                   onClick={() => setFitNonce((n) => n + 1)}
                 >
-                  <LocateFixed size={16} />
+                  <LocateFixed />
                 </IconButton>
               </div>
             </div>
@@ -2263,7 +2260,7 @@ export default function App() {
                 {tableOpen && (
                   <>
                     <div className="search-field">
-                      <Search size={14} />
+                      <Search />
                       <input
                         aria-label="搜索属性"
                         placeholder="搜索属性"
@@ -2288,7 +2285,7 @@ export default function App() {
                         setTool("select");
                       }}
                     >
-                      <Pencil size={14} />
+                      <Pencil />
                       编辑属性
                     </button>
                     {cellDraft && (
@@ -2316,7 +2313,7 @@ export default function App() {
                           }
                           onClick={() => history("undo")}
                         >
-                          <Undo2 size={15} />
+                          <Undo2 />
                         </IconButton>
                         <IconButton
                           label="重做"
@@ -2328,7 +2325,7 @@ export default function App() {
                           }
                           onClick={() => history("redo")}
                         >
-                          <Redo2 size={15} />
+                          <Redo2 />
                         </IconButton>
                       </>
                     )}
@@ -2337,7 +2334,7 @@ export default function App() {
                       disabled={!selected || Boolean(cellDraft)}
                       onClick={() => setFeatureFitNonce((n) => n + 1)}
                     >
-                      <LocateFixed size={15} />
+                      <LocateFixed />
                     </IconButton>
                     <HeaderMenu label="更多">
                       <span className="field-info">
@@ -2347,7 +2344,7 @@ export default function App() {
                         disabled={!selected || busy || Boolean(cellDraft)}
                         onClick={() => openModal("json")}
                       >
-                        <FileJson size={15} />
+                        <FileJson />
                         JSON 属性…
                       </button>
                       <button
@@ -2363,7 +2360,7 @@ export default function App() {
                         disabled={page === 0 || Boolean(cellDraft)}
                         onClick={() => setPage((n) => n - 1)}
                       >
-                        <ChevronLeft size={16} />
+                        <ChevronLeft />
                       </IconButton>
                       <span>
                         {page + 1} / {totalPages}
@@ -2373,7 +2370,7 @@ export default function App() {
                         disabled={page + 1 >= totalPages || Boolean(cellDraft)}
                         onClick={() => setPage((n) => n + 1)}
                       >
-                        <ChevronRight size={16} />
+                        <ChevronRight />
                       </IconButton>
                     </div>
                   </>
@@ -2390,9 +2387,9 @@ export default function App() {
                       onClick={() => setTableMaximized((v) => !v)}
                     >
                       {tableMaximized ? (
-                        <Minimize2 size={16} />
+                        <Minimize2 />
                       ) : (
-                        <Maximize2 size={16} />
+                        <Maximize2 />
                       )}
                     </IconButton>
                   )}
@@ -2405,9 +2402,9 @@ export default function App() {
                     disabled={Boolean(cellDraft)}
                   >
                     {tableOpen ? (
-                      <ChevronDown size={16} />
+                      <ChevronDown />
                     ) : (
-                      <ChevronUp size={16} />
+                      <ChevronUp />
                     )}
                   </IconButton>
                 </div>
@@ -2460,7 +2457,7 @@ export default function App() {
                             }
                             onClick={() => openModal("field")}
                           >
-                            <Plus size={13} />
+                            <Plus />
                           </button>
                         </th>
                         {fields.map((field) => (
@@ -2477,7 +2474,7 @@ export default function App() {
                                 }
                                 onClick={() => openModal("field")}
                               >
-                                <Plus size={14} />
+                                <Plus />
                                 添加字段
                               </button>
                             </HeaderMenu>
@@ -2572,7 +2569,7 @@ export default function App() {
           <div className="error-banner" role="alert">
             <span>{error}</span>
             <IconButton label="关闭错误" onClick={() => setError("")}>
-              <X size={16} />
+              <X />
             </IconButton>
           </div>
         )}
@@ -2707,7 +2704,7 @@ export default function App() {
                   }
                   onClick={() => openModal("field")}
                 >
-                  <Plus size={14} />
+                  <Plus />
                   添加字段…
                 </button>
                 <button
@@ -2851,7 +2848,7 @@ export default function App() {
               {cellDraft.original == null
                 ? "输入 JSON 值"
                 : typeof cellDraft.original === "object"
-                  ? "输入 JSON，保留原有结构类型"
+                  ? "输入 JSON，类型不变"
                   : "输入文本"}
             </p>
             {renderCellInput(true)}
@@ -2915,7 +2912,7 @@ export default function App() {
                 disabled={!editable || busy || Boolean(draftError)}
                 onClick={modal === "json" ? applyProperties : applyWkt}
               >
-                <Check size={15} />
+                <Check />
                 {modal === "json" ? "应用属性" : "应用几何"}
               </button>
             </div>
@@ -3105,9 +3102,9 @@ export default function App() {
               </button>
               <button disabled={busy} onClick={() => void processExit()}>
                 {busy ? (
-                  <LoaderCircle size={15} className="spin" />
+                  <LoaderCircle className="spin" />
                 ) : (
-                  <Check size={15} />
+                  <Check />
                 )}
                 退出并保留工作区
               </button>

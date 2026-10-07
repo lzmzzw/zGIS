@@ -199,7 +199,7 @@ export default function MapView(props: Props) {
       layer.setVisible(item.visible);
       layer.setOpacity(item.opacity ?? 1);
       layer.setZIndex(props.layers.length - index + 10);
-      layer.setStyle((feature) =>
+      layer.setStyle(() =>
         style(
           item.color,
           false,

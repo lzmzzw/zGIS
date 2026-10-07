@@ -36,7 +36,7 @@ const categories = [
     id: "appearance",
     label: "外观",
     icon: Palette,
-    description: "主题与界面显示",
+    description: "界面主题",
   },
   { id: "map", label: "地图", icon: Map, description: "底图、注记与服务配置" },
   {
@@ -49,7 +49,7 @@ const categories = [
     id: "about",
     label: "关于",
     icon: Info,
-    description: "应用信息与数据处理规则",
+    description: "版本与数据处理",
   },
 ] as const;
 export default function SettingsPage(props: Props) {
@@ -87,12 +87,12 @@ export default function SettingsPage(props: Props) {
     <main className="settings-page" aria-label="后台设置">
       <header className="settings-page-heading">
         <button ref={back} className="quiet" onClick={props.onClose}>
-          <ArrowLeft size={16} />
+          <ArrowLeft />
           返回地图
         </button>
         <div>
           <h1>设置</h1>
-          <p>集中管理应用外观、地图和本机服务。</p>
+          <p>外观、地图与本机服务</p>
         </div>
       </header>
       <div className="settings-page-body">
@@ -104,7 +104,7 @@ export default function SettingsPage(props: Props) {
               aria-current={props.category === id ? "page" : undefined}
               onClick={() => props.onCategory(id)}
             >
-              <Icon size={16} />
+              <Icon />
               {label}
             </button>
           ))}
@@ -126,7 +126,7 @@ export default function SettingsPage(props: Props) {
             <div className="settings-fields">
               <label>
                 <span>
-                  主题<small>即时生效，下次启动保留选择。</small>
+                  主题<small>即时生效，自动保存。</small>
                 </span>
                 <select
                   aria-label="主题"
@@ -145,7 +145,7 @@ export default function SettingsPage(props: Props) {
             <div className="settings-fields">
               <label>
                 <span>
-                  底图类型<small>用于当前地图的背景显示。</small>
+                  底图类型<small>当前地图背景</small>
                 </span>
                 <select
                   aria-label="底图类型"
@@ -164,7 +164,7 @@ export default function SettingsPage(props: Props) {
                 <>
                   <label>
                     <span>
-                      注记<small>叠加地名与道路标注。</small>
+                      注记<small>地名与道路标注</small>
                     </span>
                     <span className="checkbox-label">
                       <input
@@ -178,7 +178,7 @@ export default function SettingsPage(props: Props) {
                   </label>
                   <label>
                     <span>
-                      天地图 tk<small>保存在本机，下次启动继续使用。</small>
+                      天地图 tk<small>保存在本机。</small>
                     </span>
                     <input
                       aria-label="天地图 tk"
@@ -195,7 +195,7 @@ export default function SettingsPage(props: Props) {
               }
               <section className="basemap-settings" aria-label="底图服务管理">
                 <h3>底图服务</h3>
-                <p className="form-note">顺序同步到地图中的底图选项。</p>
+                <p className="form-note">按此顺序显示底图选项。</p>
                 <ol className="basemap-service-list">
                   {props.services.map((service, index) => (
                     <li key={service.id}>
@@ -217,7 +217,7 @@ export default function SettingsPage(props: Props) {
                             )
                           }
                         >
-                          <ArrowUp size={15} />
+                          <ArrowUp />
                         </button>
                         <button
                           className="icon-button"
@@ -230,7 +230,7 @@ export default function SettingsPage(props: Props) {
                             )
                           }
                         >
-                          <ArrowDown size={15} />
+                          <ArrowDown />
                         </button>
                         {service.url && (
                           <button
@@ -246,7 +246,7 @@ export default function SettingsPage(props: Props) {
                               );
                             }}
                           >
-                            <Trash2 size={15} />
+                            <Trash2 />
                           </button>
                         )}
                       </div>

@@ -5,6 +5,7 @@
   z-index: 15;
 }
 .basemap-toggle {
+  --icon-size: var(--icon-size-map);
   width: 40px;
   height: 40px;
   padding: 0;
@@ -36,14 +37,14 @@
   margin-bottom: 10px;
 }
 .basemap-popover h2 {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
   margin: 0;
   flex: 1;
 }
 .basemap-popover .checkbox-label {
   display: flex;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   white-space: nowrap;
 }
 .basemap-popover .icon-button {
@@ -85,12 +86,12 @@
   margin: 0;
 }
 .basemap-card strong {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
   margin: 0 4px;
 }
 .basemap-card small {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--muted);
   margin: 0 4px;
 }
@@ -145,6 +146,7 @@
   --street-line: #7d8763;
 }
 .basemap-check {
+  --icon-size: var(--icon-size-badge);
   position: absolute;
   top: 5px;
   right: 5px;
@@ -167,7 +169,7 @@
 }
 
 .basemap-source {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--muted);
 }
 .basemap-source a {
