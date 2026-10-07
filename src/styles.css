@@ -522,8 +522,18 @@ details button {
 .attribute-title {
   padding: 0 8px;
 }
-.attribute-panel.collapsed > header > .icon-button:last-child {
+.attribute-window-controls {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+.attribute-panel.collapsed .attribute-window-controls {
   margin-left: auto;
+  border-left: 0;
 }
 .table-resizer {
   position: absolute;
@@ -579,13 +589,6 @@ details button {
   overflow: auto;
   flex: 1;
   position: relative;
-}
-/* Space at page boundaries lets the first and last selected record center too. */
-.table-scroll table:has(tr.selected) tbody::before,
-.table-scroll table:has(tr.selected) tbody::after {
-  content: "";
-  display: table-row;
-  height: var(--selection-centering-space, 0px);
 }
 table {
   border-collapse: separate;

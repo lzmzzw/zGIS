@@ -110,25 +110,107 @@ test("selected polygon outlines remain above adjacent shared edges and deselecti
 });
 
 
-test("first and last selected records center below the sticky header and re-center on resize", async ({ page }) => {
+test("maximized table has natural scroll boundaries and right-side state controls", async ({
+  page,
+}) => {
   await importPolygons(page, 232);
-  const distance = () => page.locator("tbody tr.selected").evaluate(row => {
-    const view = row.closest(".table-scroll")!;
-    const v = view.getBoundingClientRect(), r = row.getBoundingClientRect();
-    const header = view.querySelector("thead")!.getBoundingClientRect().height;
-    return Math.abs(r.top + r.height / 2 - v.top - view.clientTop - (view.clientHeight + header) / 2);
+  const view = page.locator(".table-scroll");
+  const controls = page.getByRole("group", { name: "属性表显示控制" });
+  const maximize = controls.getByRole("button", {
+    name: "最大化属性表",
+    exact: true,
   });
+  const collapse = controls.getByRole("button", {
+    name: "收起属性表",
+    exact: true,
+  });
+  const maxBounds = await maximize.boundingBox(),
+    collapseBounds = await collapse.boundingBox();
+  expect(collapseBounds!.x + collapseBounds!.width).toBeLessThanOrEqual(maxBounds!.x);
+  expect(Math.abs(maxBounds!.y - collapseBounds!.y)).toBeLessThan(1);
+  await maximize.click();
+  await page.screenshot({path:"output/smoke/table-maximized.png"});
+  const restore = controls.getByRole("button", {
+    name: "还原属性表",
+    exact: true,
+  });
+  await expect(restore).toHaveAttribute("aria-pressed", "true");
+  await expect(restore.locator("svg")).toHaveClass(/lucide-minimize-2/);
   await page.locator("tbody tr").first().click();
-  await expect.poll(distance).toBeLessThan(2);
-  await page.locator(".table-scroll").evaluate(view => { view.scrollTop = view.scrollHeight; });
+  await expect.poll(() => view.evaluate((v) => v.scrollTop)).toBe(0);
+  const topGap = () =>
+    page
+      .locator("tbody tr")
+      .first()
+      .evaluate((row) => {
+        const header = row
+          .closest("table")!
+          .querySelector("thead")!
+          .getBoundingClientRect();
+        return Math.abs(row.getBoundingClientRect().top - header.bottom);
+      });
+  await expect.poll(topGap).toBeLessThan(2);
+  await view.evaluate((v) => {
+    v.scrollTop = v.scrollHeight;
+  });
   await page.locator("tbody tr").last().click();
+  await expect
+    .poll(() =>
+      view.evaluate((v) =>
+        Math.abs(v.scrollHeight - v.clientHeight - v.scrollTop),
+      ),
+    )
+    .toBeLessThan(2);
+  await expect
+    .poll(() =>
+      page
+        .locator("tbody tr")
+        .last()
+        .evaluate((row) => {
+          const v = row.closest(".table-scroll")!;
+          return Math.abs(
+            row.getBoundingClientRect().bottom -
+              v.getBoundingClientRect().top -
+              v.clientTop -
+              v.clientHeight,
+          );
+        }),
+    )
+    .toBeLessThan(2);
+  await view.evaluate((v) => {
+    v.scrollTop = 49 * 32;
+  });
+  await page.locator("tbody tr").nth(49).click();
+  const distance = () =>
+    page.locator("tbody tr.selected").evaluate((row) => {
+      const v = row.closest(".table-scroll")!,
+        bounds = v.getBoundingClientRect(),
+        r = row.getBoundingClientRect();
+      const header = v.querySelector("thead")!.getBoundingClientRect().height;
+      return Math.abs(
+        r.top +
+          r.height / 2 -
+          bounds.top -
+          v.clientTop -
+          (v.clientHeight + header) / 2,
+      );
+    });
   await expect.poll(distance).toBeLessThan(2);
-  const scrollLeft = await page.locator(".table-scroll").evaluate(v => v.scrollLeft);
-  await page.setViewportSize({width:1100,height:700});
+  const scrollLeft = await view.evaluate((v) => v.scrollLeft);
+  await page.setViewportSize({ width: 1100, height: 700 });
   await expect.poll(distance).toBeLessThan(2);
-  expect(await page.locator(".table-scroll").evaluate(v => v.scrollLeft)).toBe(scrollLeft);
-  await expect(page.locator("tbody tr")).toHaveCount(100);
-  await page.getByRole("button",{name:"下一页",exact:true}).click();
-  await expect(page.locator("tbody tr.selected")).toHaveCount(0);
-  await expect(page.locator("tbody tr")).toHaveCount(100);
+  expect(await view.evaluate((v) => v.scrollLeft)).toBe(scrollLeft);
+  await page.getByRole("button", { name: "下一页", exact: true }).click();
+  await expect(view).toBeVisible();
+  await expect.poll(() => view.evaluate((v) => v.scrollTop)).toBe(0);
+  await expect.poll(topGap).toBeLessThan(2);
+  await restore.click();
+  await expect(maximize).toHaveAttribute("aria-pressed", "false");
+  await expect(maximize.locator("svg")).toHaveClass(/lucide-maximize-2/);
+  await expect(page.locator(".map-container")).toBeVisible();
+  await collapse.click();
+  await expect(
+    controls.getByRole("button", { name: "展开属性表", exact: true }),
+  ).toBeVisible();
+  await expect(controls.getByRole("button")).toHaveCount(1);
 });

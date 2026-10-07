@@ -42,6 +42,8 @@ import {
   Bot,
   Minus,
   Square,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import BasemapControl from "./BasemapControl";
 import { cellText, parseCellValue } from "./attributeEditing";
@@ -126,6 +128,7 @@ function IconButton({
       className={`icon-button ${active ? "active" : ""}`}
       title={label}
       aria-label={label}
+      aria-pressed={active}
       onClick={onClick}
       disabled={disabled}
     >
@@ -1509,6 +1512,11 @@ export default function App() {
     if (page !== effectivePage) setPage(effectivePage);
   }, [page, effectivePage]);
   const selectedRow = useRef<HTMLTableRowElement>(null);
+  useLayoutEffect(() => {
+    document
+      .querySelector(".table-scroll")
+      ?.scrollTo({ top: 0, behavior: "instant" });
+  }, [activeId, effectivePage, search, tableOpen]);
   useEffect(() => {
     if (!tableOpen || !selectedId) return;
     const index = filtered.findIndex((feature) => feature.id === selectedId);
@@ -1522,11 +1530,6 @@ export default function App() {
     let timer: ReturnType<typeof setTimeout>;
     const center = () => {
       const headerHeight = viewport.querySelector("thead")?.offsetHeight ?? 0;
-      const spacing = Math.max(
-        0,
-        (viewport.clientHeight - headerHeight - row.offsetHeight) / 2,
-      );
-      viewport.style.setProperty("--selection-centering-space", `${spacing}px`);
       const rowBounds = row.getBoundingClientRect();
       const viewportBounds = viewport.getBoundingClientRect();
       const target =
@@ -2354,12 +2357,6 @@ export default function App() {
                         WKT 几何…
                       </button>
                     </HeaderMenu>
-                    <IconButton
-                      label={tableMaximized ? "还原属性表" : "最大化属性表"}
-                      onClick={() => setTableMaximized((v) => !v)}
-                    >
-                      <Square size={14} />
-                    </IconButton>
                     <div className="pagination">
                       <IconButton
                         label="上一页"
@@ -2381,20 +2378,39 @@ export default function App() {
                     </div>
                   </>
                 )}
-                <IconButton
-                  label={tableOpen ? "收起属性表" : "展开属性表"}
-                  onClick={() => {
-                    setTableOpen((v) => !v);
-                    setTableMaximized(false);
-                  }}
-                  disabled={Boolean(cellDraft)}
+                <div
+                  className="attribute-window-controls"
+                  role="group"
+                  aria-label="属性表显示控制"
                 >
-                  {tableOpen ? (
-                    <ChevronDown size={16} />
-                  ) : (
-                    <ChevronUp size={16} />
+                  <IconButton
+                    label={tableOpen ? "收起属性表" : "展开属性表"}
+                    onClick={() => {
+                      setTableOpen((v) => !v);
+                      setTableMaximized(false);
+                    }}
+                    disabled={Boolean(cellDraft)}
+                  >
+                    {tableOpen ? (
+                      <ChevronDown size={16} />
+                    ) : (
+                      <ChevronUp size={16} />
+                    )}
+                  </IconButton>
+                  {tableOpen && (
+                    <IconButton
+                      label={tableMaximized ? "还原属性表" : "最大化属性表"}
+                      active={tableMaximized}
+                      onClick={() => setTableMaximized((v) => !v)}
+                    >
+                      {tableMaximized ? (
+                        <Minimize2 size={16} />
+                      ) : (
+                        <Maximize2 size={16} />
+                      )}
+                    </IconButton>
                   )}
-                </IconButton>
+                </div>
               </header>
               {tableOpen && tableEditing && (
                 <div className="table-edit-note">
