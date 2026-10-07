@@ -198,12 +198,14 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
   await expect(page.getByRole("dialog")).toHaveAccessibleName("退出 zGIS");
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "取消", exact: true })
+    .getByRole("button", { name: "返回编辑", exact: true })
     .click();
   await expect(
     page.getByLabel("attributes.geojson颜色", { exact: true }),
   ).toHaveValue("#123456");
   await page.getByRole("button", { name: "应用样式", exact: true }).click();
+  await expect(page.locator(".layer-text").filter({ hasText: "分析结果" })).toHaveCount(0);
+  await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
   await expect(
     page.locator(".layer-text").filter({ hasText: "分析结果" }),
   ).toBeVisible();

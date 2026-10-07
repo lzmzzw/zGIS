@@ -165,7 +165,7 @@ test("dirty restored layers exit without a prompt and all work copies are saved"
   ).toBe(false);
 });
 
-test("editing exit can be cancelled; confirmation keeps applied changes but not property drafts", async ({
+test("editing exit can return to editing; confirmation preserves applied changes and property drafts", async ({
   page,
 }) => {
   await installDesktopMock(page, snapshot);
@@ -189,7 +189,7 @@ test("editing exit can be cancelled; confirmation keeps applied changes but not 
   expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "取消", exact: true })
+    .getByRole("button", { name: "返回编辑", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(
@@ -202,11 +202,16 @@ test("editing exit can be cancelled; confirmation keeps applied changes but not 
   await expect
     .poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed))
     .toBe(true);
-  const layers = savedLayers(
-    await page.evaluate(() => window.__ZG_TEST__.snapshot!),
-  );
+  const raw = await page.evaluate(() => window.__ZG_TEST__.snapshot!);
+  const recovered = JSON.parse(raw);
+  const layers = savedLayers(raw);
   expect(layers[0].features[0].properties.value).toBe(2);
   expect(layers).toHaveLength(2);
+  expect(recovered.session.cellDraft).toMatchObject({
+    field: "value",
+    text: "999",
+  });
+  expect(recovered.session.layerId).toBe(layers[0].id);
 });
 
 test("vertex editing prompts even before geometry changes", async ({

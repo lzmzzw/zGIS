@@ -41,6 +41,7 @@ import {
   Square,
   Maximize2,
   Minimize2,
+  Move,
 } from "lucide-react";
 import BasemapControl from "./BasemapControl";
 import ContextMenu, {
@@ -58,10 +59,16 @@ import {
   updateTreeGroup,
   type LayerTreeNode,
 } from "./layerTree";
-import { defaultBasemaps, loadBasemapPreferences, serializeBasemapPreferences, selectBasemap, type BasemapService } from "./basemaps";
+import {
+  defaultBasemaps,
+  loadBasemapPreferences,
+  serializeBasemapPreferences,
+  selectBasemap,
+  type BasemapService,
+} from "./basemaps";
 import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
-import MapView, { type Tool } from "./MapView";
+import MapView, { type Tool, type DrawDraft } from "./MapView";
 import { ImportPanel, ExportPanel } from "./FilePanels";
 import {
   SourcePanel,
@@ -70,7 +77,12 @@ import {
   SubmitPanel,
 } from "./DatabasePanels";
 import { databaseChanges } from "./dbChanges";
-import { restoreWorkspace, snapshotWorkspace } from "./workspace";
+import {
+  restoreWorkspace,
+  snapshotWorkspace,
+  selectRecoverySnapshot,
+  type WorkspaceEditSession,
+} from "./workspace";
 import {
   exportGeoJSON,
   exportCsv,
@@ -100,6 +112,7 @@ const tools: { value: Tool; label: string; icon: typeof Pencil }[] = [
   { value: "pan", label: "手形", icon: Hand },
   { value: "select", label: "选择", icon: MousePointer2 },
   { value: "modify", label: "编辑顶点", icon: Pencil },
+  { value: "move", label: "移动要素", icon: Move },
   { value: "Point", label: "新增点", icon: MapPin },
   { value: "LineString", label: "新增线", icon: Route },
   { value: "Polygon", label: "新增面", icon: Pentagon },
@@ -212,6 +225,8 @@ function Modal({
 interface History {
   past: GeoFeature[][];
   future: GeoFeature[][];
+  pastFields?: string[][];
+  futureFields?: string[][];
 }
 function HeaderMenu({
   label,
@@ -281,8 +296,27 @@ export default function App() {
   const centerImmediately = useRef(true);
   const [tool, setTool] = useState<Tool>("select");
   const [editingLayerId, setEditingLayerId] = useState<string>();
+  const [drawDraft, setDrawDraft] = useState<DrawDraft | null>(null);
+  const [gestureActive, setGestureActive] = useState(false);
+  const [cancelNonce, setCancelNonce] = useState(0);
+  const [undoNodeNonce, setUndoNodeNonce] = useState(0);
+  const restoringSession = useRef<WorkspaceEditSession | undefined>(undefined);
+  const restoringPanel = useRef<WorkspaceEditSession["panelDraft"]>(undefined);
+  const sessionRef = useRef<WorkspaceEditSession | undefined>(undefined);
+  const saveStopsEditing = useRef(false);
+  const [newLayerName, setNewLayerName] = useState("新建图层");
+  const [newGeometryType, setNewGeometryType] = useState<
+    "Point" | "LineString" | "Polygon"
+  >("Polygon");
+  const [newLayerFields, setNewLayerFields] = useState("");
   const editingBaseline = useRef<
-    { id: string; features: GeoFeature[]; dirty: boolean } | undefined
+    | {
+        id: string;
+        features: GeoFeature[];
+        dirty: boolean;
+        fieldNames?: string[];
+      }
+    | undefined
   >(undefined);
   const exportSaveLayerId = useRef<string | undefined>(undefined);
   const editing = Boolean(activeId && editingLayerId === activeId);
@@ -407,6 +441,7 @@ export default function App() {
     | "layer"
     | "style"
     | "delete"
+    | "new-layer"
     | null
   >(null);
   const [pendingFiles, setPendingFiles] = useState<InputFile[]>([]);
@@ -434,6 +469,54 @@ export default function App() {
   const input = useRef<HTMLInputElement>(null);
   const currentLayers = useRef(layers);
   currentLayers.current = layers;
+  const draftModal = modal === "quit" ? exitPreviousModal.current : modal;
+  const sessionHistory = editingLayerId
+    ? histories.current.get(editingLayerId)
+    : undefined;
+  sessionRef.current = editingLayerId
+    ? {
+        layerId: editingLayerId,
+        selectedId: layers
+          .find((l) => l.id === editingLayerId)
+          ?.features.some((f) => f.id === selectedId)
+          ? selectedId
+          : undefined,
+        tool,
+        snapping,
+        drawDraft: drawDraft ?? undefined,
+        cellDraft: cellDraft
+          ? {
+              featureId: cellDraft.featureId,
+              field: cellDraft.field,
+              text: cellDraft.text,
+              isNull: cellDraft.isNull,
+            }
+          : undefined,
+        panelDraft:
+          (draftModal === "json" || draftModal === "wkt") && selectedId
+            ? {
+                kind: draftModal,
+                featureId: selectedId,
+                text: draftModal === "json" ? propertyText : wktText,
+              }
+            : undefined,
+        history: sessionHistory
+          ? {
+              undo: sessionHistory.past,
+              redo: sessionHistory.future,
+              undoFieldNames: sessionHistory.pastFields,
+              redoFieldNames: sessionHistory.futureFields,
+              baseline: editingBaseline.current
+                ? {
+                    features: editingBaseline.current.features,
+                    dirty: editingBaseline.current.dirty,
+                    fieldNames: editingBaseline.current.fieldNames,
+                  }
+                : undefined,
+            }
+          : undefined,
+      }
+    : undefined;
   const active = layers.find((layer) => layer.id === activeId);
   const mcpSyncQueue = useRef<Promise<unknown>>(Promise.resolve());
   useEffect(() => {
@@ -458,7 +541,10 @@ export default function App() {
   const pendingAnalysis = useRef<AnalysisLayer[]>([]);
   const analysisInFlight = useRef<Promise<void> | null>(null);
   function importPendingAnalysis(forExit = false) {
-    if (!pendingAnalysis.current.length || (!forExit && (cellDraft || modal)))
+    if (
+      !pendingAnalysis.current.length ||
+      (!forExit && (cellDraft || modal || editingLayerId))
+    )
       return;
     const added = pendingAnalysis.current.map((result) =>
       makeLayer(
@@ -540,6 +626,10 @@ export default function App() {
   }, [theme]);
   function openModal(value: typeof modal) {
     setContext(undefined);
+    if (drawDraft && value && !["settings", "quit"].includes(value)) {
+      setError("请先完成或取消当前绘制");
+      return;
+    }
     if (cellDraft && value && !["settings", "cell", "quit"].includes(value)) {
       setError("请先应用或取消当前单元格编辑");
       return;
@@ -578,6 +668,10 @@ export default function App() {
     requestFiles();
   }
   function requestFiles() {
+    if (editingLayerId) {
+      setError("请先保存并退出当前图层编辑，再打开文件");
+      return;
+    }
     if (cellDraft) {
       setError("请先应用或取消当前单元格编辑");
       return;
@@ -605,6 +699,7 @@ export default function App() {
       modal ||
       !recoveryReady ||
       !configReady ||
+      Boolean(editingLayerId) ||
       exitPending.current
     ) {
       setError("当前操作尚未完成，请关闭面板或等待后重新拖入文件");
@@ -638,6 +733,10 @@ export default function App() {
     requestSources();
   }
   function requestSources() {
+    if (editingLayerId) {
+      setError("请先保存并退出当前图层编辑，再加载数据源");
+      return;
+    }
     openModal(connectionId ? "db-sources" : "database");
   }
   function configureDatabase(index: number) {
@@ -672,7 +771,11 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!configReady || configBlocked.current) return;
-    const content = serializeBasemapPreferences(services, basemap, basemapVisible);
+    const content = serializeBasemapPreferences(
+      services,
+      basemap,
+      basemapVisible,
+    );
     configQueue.current = configQueue.current
       .catch(() => {})
       .then(async () => {
@@ -691,10 +794,37 @@ export default function App() {
     setBasemap(selectBasemap(next, basemap));
   }
   function writeSnapshot(documents: DocumentLayer[]) {
-    const content = snapshotWorkspace(documents, currentTree.current);
+    if (
+      sessionRef.current?.selectedId &&
+      !documents
+        .find((l) => l.id === sessionRef.current?.layerId)
+        ?.features.some((f) => f.id === sessionRef.current?.selectedId)
+    ) {
+      sessionRef.current = { ...sessionRef.current, selectedId: undefined };
+      setSelectedId(undefined);
+    }
+    const content = snapshotWorkspace(
+      documents,
+      currentTree.current,
+      sessionRef.current,
+    );
+    // Synchronous write-ahead copy covers termination before the native atomic write.
+    try {
+      localStorage.setItem("zgis.editRecovery", content);
+    } catch {
+      /* Native copy remains authoritative when browser quota is exceeded. */
+    }
     const next = snapshotQueue.current
       .catch(() => {})
-      .then(() => api.backup(content));
+      .then(() => api.backup(content))
+      .then(() => {
+        try {
+          if (localStorage.getItem("zgis.editRecovery") === content)
+            localStorage.removeItem("zgis.editRecovery");
+        } catch {
+          /* The native snapshot is already durable. */
+        }
+      });
     snapshotQueue.current = next;
     return next;
   }
@@ -717,7 +847,7 @@ export default function App() {
     }
     setError("");
     if (
-      (tool !== "select" && tool !== "pan") ||
+      Boolean(editingLayerId) ||
       cellDraft !== null ||
       (modal === "style" &&
         layerStyleDraft !== null &&
@@ -742,11 +872,22 @@ export default function App() {
       .recover()
       .then((raw) => {
         if (disposed) return;
+        raw = selectRecoverySnapshot(raw, null);
+        try {
+          raw = selectRecoverySnapshot(
+            raw,
+            localStorage.getItem("zgis.editRecovery"),
+          );
+        } catch {
+          /* Native recovery remains available. */
+        }
         if (raw) {
           const restored = restoreWorkspace(raw);
           setTree(restored.tree);
           if (restored.layers.length) {
             addLayers(restored.layers);
+            restoringSession.current = restored.session;
+            if (restored.session) setActiveId(restored.session.layerId);
             setStatus(`已恢复 ${restored.layers.length} 个本地副本`);
           }
         }
@@ -789,31 +930,59 @@ export default function App() {
       !desktop ||
       !recoveryReady ||
       recoveryBlocked.current ||
+      restoringSession.current ||
       exitPending.current ||
       busy
     )
       return;
+    let content: string;
+    try {
+      content = snapshotWorkspace(
+        currentLayers.current,
+        currentTree.current,
+        sessionRef.current,
+      );
+    } catch (reason) {
+      setError("恢复副本保存失败：" + errorText(reason));
+      return;
+    }
+    try {
+      localStorage.setItem("zgis.editRecovery", content);
+    } catch {
+      /* Fall back to native recovery. */
+    }
     const timer = setTimeout(() => {
       if (exitPending.current || busyRef.current) return;
       void writeSnapshot(currentLayers.current).catch(() =>
         setStatus("恢复副本保存失败"),
       );
-    }, 1500);
+    }, 150);
     return () => clearTimeout(timer);
-  }, [layers, tree, recoveryReady, modal, busy]);
+  }, [
+    layers,
+    tree,
+    recoveryReady,
+    modal,
+    busy,
+    editingLayerId,
+    selectedId,
+    tool,
+    snapping,
+    drawDraft,
+    cellDraft,
+    propertyText,
+    wktText,
+  ]);
   useEffect(() => {
     const handler = (event: BeforeUnloadEvent) => {
-      if (
-        !desktop &&
-        ((tool !== "select" && tool !== "pan") || cellDraft !== null)
-      ) {
+      if (!desktop && (Boolean(editingLayerId) || cellDraft !== null)) {
         event.preventDefault();
         event.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [tool, cellDraft]);
+  }, [editingLayerId, cellDraft]);
   useEffect(() => {
     setPage(0);
     setSearch("");
@@ -822,8 +991,70 @@ export default function App() {
     setEditingLayerId(undefined);
     setTableEditing(false);
     exportSaveLayerId.current = undefined;
+    setDrawDraft(null);
+    const session = restoringSession.current;
+    if (session && session.layerId === activeId) {
+      restoringSession.current = undefined;
+      setEditingLayerId(session.layerId);
+      setSelectedId(session.selectedId);
+      setTool(session.tool);
+      setSnapping(session.snapping);
+      setDrawDraft(session.drawDraft ?? null);
+      setNodeCount(session.drawDraft?.coordinates.length ?? 0);
+      setTableEditing(true);
+      const layer = layers.find((l) => l.id === session.layerId);
+      editingBaseline.current = layer
+        ? {
+            id: layer.id,
+            features: session.history?.baseline?.features ?? layer.features,
+            dirty: session.history?.baseline?.dirty ?? true,
+            fieldNames:
+              session.history?.baseline?.fieldNames ?? layer.fieldNames,
+          }
+        : undefined;
+      if (session.history)
+        histories.current.set(session.layerId, {
+          past: session.history.undo,
+          future: session.history.redo,
+          pastFields: session.history.undoFieldNames,
+          futureFields: session.history.redoFieldNames,
+        });
+      if (session.cellDraft && layer) {
+        const draft = session.cellDraft;
+        const original = layer.features.find((f) => f.id === draft.featureId)
+          ?.properties[draft.field];
+        setCellDraft({
+          ...draft,
+          layerId: layer.id,
+          original,
+          expanded: true,
+          error: "",
+        });
+        setTableOpen(true);
+        setModal("cell");
+      }
+      if (session.panelDraft) {
+        restoringPanel.current = session.panelDraft;
+        setSelectedId(session.panelDraft.featureId);
+        setModal(session.panelDraft.kind);
+        if (session.panelDraft.kind === "json")
+          setPropertyText(session.panelDraft.text);
+        else setWktText(session.panelDraft.text);
+      }
+      setStatus("已恢复编辑模式与草稿，请继续编辑并保存");
+    }
   }, [activeId]);
   useEffect(() => {
+    const panel = restoringPanel.current;
+    if (panel) {
+      if (selected?.id === panel.featureId) {
+        if (panel.kind === "json") setPropertyText(panel.text);
+        else setWktText(panel.text);
+        restoringPanel.current = undefined;
+      }
+      return;
+    }
+    if (modal === "json" || modal === "wkt") return;
     setPropertyText(JSON.stringify(selected?.properties ?? {}, null, 2));
     setWktText(selected?.geometry ? geometryToWkt(selected.geometry) : "");
   }, [selected]);
@@ -890,6 +1121,10 @@ export default function App() {
     });
   }
   async function acceptFiles(files: InputFile[]) {
+    if (editingLayerId) {
+      setError("请先保存并退出当前图层编辑，再打开文件");
+      return;
+    }
     if (cellDraft) {
       setError("请先应用或取消当前单元格编辑");
       return;
@@ -900,30 +1135,49 @@ export default function App() {
       openModal("import");
     } else await importSelected(files);
   }
-  function edit(features: GeoFeature[]) {
+  function edit(features: GeoFeature[], fieldNames = active?.fieldNames) {
     if (!active || busy || !editable) return;
     const history = histories.current.get(active.id) ?? {
       past: [],
       future: [],
     };
+    history.pastFields ??= history.past.map(() => active.fieldNames ?? []);
     history.past.push(active.features);
-    if (history.past.length > 30) history.past.shift();
+    (history.pastFields ??= []).push(active.fieldNames ?? []);
+    if (history.past.length > 30) {
+      history.past.shift();
+      history.pastFields.shift();
+    }
     history.future = [];
+    history.futureFields = [];
     histories.current.set(active.id, history);
     setLayers((old) =>
       old.map((l) =>
-        l.id === active.id ? { ...l, features, dirty: true } : l,
+        l.id === active.id ? { ...l, features, fieldNames, dirty: true } : l,
       ),
     );
     refreshHistory((n) => n + 1);
   }
   function onGeometry(feature: GeoFeature, insert: boolean) {
+    if (!active || !editable || busy) return false;
     const errors = validateGeometry(feature.geometry);
     if (errors.length) {
       setError(errors.join("；"));
-      return;
+      return false;
     }
-    if (!active) return;
+    if (
+      insert &&
+      active.geometryType &&
+      feature.geometry?.type !== active.geometryType
+    ) {
+      setError(`当前图层仅接受 ${active.geometryType} 几何`);
+      return false;
+    }
+    if (insert)
+      feature = {
+        ...feature,
+        properties: Object.fromEntries(fields.map((field) => [field, ""])),
+      };
     edit(
       insert
         ? [...active.features, feature]
@@ -932,27 +1186,47 @@ export default function App() {
           ),
     );
     setSelectedId(feature.id);
-    if (insert) setTool("select");
+    setError("");
+    setStatus(
+      insert
+        ? "已新增要素，继续绘制或保存编辑"
+        : "几何已更新，可撤销或保存编辑",
+    );
+    return true;
   }
   function history(direction: "undo" | "redo") {
-    if (!active || busy || !editable || cellDraft) return;
+    if (!active || busy || !editable || cellDraft || drawDraft || gestureActive)
+      return;
     const h = histories.current.get(active.id);
     if (!h) return;
+    h.pastFields ??= h.past.map(() => active.fieldNames ?? []);
+    h.futureFields ??= h.future.map(() => active.fieldNames ?? []);
     const from = direction === "undo" ? h.past : h.future;
     const to = direction === "undo" ? h.future : h.past;
     const next = from.pop();
+    const fromFields = direction === "undo" ? h.pastFields : h.futureFields;
+    const nextFields = fromFields?.pop() ?? active.fieldNames;
     if (next) {
+      if (selectedId && !next.some((f) => f.id === selectedId))
+        setSelectedId(undefined);
       to.push(active.features);
+      if (direction === "undo")
+        (h.futureFields ??= []).push(active.fieldNames ?? []);
+      else (h.pastFields ??= []).push(active.fieldNames ?? []);
       setLayers((old) =>
         old.map((l) =>
           l.id === active.id
             ? {
                 ...l,
                 features: next,
+                fieldNames: nextFields,
                 dirty:
                   editingBaseline.current?.id === active.id
                     ? editingBaseline.current.dirty ||
-                      next !== editingBaseline.current.features
+                      JSON.stringify(next) !==
+                        JSON.stringify(editingBaseline.current.features) ||
+                      JSON.stringify(nextFields ?? []) !==
+                        JSON.stringify(editingBaseline.current.fieldNames ?? [])
                     : true,
               }
             : l,
@@ -966,6 +1240,8 @@ export default function App() {
       !active ||
       busy ||
       cellDraft ||
+      drawDraft ||
+      gestureActive ||
       (fromMenu ? !canEdit : !editable || !tableEditing)
     )
       return;
@@ -1150,6 +1426,7 @@ export default function App() {
         ),
       );
       setStatus("属性已更新");
+      setPropertyText(JSON.stringify(value, null, 2));
       setError("");
     } catch (e) {
       setError(errorText(e));
@@ -1159,12 +1436,15 @@ export default function App() {
     if (!selected || !active || !editable || busy) return;
     try {
       const json = geometryFromWkt(wktText);
+      if (active.geometryType && json?.type !== active.geometryType)
+        throw new Error(`当前图层仅接受 ${active.geometryType} 几何`);
       edit(
         active.features.map((f) =>
           f.id === selected.id ? { ...f, geometry: json } : f,
         ),
       );
       setStatus("几何已更新");
+      setWktText(json ? geometryToWkt(json) : "");
       setError("");
     } catch (e) {
       setError(errorText(e));
@@ -1176,6 +1456,7 @@ export default function App() {
       id: active.id,
       features: active.features,
       dirty: active.dirty,
+      fieldNames: active.fieldNames,
     };
     setEditingLayerId(active.id);
     setTableEditing(true);
@@ -1188,13 +1469,25 @@ export default function App() {
     exportSaveLayerId.current = undefined;
     histories.current.delete(id);
     refreshHistory((n) => n + 1);
+    sessionRef.current = undefined;
+    setDrawDraft(null);
+    setNodeCount(0);
   }
-  async function save(asNew = false) {
+  async function save(asNew = false, stopEditing = false) {
+    if (
+      drawDraft ||
+      gestureActive ||
+      (editable && (modal === "json" || modal === "wkt"))
+    ) {
+      setError("请先完成或取消当前绘制、几何或属性草稿，再保存");
+      return;
+    }
     if (cellDraft) {
       setError("请先应用或取消当前单元格编辑");
       return;
     }
     if (!active) return;
+    saveStopsEditing.current = stopEditing;
     if (active.sourceKind === "postgis") {
       openModal("submit");
       return;
@@ -1213,8 +1506,49 @@ export default function App() {
     }
     await task(async () => {
       await saveDocument(active, asNew);
-      if (editing) finishEditing(active.id);
+      if (editing) {
+        if (stopEditing) finishEditing(active.id);
+        else markEditingSaved(active.id);
+      }
+      if (desktop) await writeSnapshot(currentLayers.current);
     });
+  }
+  function markEditingSaved(id: string) {
+    const layer = currentLayers.current.find((l) => l.id === id);
+    if (layer)
+      editingBaseline.current = {
+        id,
+        features: layer.features,
+        dirty: false,
+        fieldNames: layer.fieldNames,
+      };
+    histories.current.delete(id);
+    refreshHistory((n) => n + 1);
+    if (sessionRef.current)
+      sessionRef.current = { ...sessionRef.current, history: undefined };
+    setStatus("保存完成，可继续编辑");
+  }
+  function activateLayer(id: string) {
+    if (cellDraft || gestureActive) return false;
+    if (editingLayerId && id !== editingLayerId) {
+      setError("请先保存并退出当前图层编辑，再切换图层");
+      return false;
+    }
+    setActiveId(id);
+    return true;
+  }
+  function requestNewLayer() {
+    if (editingLayerId) {
+      setError("请先保存并退出当前图层编辑，再新建图层");
+      return;
+    }
+    openModal("new-layer");
+  }
+  function cancelDrawing() {
+    setCancelNonce((n) => n + 1);
+    setDrawDraft(null);
+    setNodeCount(0);
+    setTool("select");
   }
   async function saveDocument(
     doc: DocumentLayer,
@@ -1267,8 +1601,10 @@ export default function App() {
         await writeSnapshot(currentLayers.current);
         await configQueue.current;
         if (configError.current) throw new Error(configError.current);
-        if (desktop) await getCurrentWindow().destroy();
-        else {
+        if (desktop) {
+          setModal(null);
+          await getCurrentWindow().destroy();
+        } else {
           exitPending.current = false;
           setModal(null);
         }
@@ -1335,10 +1671,11 @@ export default function App() {
         currentLayers.current = currentLayers.current.map((layer) =>
           layer.id === active.id ? updated : layer,
         );
-        finishEditing(active.id);
-        setStatus("保存完成，已退出编辑");
+        if (saveStopsEditing.current) finishEditing(active.id);
+        else markEditingSaved(active.id);
       }
       setModal(null);
+      if (desktop) await writeSnapshot(currentLayers.current);
     });
   }
   async function connect() {
@@ -1473,11 +1810,19 @@ export default function App() {
     if (!active) return;
     await task(async () => {
       await commitLayer(active);
-      if (editing) finishEditing(active.id);
+      if (editing) {
+        if (saveStopsEditing.current) finishEditing(active.id);
+        else markEditingSaved(active.id);
+      }
       setModal(null);
+      if (desktop) await writeSnapshot(currentLayers.current);
     });
   }
   async function closeLayer(targetId = active?.id) {
+    if (targetId === editingLayerId) {
+      setError("请先保存并退出当前图层编辑，再移除图层");
+      return;
+    }
     if (cellDraft) {
       setError("请先应用或取消当前单元格编辑");
       return;
@@ -1496,9 +1841,10 @@ export default function App() {
     });
   }
   const fields = [
-    ...new Set(
-      active?.features.flatMap((f) => Object.keys(f.properties)) ?? [],
-    ),
+    ...new Set([
+      ...(active?.fieldNames ?? []),
+      ...(active?.features.flatMap((f) => Object.keys(f.properties)) ?? []),
+    ]),
   ];
   const filtered =
     active?.features.filter(
@@ -1669,7 +2015,63 @@ export default function App() {
       ? active?.features.find((feature) => feature.id === context.featureId)
       : undefined;
   const contextBlocked = busy || Boolean(cellDraft);
-  const sketching = tool !== "pan" && tool !== "select" && tool !== "modify";
+  const sketching =
+    tool === "Point" || tool === "LineString" || tool === "Polygon";
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (
+        (event.target as Element)?.closest(
+          "input, textarea, select, [contenteditable=true]",
+        ) ||
+        modal ||
+        busy ||
+        gestureActive
+      )
+        return;
+      if (event.ctrlKey || event.metaKey) {
+        if (event.key.toLowerCase() === "z") {
+          event.preventDefault();
+          if (drawDraft && !event.shiftKey) setUndoNodeNonce((n) => n + 1);
+          else history(event.shiftKey ? "redo" : "undo");
+        } else if (event.key.toLowerCase() === "y") {
+          event.preventDefault();
+          history("redo");
+        } else if (event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          void save();
+        }
+      } else if (
+        event.key === "Delete" &&
+        editable &&
+        selected &&
+        !drawDraft &&
+        !cellDraft
+      ) {
+        event.preventDefault();
+        openModal("delete");
+      } else if (
+        event.key === "Escape" &&
+        editable &&
+        sketching &&
+        !drawDraft
+      ) {
+        event.preventDefault();
+        setTool("select");
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [
+    active,
+    selected,
+    editable,
+    busy,
+    modal,
+    cellDraft,
+    drawDraft,
+    gestureActive,
+    tool,
+  ]);
   const contextItems: ContextMenuItem[] = [];
   function contextAction(
     id: string,
@@ -1738,7 +2140,7 @@ export default function App() {
             nodeCount <
               (tool === "Polygon" ? 3 : tool === "LineString" ? 2 : 1),
         );
-        contextAction("cancel-draw", "取消绘制", () => setTool("select"), busy);
+        contextAction("cancel-draw", "取消绘制", cancelDrawing, busy);
       } else {
         contextItems.push({ id: "navigation-separator", separator: true });
         contextAction("pan", "手形平移", () => setTool("pan"), contextBlocked);
@@ -1902,6 +2304,10 @@ export default function App() {
             hidden={modal === "settings"}
           >
             <HeaderMenu label="文件">
+              <button onClick={requestNewLayer} disabled={busy}>
+                <Plus />
+                新建矢量图层…
+              </button>
               <button onClick={openFiles} disabled={busy}>
                 <FolderOpen />
                 打开文件…
@@ -1948,6 +2354,10 @@ export default function App() {
               </button>
             </HeaderMenu>
             <HeaderMenu label="数据">
+              <button onClick={requestNewLayer} disabled={busy}>
+                <Plus />
+                新建矢量图层…
+              </button>
               <button onClick={openFiles} disabled={busy}>
                 <FolderOpen />
                 导入数据…
@@ -2121,19 +2531,19 @@ export default function App() {
                 .map((l) => l.id)}
               onSelect={(id) => {
                 if (cellDraft) return;
-                setActiveId(id);
+                if (!activateLayer(id)) return;
               }}
               onProperties={(id) => {
                 if (cellDraft || busy) return;
                 if (!layers.some((l) => l.id === id)) return;
-                setActiveId(id);
+                if (!activateLayer(id)) return;
                 openModal("layer");
               }}
               onStyle={(id) => {
                 if (cellDraft || busy) return;
                 const layer = layers.find((l) => l.id === id);
                 if (!layer) return;
-                setActiveId(id);
+                if (!activateLayer(id)) return;
                 setLayerStyleDraft({
                   layerId: id,
                   color: layer.color,
@@ -2166,7 +2576,7 @@ export default function App() {
               }}
               onFit={(id) => {
                 if (cellDraft) return;
-                setActiveId(id);
+                if (!activateLayer(id)) return;
                 setFitNonce((n) => n + 1);
               }}
               onToggleLayer={(id) =>
@@ -2248,7 +2658,7 @@ export default function App() {
               }
               onOpenTable={(id) => {
                 if (busy || cellDraft) return;
-                setActiveId(id);
+                if (!activateLayer(id)) return;
                 setTableOpen(true);
                 setTableMaximized(false);
               }}
@@ -2256,7 +2666,7 @@ export default function App() {
                 if (busy || cellDraft) return;
                 const layer = layers.find((item) => item.id === id);
                 if (!layer) return;
-                setActiveId(id);
+                if (!activateLayer(id)) return;
                 if (layer.dirty) openModal("close");
                 else void closeLayer(id);
               }}
@@ -2292,10 +2702,22 @@ export default function App() {
                             item.value !== "pan" &&
                             !editable) ||
                           Boolean(cellDraft) ||
-                          busy
+                          gestureActive ||
+                          busy ||
+                          (active?.geometryType !== undefined &&
+                            ["Point", "LineString", "Polygon"].includes(
+                              item.value,
+                            ) &&
+                            item.value !== active.geometryType)
                         }
                         active={tool === item.value}
-                        onClick={() => setTool(item.value)}
+                        onClick={() => {
+                          if (drawDraft && item.value !== tool) {
+                            setError("请先完成或取消当前绘制");
+                            return;
+                          }
+                          setTool(item.value);
+                        }}
                       >
                         <item.icon />
                       </IconButton>
@@ -2304,7 +2726,12 @@ export default function App() {
                     <IconButton
                       label="删除选中要素"
                       disabled={
-                        !selected || !editable || busy || Boolean(cellDraft)
+                        !selected ||
+                        !editable ||
+                        busy ||
+                        Boolean(cellDraft) ||
+                        Boolean(drawDraft) ||
+                        gestureActive
                       }
                       onClick={() => openModal("delete")}
                     >
@@ -2319,22 +2746,39 @@ export default function App() {
                     !canEdit ||
                     busy ||
                     Boolean(cellDraft) ||
-                    (editing && (!active?.dirty || nodeCount > 0))
+                    (editing && (Boolean(drawDraft) || gestureActive))
                   }
-                  onClick={() => (editing ? void save() : beginEditing())}
+                  onClick={() =>
+                    editing ? void save(false, true) : beginEditing()
+                  }
                 >
-                  {editing ? <Save /> : <Pencil />}
+                  {editing ? <Check /> : <Pencil />}
                 </IconButton>
                 <span className="map-edit-state">
-                  {editing ? "编辑中" : "浏览"}
+                  {editing ? "结束" : "浏览"}
                 </span>
                 {editing && (
                   <>
+                    <IconButton
+                      label="保存编辑"
+                      disabled={
+                        !active?.dirty ||
+                        busy ||
+                        Boolean(cellDraft) ||
+                        Boolean(drawDraft) ||
+                        gestureActive
+                      }
+                      onClick={() => void save()}
+                    >
+                      <Save />
+                    </IconButton>
                     <div className="tool-group">
                       <IconButton
                         label="撤销"
                         disabled={
                           !h?.past.length ||
+                          Boolean(drawDraft) ||
+                          gestureActive ||
                           !editable ||
                           busy ||
                           Boolean(cellDraft)
@@ -2347,6 +2791,8 @@ export default function App() {
                         label="重做"
                         disabled={
                           !h?.future.length ||
+                          Boolean(drawDraft) ||
+                          gestureActive ||
                           !editable ||
                           busy ||
                           Boolean(cellDraft)
@@ -2368,9 +2814,9 @@ export default function App() {
                       <div className="editing-tools">
                         <span>
                           {tools.find((item) => item.value === tool)?.label}
-                          {tool !== "modify" && <span>{nodeCount} 个节点</span>}
+                          {sketching && <span>{nodeCount} 个节点</span>}
                         </span>
-                        {tool !== "modify" && (
+                        {sketching && (
                           <IconButton
                             label="完成绘制"
                             disabled={
@@ -2388,9 +2834,16 @@ export default function App() {
                         )}
                         <IconButton
                           label={
-                            tool === "modify" ? "结束顶点编辑" : "取消绘制"
+                            sketching
+                              ? "取消绘制"
+                              : tool === "modify"
+                                ? "结束顶点编辑"
+                                : "结束移动"
                           }
-                          onClick={() => setTool("select")}
+                          onClick={() => {
+                            if (sketching) cancelDrawing();
+                            else setTool("select");
+                          }}
                         >
                           <X />
                         </IconButton>
@@ -2399,6 +2852,38 @@ export default function App() {
                   </>
                 )}
               </div>
+              {editing && (
+                <div
+                  className="map-edit-help"
+                  role="status"
+                  aria-label="矢量编辑提示"
+                >
+                  <strong>
+                    {active?.displayName ?? active?.name} · 编辑中
+                    {active?.dirty ? " · 未保存" : " · 已保存"}
+                  </strong>
+                  <span>
+                    {tool === "modify"
+                      ? "单击要素选择 · 拖动顶点修改 · 拖动边增加顶点 · Alt+单击顶点删除"
+                      : tool === "move"
+                        ? "直接拖动要素移动 · 拖动空白处平移地图"
+                        : sketching
+                          ? tool === "Point"
+                            ? "单击地图新增点 · Esc 返回选择"
+                            : "单击添加节点 · Enter 或双击完成 · Backspace 撤节点 · Esc 取消"
+                          : "选择要素后可移动、编辑顶点或修改属性 · 保存后退出编辑"}
+                  </span>
+                  {drawDraft && (
+                    <button
+                      className="quiet"
+                      disabled={busy}
+                      onClick={() => setUndoNodeNonce((n) => n + 1)}
+                    >
+                      撤回上一节点
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="map-coordinates" aria-label="经纬度坐标">
                 {position[0].toFixed(5)}, {position[1].toFixed(5)}
               </div>
@@ -2417,7 +2902,9 @@ export default function App() {
               <MapView
                 onContextMenu={(value) => {
                   const sketching =
-                    tool !== "pan" && tool !== "select" && tool !== "modify";
+                    tool === "Point" ||
+                    tool === "LineString" ||
+                    tool === "Polygon";
                   if (value.featureId && !busy && !cellDraft && !sketching)
                     selectFeature(value.featureId, true);
                   setContext({
@@ -2432,11 +2919,16 @@ export default function App() {
                     featureId: sketching ? undefined : value.featureId,
                   });
                 }}
-                disabled={busy || Boolean(cellDraft)}
+                disabled={busy || Boolean(cellDraft) || Boolean(modal)}
                 editable={editable}
                 theme={theme}
                 snapping={snapping}
                 finishNonce={finishNonce}
+                cancelNonce={cancelNonce}
+                undoNodeNonce={undoNodeNonce}
+                drawDraft={drawDraft}
+                onDrawDraft={setDrawDraft}
+                onGestureState={setGestureActive}
                 featureFitNonce={featureFitNonce}
                 onNodeCount={setNodeCount}
                 layers={mapLayers}
@@ -2584,6 +3076,8 @@ export default function App() {
                           label="撤销"
                           disabled={
                             !h?.past.length ||
+                            Boolean(drawDraft) ||
+                            gestureActive ||
                             !editable ||
                             busy ||
                             Boolean(cellDraft)
@@ -2596,6 +3090,8 @@ export default function App() {
                           label="重做"
                           disabled={
                             !h?.future.length ||
+                            Boolean(drawDraft) ||
+                            gestureActive ||
                             !editable ||
                             busy ||
                             Boolean(cellDraft)
@@ -3303,6 +3799,10 @@ export default function App() {
                 }
                 onClick={() => {
                   const name = newField.trim();
+                  if (name.length > 1024 || fields.length >= 10_000) {
+                    setError("字段名最多 1024 个字符，图层最多 10000 个字段");
+                    return;
+                  }
                   if (fields.includes(name)) {
                     setError("字段已存在，不能覆盖原值");
                     return;
@@ -3312,12 +3812,96 @@ export default function App() {
                       ...f,
                       properties: { ...f.properties, [name]: "" },
                     })),
+                    [...fields, name],
                   );
                   setNewField("");
                   openModal(null);
                 }}
               >
                 添加字段
+              </button>
+            </div>
+          </Modal>
+        )}
+        {modal === "new-layer" && (
+          <Modal title="新建矢量图层" onClose={() => openModal(null)}>
+            <div className="form-grid">
+              <label>
+                图层名称
+                <input
+                  autoFocus
+                  aria-label="矢量图层名称"
+                  maxLength={120}
+                  value={newLayerName}
+                  onChange={(e) => setNewLayerName(e.target.value)}
+                />
+              </label>
+              <label>
+                几何类型
+                <select
+                  aria-label="矢量几何类型"
+                  value={newGeometryType}
+                  onChange={(e) =>
+                    setNewGeometryType(e.target.value as typeof newGeometryType)
+                  }
+                >
+                  <option value="Point">点</option>
+                  <option value="LineString">线</option>
+                  <option value="Polygon">面</option>
+                </select>
+              </label>
+              <label>
+                属性字段（可选）
+                <input
+                  aria-label="矢量属性字段"
+                  placeholder="用逗号分隔字段名"
+                  value={newLayerFields}
+                  onChange={(e) => setNewLayerFields(e.target.value)}
+                />
+              </label>
+              <p className="form-note">
+                工作坐标为 WGS84。创建后进入编辑模式，保存为
+                GeoJSON；需要其他格式可导出。
+              </p>
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => openModal(null)}>取消</button>
+              <button
+                disabled={!newLayerName.trim() || busy}
+                onClick={() => {
+                  const fieldNames = newLayerFields
+                    .split(/[,，]/)
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                  if (new Set(fieldNames).size !== fieldNames.length) {
+                    setError("字段名不能重复");
+                    return;
+                  }
+                  if (
+                    fieldNames.length > 10_000 ||
+                    fieldNames.some((field) => field.length > 1024)
+                  ) {
+                    setError("字段名最多 1024 个字符，图层最多 10000 个字段");
+                    return;
+                  }
+                  const layer = makeLayer(
+                    newLayerName.trim().replace(/\.(geojson|json)$/i, "") +
+                      ".geojson",
+                    [],
+                    "geojson",
+                    { dirty: true, geometryType: newGeometryType, fieldNames },
+                  );
+                  restoringSession.current = {
+                    layerId: layer.id,
+                    tool: newGeometryType,
+                    snapping,
+                  };
+                  addLayers([layer]);
+                  setModal(null);
+                }}
+              >
+                <Plus />
+                创建并编辑
               </button>
             </div>
           </Modal>
@@ -3329,7 +3913,14 @@ export default function App() {
               <button onClick={() => openModal(null)}>取消</button>
               <button
                 className="danger"
-                disabled={!selected || !editable || busy || Boolean(cellDraft)}
+                disabled={
+                  !selected ||
+                  !editable ||
+                  busy ||
+                  Boolean(cellDraft) ||
+                  Boolean(drawDraft) ||
+                  gestureActive
+                }
                 onClick={() => {
                   edit(active!.features.filter((f) => f.id !== selectedId));
                   setSelectedId(undefined);
@@ -3449,14 +4040,13 @@ export default function App() {
         )}
         {modal === "quit" && (
           <Modal title="退出 zGIS" onClose={cancelExit}>
-            <p>当前图层仍处于编辑模式，是否退出？</p>
+            <p>当前图层仍处于编辑模式。</p>
             <p className="form-note">
-              已应用的图层操作会自动保存。未应用的属性、WKT
-              或绘制草稿不会保存；可取消退出后完成编辑。
+              退出并保留工作区会保存修改和未完成草稿，下次启动继续编辑。源文件尚未保存；需要保存源文件时，请返回编辑完成保存。
             </p>
             <div className="modal-actions">
               <button disabled={busy} onClick={cancelExit}>
-                取消
+                返回编辑
               </button>
               <button disabled={busy} onClick={() => void processExit()}>
                 {busy ? <LoaderCircle className="spin" /> : <Check />}

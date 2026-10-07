@@ -22,6 +22,8 @@ export interface DocumentLayer {
   // name 保留来源/保存文件名，displayName 仅用于工作区显示。
   displayName?: string;
   features: GeoFeature[];
+  geometryType?: "Point" | "LineString" | "Polygon";
+  fieldNames?: string[];
   visible: boolean;
   color: string;
   opacity?: number;

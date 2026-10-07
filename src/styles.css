@@ -1313,3 +1313,34 @@ button, summary, select { transition: background-color 120ms ease, border-color 
 .mcp-tool-item code { color: var(--muted); overflow-wrap: anywhere; font-size: var(--font-size-sm); }
 .mcp-tool-item p { margin: 0; padding: 0 12px 12px; color: var(--muted); font-size: var(--font-size-sm); line-height: 1.6; overflow-wrap: anywhere; }
 .mcp-tools-error { display: flex; align-items: center; gap: 10px; color: var(--danger); padding-top: 12px; }
+
+.map-edit-help {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  left: 64px;
+  max-width: calc(100% - 130px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  font-size: var(--font-size-sm);
+  pointer-events: none;
+}
+.map-edit-help strong {
+  font-weight: var(--font-weight-semibold);
+}
+.map-edit-help > span {
+  color: var(--muted);
+  line-height: 1.5;
+}
+.map-edit-help button {
+  pointer-events: auto;
+}
+.map-surface.move-mode {
+  cursor: move;
+}

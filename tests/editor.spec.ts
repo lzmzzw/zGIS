@@ -354,8 +354,8 @@ test("drawing completion, cancellation, vertices, deletion and undo", async ({
   const before = await page
     .getByRole("textbox", { name: "WKT 几何", exact: true })
     .inputValue();
-  expect(before).toMatch(/^POINT Z\s*\(.* 0\)$/);
-  const elevated = before.replace(/ 0\)$/, " 77.5)");
+  expect(before).toMatch(/^POINT\s*\(/);
+  const elevated = before.replace(/^POINT\s*\((.*)\)$/, "POINT Z($1 77.5)");
   await page
     .getByRole("textbox", { name: "WKT 几何", exact: true })
     .fill(elevated);
@@ -534,7 +534,10 @@ test("desktop SHP export preserves edits on cancellation, error and success", as
     (calls[2].args.features as { properties: { name: string } }[])[0].properties
       .name,
   ).toBe("新北京");
+  await expect(page.getByLabel("矢量编辑提示")).toBeVisible();
   await page.evaluate(() => window.__ZG_TEST__.requestClose());
+  await expect(page.getByRole("heading", { name: "退出 zGIS", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "退出并保留工作区", exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed))
     .toBe(true);

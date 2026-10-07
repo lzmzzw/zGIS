@@ -46,6 +46,7 @@ if (process.argv.includes("--recovery-only")) {
     .click();
   const closed = page.waitForEvent("close");
   await page.getByRole("button", { name: "退出", exact: true }).click();
+  await page.getByRole("button", { name: "退出并保留工作区", exact: true }).click();
   await closed;
   console.log(
     "PASS: automatic recovery after process restart and automatic work-copy persistence on exit",
@@ -170,7 +171,7 @@ const handMap = await page.getByLabel("地理数据地图").boundingBox();
 await page.mouse.click(handMap.x + handMap.width / 2, handMap.y + handMap.height / 2);
 assert.equal(await page.locator("tbody tr.selected").count(), 1);
 await page.getByRole("button", { name: "编辑", exact: true }).click();
-assert.equal(await page.getByRole("button", { name: "保存并退出编辑", exact: true }).isDisabled(), true);
+assert.equal(await page.getByRole("button", { name: "保存并退出编辑", exact: true }).isEnabled(), true);
 await setName("已原生保存");
 assert.equal(await page.getByRole("button", { name: "保存并退出编辑", exact: true }).isEnabled(), true);
 await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
@@ -223,6 +224,11 @@ assert.match(await page.getByRole("alert").innerText(), /外部修改/);
 await page.getByRole("button", { name: "关闭错误" }).click();
 await page.getByRole("button", { name: "撤销", exact: true }).click();
 await page.screenshot({ path: "output/desktop/installed-zgis.png" });
+const resolvedSave = nativeDialog("output/desktop/resolved-conflict.geojson");
+await fileAction("另存为…");
+await resolvedSave;
+await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
+await page.getByRole("button", { name: "编辑", exact: true }).waitFor();
 await fileAction("移除图层");
 if (await page.getByRole("button", { name: "放弃并移除", exact: true }).count()) await page.getByRole("button", { name: "放弃并移除", exact: true }).click();
 await page.waitForFunction(
@@ -231,7 +237,7 @@ await page.waitForFunction(
 const recovery = await page.evaluate(() =>
   window.__TAURI_INTERNALS__.invoke("load_recovery"),
 );
-assert.equal(recovery, "[]");
+assert.deepEqual(JSON.parse(recovery).layers, []);
 // Edit an owned SHP fixture and verify the native ZIP through an independent reader.
 const originalGroup = Object.fromEntries(
   ["shp", "shx", "dbf", "prj", "cpg"].map((ext) => [
@@ -261,7 +267,7 @@ await page
   .getByRole("button", { name: "关闭", exact: true })
   .first()
   .click();
-await fileAction("保存");
+await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
 await page.getByLabel("输出格式").selectOption("shp");
 const shpCancelling = nativeDialog("", true);
 await page.getByRole("button", { name: "导出", exact: true }).click();
@@ -309,7 +315,7 @@ console.log(
   "PASS: desktop WebView2, native open/save/export/cancel, source ID preservation, external-file conflict protection and immediate discarded-recovery clearing",
 );
 await page.locator(".app-header summary").filter({ hasText: /^数据$/ }).click();
-assert.deepEqual(await page.locator(".app-header .header-menu[open] button").allTextContents(), ["导入数据…", "PostGIS 数据源…"]);
+assert.deepEqual(await page.locator(".app-header .header-menu[open] button").allTextContents(), ["新建矢量图层…", "导入数据…", "PostGIS 数据源…"]);
 await page.keyboard.press("Escape");
 const editingOpening = nativeDialog("output/smoke/fixtures/editing.geojson");
 await fileAction("打开文件…");
@@ -328,8 +334,9 @@ await layerBasemapSmoke(page);
 await layerTreeStyleSmoke(page);
 const closed = page.waitForEvent("close");
 await fileAction("退出");
+await page.getByRole("button", { name: "退出并保留工作区", exact: true }).click();
 await closed;
 console.log(
-  "PASS: normal native exit automatically persists applied edits without a confirmation",
+  "PASS: native exit prompts for edit mode and persists applied edits and the session",
 );
 await browser.close();

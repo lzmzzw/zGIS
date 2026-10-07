@@ -69,7 +69,7 @@ test("coordinates replace scale/footer and hand pans without selecting features"
   await expect(page.locator("tbody tr.selected")).toHaveCount(1);
 });
 
-test("save stays disabled until editing, cancellation and failure keep session, success exits", async ({
+test("save exits a fresh session; cancellation and failure preserve edits", async ({
   page,
 }) => {
   await installDesktopMock(page);
@@ -80,7 +80,7 @@ test("save stays disabled until editing, cancellation and failure keep session, 
     name: "保存并退出编辑",
     exact: true,
   });
-  await expect(save).toBeDisabled();
+  await expect(save).toBeEnabled();
   await expect(
     page.getByRole("button", { name: "新增点", exact: true }),
   ).toBeVisible();
@@ -89,7 +89,7 @@ test("save stays disabled until editing, cancellation and failure keep session, 
   await page.keyboard.press("Enter");
   await expect(save).toBeEnabled();
   await page.getByRole("button", { name: "撤销", exact: true }).click();
-  await expect(save).toBeDisabled();
+  await expect(save).toBeEnabled();
   await page.getByRole("button", { name: "重做", exact: true }).click();
   await expect(save).toBeEnabled();
   await page.evaluate(() => {
@@ -122,5 +122,9 @@ test("save stays disabled until editing, cancellation and failure keep session, 
   await page.locator('td[data-field="name"]').dblclick();
   await expect(page.getByLabel("属性 name", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "编辑", exact: true }).click();
-  await expect(save).toBeDisabled();
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(
+    page.getByRole("button", { name: "编辑", exact: true }),
+  ).toBeVisible();
 });

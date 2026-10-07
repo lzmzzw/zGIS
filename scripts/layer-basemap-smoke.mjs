@@ -105,7 +105,7 @@ export async function layerBasemapSmoke(page, restoring = false) {
     await expect(page.getByRole("dialog", { name: "退出 zGIS" })).toBeVisible();
     await page
       .getByRole("dialog")
-      .getByRole("button", { name: "取消", exact: true })
+      .getByRole("button", { name: "返回编辑", exact: true })
       .click();
     await page.getByRole("button", { name: "选择", exact: true }).click();
     await page.getByRole("button", { name: "设置", exact: true }).click();
