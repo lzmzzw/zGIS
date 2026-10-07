@@ -36,7 +36,7 @@ for (const theme of ["dark", "light"])
     await page.getByRole("button", { name: "地图", exact: true }).click();
     await expect(page.getByRole("button", { name: "编辑 OpenStreetMap", exact: true })).toBeVisible();
     await page
-      .getByRole("button", { name: "空间分析 MCP", exact: true })
+      .getByRole("button", { name: "MCP", exact: true })
       .click();
     await page.screenshot({ path: `output/smoke/components-mcp-${theme}.png` });
   });

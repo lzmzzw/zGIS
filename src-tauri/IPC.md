@@ -1,5 +1,10 @@
 # zGIS 原生 IPC
 
+## 应用信息与项目链接
+
+- `check_app_update`：读取当前运行版本并查询固定公开 GitHub Releases API，返回 `{currentVersion,status,latestVersion?}`。status 为 current、available 或 unpublished；404 表示暂无可用公开发行版，HTTP 错误或无效版本返回错误，不当作已是最新。SemVer 比较包含预发布优先级、忽略构建元数据。请求 10 秒超时、256 KB 上限，不附带令牌，也不下载安装或重启。
+- `open_project_link {target}`：target 仅允许 github、license、releases，分别映射项目仓库、GNU GPL 3.0 和项目发布页；Windows 使用 ShellExecuteW 在系统浏览器打开，不接受任意 URL 或 shell。
+
 前端参数使用 camelCase。错误返回中文字符串；凭据只存活在当前进程内。
 
 | command | 参数 | 返回 |

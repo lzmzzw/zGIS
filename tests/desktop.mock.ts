@@ -14,6 +14,11 @@ export interface DesktopTestState {
   tileError: string;
   tileDelay: number;
   tileCompleted: number;
+  appVersion: string;
+  updateResult: { currentVersion: string; status: "current" | "available" | "unpublished"; latestVersion?: string };
+  updateError: string;
+  updateDelay: number;
+  linkError: string;
   mcpTools: { name: string; description: string; inputSchema: Record<string, unknown> }[];
   mcpToolsError: string;
   snapshot: string | null;
@@ -48,6 +53,11 @@ export async function installDesktopMock(
         tileError: "",
         tileDelay: 0,
         tileCompleted: 0,
+        appVersion: "0.1.0",
+        updateResult: { currentVersion: "0.1.0", status: "unpublished" },
+        updateError: "",
+        updateDelay: 0,
+        linkError: "",
         mcpTools: [],
         mcpToolsError: "",
         snapshot,
@@ -99,6 +109,19 @@ export async function installDesktopMock(
             args: Record<string, unknown> = {},
           ) => {
             state.calls.push({ command, args });
+            if (command === "plugin:app|version") return state.appVersion;
+            if (command === "open_project_link") {
+              if (state.linkError) throw Error(state.linkError);
+              return null;
+            }
+            if (command === "check_app_update") {
+              const result = { ...state.updateResult };
+              const failure = state.updateError;
+              if (state.updateDelay)
+                await new Promise<void>((resolve) => window.setTimeout(resolve, state.updateDelay));
+              if (failure) throw Error(failure);
+              return result;
+            }
             if (command === "fetch_basemap_tile") {
               const failure = state.tileError;
               const delay = state.tileDelay;

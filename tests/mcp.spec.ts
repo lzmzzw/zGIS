@@ -13,7 +13,7 @@ test("MCP controls, snapshot isolation and generated layers keep source intact",
   expect(source.features).toHaveLength(4);
   expect(JSON.stringify(snapshot)).not.toContain("connectionId");
   await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("button", { name: "空间分析 MCP", exact: true }).click();
+  await page.getByRole("button", { name: "MCP", exact: true }).click();
   await page.getByRole("button", { name: "启用 MCP", exact: true }).click();
   await expect(page.getByLabel("MCP 访问令牌")).toHaveAttribute("type", "password");
   await expect(page.getByRole("main", {name:"后台设置"})).toContainText("http://127.0.0.1:9999/mcp");

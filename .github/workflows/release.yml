@@ -1,0 +1,103 @@
+name: 发布
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已存在的版本标签，例如 v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    uses: ./.github/workflows/check.yml
+    with:
+      ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
+      tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      build-installer: false
+  release:
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.commit }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.10.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: 安装依赖与核对发布版本
+        id: version
+        run: |
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/check-version.mjs "$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tagCommit = git rev-list -n 1 "refs/tags/$env:RELEASE_TAG"
+          $headCommit = git rev-parse HEAD
+          if (-not $tagCommit -or $tagCommit -ne $headCommit) { throw '发布标签与构建提交不一致。' }
+      - name: 防止覆盖已发布版本
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            try {
+              const release = await github.rest.repos.getReleaseByTag({ owner, repo, tag: process.env.RELEASE_TAG });
+              if (!release.data.draft) throw new Error("该版本已发布，请使用新的版本标签。");
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+      - name: 构建并上传安装包
+        id: bundle
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target x86_64-pc-windows-msvc --bundles nsis -- --locked
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseCommitish: ${{ env.RELEASE_TAG }}
+          releaseName: zGIS ${{ env.RELEASE_TAG }}
+          releaseBody: Windows x64 安装包。校验文件见 SHA256SUMS.txt。
+          releaseDraft: true
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+      - name: 上传校验文件并完成发布
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACT_PATHS: ${{ steps.bundle.outputs.artifactPaths }}
+        run: |
+          $paths = @(@($env:ARTIFACT_PATHS | ConvertFrom-Json) | Where-Object { $_ -like '*-setup.exe' })
+          if ($paths.Count -ne 1) { throw '应生成一个 Windows x64 NSIS 安装包。' }
+          $asset = Get-Item -LiteralPath $paths[0]
+          $hash = (Get-FileHash -LiteralPath $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $PWD 'SHA256SUMS.txt'), "$hash  $($asset.Name)`n", [Text.UTF8Encoding]::new($false))
+          gh release upload "$env:RELEASE_TAG" SHA256SUMS.txt --repo "$env:GITHUB_REPOSITORY" --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh release edit "$env:RELEASE_TAG" --repo "$env:GITHUB_REPOSITORY" --draft=false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

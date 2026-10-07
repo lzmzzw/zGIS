@@ -19,6 +19,7 @@ mod vector_files;
 mod preferences;
 mod codex_agent;
 mod basemap_preview;
+mod app_info;
 
 #[tauri::command]
 async fn export_shapefile(
@@ -1086,6 +1087,8 @@ pub fn run() {
             preferences::load_preferences,
             preferences::save_preferences,
             basemap_preview::fetch_basemap_tile,
+            app_info::check_app_update,
+            app_info::open_project_link,
             connect_database,
             disconnect_database,
             discover_layers,

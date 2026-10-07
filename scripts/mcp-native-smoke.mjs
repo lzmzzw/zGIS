@@ -18,7 +18,7 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   await page.getByRole('button', {name:'导入',exact:true}).click();
   await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1);
   await page.getByRole('button', {name:'设置',exact:true}).click();
-  await page.getByRole('button', {name:'空间分析 MCP',exact:true}).click();
+  await page.getByRole('button', {name:'MCP',exact:true}).click();
   await page.getByRole('button', {name:'停止 MCP',exact:true}).waitFor();
   const status = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('gis_mcp_status'));
   let seq = 0;
@@ -80,7 +80,7 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
     return /zgis/.test(text) && /spatial_query|14\s*tools|tools:\s*14/i.test(text);
   }, {sessionId:agent.sessionId});
   await page.getByRole('button',{name:'设置',exact:true}).click();
-  await page.getByRole('button',{name:'空间分析 MCP',exact:true}).click();
+  await page.getByRole('button',{name:'MCP',exact:true}).click();
   await page.getByRole('button',{name:'停止 MCP',exact:true}).click();
   await waitIPC('agent_current', value => !value?.running);
   await page.getByRole('button',{name:'返回地图',exact:true}).click();

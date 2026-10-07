@@ -1,0 +1,101 @@
+name: 检查与构建
+
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
+      tag:
+        type: string
+        default: ""
+      build-installer:
+        type: boolean
+        default: true
+    outputs:
+      commit:
+        description: 已通过检查的源码提交
+        value: ${{ jobs.check.outputs.commit }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.10.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+      - name: 核对版本与标签
+        id: source
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          node scripts/check-version.mjs "$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "commit=$(git rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+      - name: 检查类型与未使用代码
+        run: pnpm exec tsc --noEmit --noUnusedLocals --noUnusedParameters
+      - name: 前端测试
+        run: pnpm test
+      - name: Rust 测试
+        shell: pwsh
+        run: |
+          . scripts/msvc-environment.ps1
+          cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: 构建前端
+        run: pnpm build
+      - name: 页面回归
+        shell: pwsh
+        run: |
+          pnpm exec playwright install msedge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $vite = Start-Process -FilePath node -ArgumentList @('node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '1421') -WindowStyle Hidden -PassThru -RedirectStandardOutput 'vite-ci.log' -RedirectStandardError 'vite-ci-error.log'
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              try { $null = Invoke-WebRequest 'http://127.0.0.1:1421'; $ready = $true; break } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ready) { throw 'Vite 测试服务未启动。' }
+            pnpm exec playwright test --workers=3
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally { Stop-Process -Id $vite.Id -ErrorAction SilentlyContinue }
+      - name: 构建 Windows x64 安装包
+        if: inputs.build-installer || inputs.tag == ''
+        uses: tauri-apps/tauri-action@v1
+        with:
+          args: --target x86_64-pc-windows-msvc --bundles nsis -- --locked
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+      - name: 保存构建产物
+        if: inputs.build-installer || inputs.tag == ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: zGIS-windows-x64
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
 
-const categories = ["外观", "地图", "空间分析 MCP", "关于"];
+const categories = ["外观", "地图", "MCP", "关于"];
 const longName = "测绘项目用于跨区连续显示的自定义地图服务名称".repeat(4);
 const settings = (page: Page) =>
   page.getByRole("main", { name: "后台设置", exact: true });

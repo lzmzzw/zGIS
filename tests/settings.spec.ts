@@ -50,14 +50,14 @@ test("left menu settings and collapsed table preserve edit draft", async ({page}
 });
 test("MCP stays active across settings categories and return to map", async ({page}) => {
  await installDesktopMock(page); await page.goto("/");
- await expect(page.locator(".header-actions").getByRole("button",{name:"空间分析 MCP",exact:true})).toHaveCount(0);
+ await expect(page.locator(".header-actions").getByRole("button",{name:"MCP",exact:true})).toHaveCount(0);
  await page.getByRole("button",{name:"设置",exact:true}).click();
- await page.getByRole("button",{name:"空间分析 MCP",exact:true}).click();
+ await page.getByRole("button",{name:"MCP",exact:true}).click();
  await page.getByRole("button",{name:"启用 MCP",exact:true}).click();
  await page.getByRole("button",{name:"地图",exact:true}).click();
  await page.getByRole("button",{name:"返回地图",exact:true}).click();
  await page.getByRole("button",{name:"设置",exact:true}).click();
- await page.getByRole("button",{name:"空间分析 MCP",exact:true}).click();
+ await page.getByRole("button",{name:"MCP",exact:true}).click();
  await expect(page.getByRole("button",{name:"停止 MCP",exact:true})).toBeVisible();
  await expect(page.getByLabel("MCP 访问令牌")).toHaveAttribute("type","password");
 });
@@ -69,7 +69,7 @@ test("settings fit desktop minimum and both themes", async ({page}) => {
   await page.getByLabel("主题",{exact:true}).selectOption(theme);
   for (const width of [1440,960]) {
    await page.setViewportSize({width,height:800});
-   await page.getByRole("button",{name:"空间分析 MCP",exact:true}).click();
+   await page.getByRole("button",{name:"MCP",exact:true}).click();
    expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
    await expect(page.getByRole("button",{name:"返回地图",exact:true})).toBeVisible();
    await expect(page.getByRole("button",{name:"启用 MCP",exact:true})).toBeVisible();

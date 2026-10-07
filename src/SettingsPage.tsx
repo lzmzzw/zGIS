@@ -13,6 +13,7 @@ import {
   Pencil,
 } from "lucide-react";
 import McpPanel from "./McpPanel";
+import AboutSettings from "./AboutSettings";
 import { desktop } from "./bridge";
 import { moveBasemap, validateXyzUrl, type BasemapService } from "./basemaps";
 import { createBasemapPreview } from "./basemap-preview";
@@ -32,7 +33,7 @@ interface Props {
 const categories = [
   { id: "appearance", label: "外观", icon: Palette },
   { id: "map", label: "地图", icon: Map },
-  { id: "mcp", label: "空间分析 MCP", icon: Plug },
+  { id: "mcp", label: "MCP", icon: Plug },
   { id: "about", label: "关于", icon: Info },
 ] as const;
 
@@ -299,10 +300,7 @@ export default function SettingsPage(props: Props) {
           {props.category === "map" && (
             <section className="basemap-settings" aria-label="底图服务管理">
               <header className="basemap-settings-heading">
-                <h3>
-                  底图服务{" "}
-                  <span className="count">{props.services.length}</span>
-                </h3>
+                <h3>底图服务</h3>
                 <button
                   ref={addButton}
                   onClick={(event) =>
@@ -432,27 +430,9 @@ export default function SettingsPage(props: Props) {
             (desktop ? (
               <McpPanel />
             ) : (
-              <p className="form-note">
-                空间分析 MCP 仅在 Windows 桌面版中提供。
-              </p>
+              <p className="form-note">MCP 仅在 Windows 桌面版中提供。</p>
             ))}
-          {props.category === "about" && (
-            <div className="settings-about">
-              <h3>
-                zGIS <span>0.1.0</span>
-              </h3>
-              <dl className="summary-list">
-                <dt>格式</dt>
-                <dd>GeoJSON / CSV / SHP</dd>
-                <dt>来源坐标系</dt>
-                <dd>EPSG:4326 / 4490 / 3857（默认 4326）</dd>
-                <dt>高程</dt>
-                <dd>保留 XYZ，新绘制要素默认 Z=0</dd>
-                <dt>工作副本</dt>
-                <dd>自动保存，不覆盖源文件</dd>
-              </dl>
-            </div>
-          )}
+          {props.category === "about" && <AboutSettings />}
         </section>
       </div>
     </main>

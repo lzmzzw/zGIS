@@ -28,13 +28,15 @@ export interface DbConnection {
   sslMode: string;
 }
 export const api = {
+  checkAppUpdate: () => invoke<AppUpdateStatus>("check_app_update"),
+  openProjectLink: (target: "github" | "license" | "releases") =>
+    invoke<void>("open_project_link", { target }),
   mcpTools: () => invoke<McpToolDefinition[]>("gis_mcp_tool_catalog"),
   mcpStatus: () => invoke<McpStatus>("gis_mcp_status"),
   mcpEnable: (enabled: boolean) => invoke<McpStatus>("gis_mcp_set_enabled", { enabled }),
   mcpSync: (layers: unknown[], activeLayerId?: string) =>
     invoke("gis_workspace_sync", { layers, activeLayerId: activeLayerId ?? null }),
   mcpResults: () => invoke<AnalysisLayer[]>("gis_results_drain"),
-  mcpAudit: () => invoke<unknown[]>("gis_mcp_audit"),
   open: () => invoke<InputFile[]>("open_files"),
   save: (
     content: string,
@@ -94,6 +96,11 @@ export const api = {
       newTable: true,
     }),
 };
+export interface AppUpdateStatus {
+  currentVersion: string;
+  status: "current" | "available" | "unpublished";
+  latestVersion?: string;
+}
 export interface McpStatus {
   enabled: boolean;
   endpoint?: string | null;

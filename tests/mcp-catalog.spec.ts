@@ -5,7 +5,7 @@ async function settings(page: Page) {
   await installDesktopMock(page);
   await page.goto("/");
   await page.getByRole("button", { name: "设置", exact: true }).click();
-  await page.getByRole("button", { name: "空间分析 MCP", exact: true }).click();
+  await page.getByRole("button", { name: "MCP", exact: true }).click();
 }
 
 test("catalog loads while stopped, groups every tool including unknown additions and retains collapse", async ({ page }) => {

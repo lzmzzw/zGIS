@@ -9,6 +9,7 @@ import { layerTreeStyleSmoke } from "./layer-tree-style-smoke.mjs";
 import { mcpNativeSmoke } from "./mcp-native-smoke.mjs";
 import { mcpConnectionSmoke } from "./mcp-connection-smoke.mjs";
 import { contextMenuSmoke } from "./context-menu-smoke.mjs";
+import { settingsInfoSmoke } from "./settings-info-smoke.mjs";
 const appPid = Number(process.argv[2]);
 if (!appPid) throw new Error("Pass the isolated zGIS test process ID");
 mkdirSync("output/desktop", { recursive: true });
@@ -107,7 +108,7 @@ async function editCell(field) {
     .dblclick();
 }
 await page.getByRole("button", { name: "设置", exact: true }).click();
-await page.getByRole("button", { name: "空间分析 MCP", exact: true }).click();
+await page.getByRole("button", { name: "MCP", exact: true }).click();
 const nativeTools = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("gis_mcp_tool_catalog"));
 assert.equal(nativeTools.length, 14);
 await page.getByRole("button", { name: /工具详情/ }).click();
@@ -127,6 +128,7 @@ await page.getByRole("button", { name: "停止 MCP", exact: true }).waitFor();
 await page.screenshot({ path: "output/desktop/mcp-tool-catalog.png" });
 await page.getByRole("button", { name: "返回地图", exact: true }).click();
 console.log("PASS: native MCP catalog lists every registered tool while service is stopped");
+await settingsInfoSmoke(page);
 const opening = nativeDialog("output/smoke/fixtures/native.geojson");
 await fileAction("打开文件…");
 await opening;

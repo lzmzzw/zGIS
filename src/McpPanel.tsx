@@ -5,14 +5,12 @@ import McpToolCatalog from "./McpToolCatalog";
 
 export default function McpPanel() {
   const [status, setStatus] = useState<McpStatus>({ enabled: false });
-  const [audit, setAudit] = useState<unknown[]>([]);
   const [showToken, setShowToken] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function refresh() {
     const current = await api.mcpStatus();
     setStatus(current);
-    setAudit((await api.mcpAudit()) ?? []);
   }
   useEffect(() => {
     void refresh().catch((e) => setError(String(e)));
@@ -103,19 +101,6 @@ export default function McpPanel() {
         </>
       )}
       <McpToolCatalog />
-      <details className="settings-disclosure">
-        <summary>
-          <ChevronRight />
-          最近工具调用 <span>{audit.length}</span>
-        </summary>
-        <div className="settings-disclosure-content">
-          {audit.length ? (
-            <pre className="mcp-audit">{JSON.stringify(audit, null, 2)}</pre>
-          ) : (
-            <p className="form-note">尚无工具调用</p>
-          )}
-        </div>
-      </details>
       {error && (
         <p className="warning" role="alert">
           {error}

@@ -1076,7 +1076,6 @@ select[aria-invalid="true"] {
 .agent-dock { position: absolute; right: 0; top: 52px; bottom: 30px; width: min(480px, 65vw); z-index: 25; background: var(--panel); border-left: 1px solid var(--border); box-shadow: -8px 0 24px #0003; }
 .mcp-panel { display: grid; gap: 16px; max-width: 820px; }
 .mcp-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
-.mcp-audit { max-height: 180px; overflow: auto; font-size: var(--font-size-xs); }
 
 .settings-page { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--panel); }
 .settings-page-heading { display: flex; align-items: center; gap: 16px; padding: 14px 28px; border-bottom: 1px solid var(--border); }
@@ -1087,13 +1086,10 @@ select[aria-invalid="true"] {
 .settings-page-nav button { justify-content: flex-start; height: 38px; padding: 0 12px; }
 .settings-page-content { min-width: 0; overflow: auto; padding: 24px 32px 32px; }
 .settings-page-content > header { margin-bottom: 24px; }
-.settings-fields, .settings-about { max-width: 820px; }
+.settings-fields { max-width: 820px; }
 .settings-fields > label { display: grid; grid-template-columns: minmax(180px,1fr) minmax(200px,300px); align-items: center; gap: 24px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .settings-fields .checkbox-label { justify-content: flex-start; }
 .settings-fields > .warning { margin-top: 16px; }
-.settings-about h3 { font-size: var(--font-size-brand); margin: 0; }
-.settings-about h3 span { font-size: var(--font-size-base); color: var(--muted); font-weight: var(--font-weight-normal); }
-.settings-about .summary-list { margin-top: 24px; }
 .settings-page .summary-list { display: grid; grid-template-columns: 110px minmax(0,1fr); gap: 12px 20px; }
 .settings-page .summary-list dt { color: var(--muted); }
 .settings-page .summary-list dd { margin: 0; overflow-wrap: anywhere; }
