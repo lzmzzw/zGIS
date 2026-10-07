@@ -51,5 +51,7 @@ MCP 工具及计算边界见 [空间分析说明](../docs/spatial-mcp.md)。zGIS
 
 - `save_preferences {content}`：保存 JSON 字符串，Windows 使用当前用户 DPAPI 加密，最大 1 MB。
 - `load_preferences`：返回解密后的 JSON 字符串或 null；读取失败不覆盖旧配置。
-- 当前配置为 `{version:2, services, selected, visible}`。服务包含 `id/name/type/preview/url/attribution/enabled`，`enabled` 缺省为 true；可选 `maxZoom` 为 0–42 的整数，预置 OpenStreetMap 为 19。`url` 为包含 `{z}`、`{x}`、`{y}` 的 HTTP(S) 地址。
+- 当前配置为 `{version:2, services, selected, visible}`。服务包含 `id/name/type/preview/url/attribution/enabled`，可选 `previewImage` 为不超过 128 KB 的 PNG data URL，`enabled` 缺省为 true；可选 `maxZoom` 为 0–42 的整数，预置 OpenStreetMap 为 19。`url` 为包含 `{z}`、`{x}`、`{y}` 的 HTTP(S) 地址。
 - 前端兼容旧配置：补齐 OSM 地址，移除无自定义地址的旧天地图预置，保留自定义服务和顺序；不再保存全局注记或 tk。空服务列表合法，隐藏服务不参与当前选择；没有可显示服务时 `selected` 为 `none`。服务内容校验失败时保留旧文件并显示错误。
+
+- `fetch_basemap_tile {url:string}`：只读下载单张 HTTP(S) 瓦片并返回图片 data URL，仅供设置保存时合成武汉预览，不暴露为 MCP 工具。拒绝 URL 用户名/密码，最多 3 次重定向、8 秒请求超时、2 MB 响应上限；校验图片类型，错误不含服务地址或密钥。前端并行合成 288×144 PNG，整个预览最多等待 8 秒。保存配置超过 1 MB 时仅裁减可重新获取的预览缓存，优先保留当前底图预览，不删除服务信息。取消后忽略晚到结果；失败保留同地址旧预览，地址变化时移除旧缓存，均允许保存服务。

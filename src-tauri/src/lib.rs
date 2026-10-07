@@ -18,6 +18,7 @@ mod mcp_credentials;
 mod vector_files;
 mod preferences;
 mod codex_agent;
+mod basemap_preview;
 
 #[tauri::command]
 async fn export_shapefile(
@@ -1084,6 +1085,7 @@ pub fn run() {
             load_recovery,
             preferences::load_preferences,
             preferences::save_preferences,
+            basemap_preview::fetch_basemap_tile,
             connect_database,
             disconnect_database,
             discover_layers,

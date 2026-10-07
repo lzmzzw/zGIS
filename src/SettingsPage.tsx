@@ -15,6 +15,7 @@ import {
 import McpPanel from "./McpPanel";
 import { desktop } from "./bridge";
 import { moveBasemap, validateXyzUrl, type BasemapService } from "./basemaps";
+import { createBasemapPreview } from "./basemap-preview";
 import "./basemap-settings.css";
 
 export type SettingsCategory = "appearance" | "map" | "mcp" | "about";
@@ -39,11 +40,13 @@ function BasemapServiceDialog({
   service,
   onSave,
   onClose,
+  onPreviewError,
   returnFocus,
 }: {
   service?: BasemapService;
   onSave: (service: BasemapService) => void;
   onClose: () => void;
+  onPreviewError: (message: string) => void;
   returnFocus: HTMLButtonElement | null;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -53,15 +56,22 @@ function BasemapServiceDialog({
   const [attribution, setAttribution] = useState(service?.attribution ?? "");
   const [enabled, setEnabled] = useState(service?.enabled !== false);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const request = useRef<AbortController | null>(null);
   useEffect(() => {
     const element = dialog.current;
     element?.showModal();
     nameInput.current?.focus();
     return () => {
+      request.current?.abort();
       element?.close();
       if (returnFocus?.isConnected) returnFocus.focus();
     };
   }, [returnFocus]);
+  const cancel = () => {
+    request.current?.abort();
+    onClose();
+  };
   return (
     <dialog
       ref={dialog}
@@ -69,7 +79,7 @@ function BasemapServiceDialog({
       aria-label={service ? "编辑底图" : "添加底图"}
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        cancel();
       }}
     >
       <header>
@@ -79,15 +89,16 @@ function BasemapServiceDialog({
           className="icon-button"
           aria-label="关闭"
           title="关闭"
-          onClick={onClose}
+          onClick={cancel}
         >
           <X />
         </button>
       </header>
       <form
         className="basemap-add-form"
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
+          if (request.current) return;
           if (!name.trim()) {
             setError("请输入底图名称。");
             return;
@@ -96,6 +107,27 @@ function BasemapServiceDialog({
             setError("XYZ 地址须为 HTTP(S)，并包含 {z}、{x}、{y}。");
             return;
           }
+          const controller = new AbortController();
+          request.current = controller;
+          setError("");
+          setSaving(true);
+          let previewImage =
+            service?.url?.trim() === url.trim()
+              ? service?.previewImage
+              : undefined;
+          let previewError = "";
+          try {
+            previewImage = await createBasemapPreview(
+              url.trim(),
+              service?.maxZoom,
+              controller.signal,
+            );
+          } catch {
+            if (controller.signal.aborted) return;
+            previewError = `${name.trim()} 已保存，预览暂不可用。`;
+          }
+          if (controller.signal.aborted) return;
+          onPreviewError(previewError);
           onSave({
             ...(service ?? {
               id: `xyz-${crypto.randomUUID()}`,
@@ -106,6 +138,7 @@ function BasemapServiceDialog({
             url: url.trim(),
             attribution: attribution.trim(),
             enabled,
+            previewImage,
           });
           onClose();
         }}
@@ -116,6 +149,7 @@ function BasemapServiceDialog({
             aria-label={service ? "底图名称" : "新底图名称"}
             ref={nameInput}
             autoFocus
+            disabled={saving}
             maxLength={100}
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -126,6 +160,7 @@ function BasemapServiceDialog({
           <input
             aria-label="XYZ 瓦片地址"
             type="text"
+            disabled={saving}
             placeholder="https://example.com/{z}/{x}/{y}.png"
             value={url}
             onChange={(event) => setUrl(event.target.value)}
@@ -136,6 +171,7 @@ function BasemapServiceDialog({
           <input
             aria-label="底图来源说明"
             maxLength={300}
+            disabled={saving}
             value={attribution}
             onChange={(event) => setAttribution(event.target.value)}
           />
@@ -144,6 +180,7 @@ function BasemapServiceDialog({
           <input
             aria-label="在地图中显示"
             type="checkbox"
+            disabled={saving}
             checked={enabled}
             onChange={(event) => setEnabled(event.target.checked)}
           />
@@ -155,10 +192,12 @@ function BasemapServiceDialog({
           </p>
         )}
         <div className="modal-actions">
-          <button type="button" onClick={onClose}>
+          <button type="button" onClick={cancel}>
             取消
           </button>
-          <button type="submit">{service ? "保存" : "添加"}</button>
+          <button type="submit" disabled={saving}>
+            {saving ? "获取预览…" : service ? "保存" : "添加"}
+          </button>
         </div>
       </form>
     </dialog>
@@ -166,6 +205,7 @@ function BasemapServiceDialog({
 }
 
 export default function SettingsPage(props: Props) {
+  const [previewError, setPreviewError] = useState("");
   const [serviceDialog, setServiceDialog] = useState<{
     service?: BasemapService;
     returnFocus: HTMLButtonElement | null;
@@ -344,6 +384,11 @@ export default function SettingsPage(props: Props) {
               {props.services.length === 0 && (
                 <p className="basemap-empty">暂无底图服务</p>
               )}
+              {previewError && (
+                <p className="warning basemap-preview-warning" role="status">
+                  {previewError}
+                </p>
+              )}
               {removed && (
                 <p className="basemap-undo" role="status">
                   已移除 {removed.service.name}
@@ -378,6 +423,7 @@ export default function SettingsPage(props: Props) {
                     )
                   }
                   onClose={() => setServiceDialog(null)}
+                  onPreviewError={setPreviewError}
                 />
               )}
             </section>

@@ -108,3 +108,7 @@
   padding: 24px 0;
   color: var(--muted);
 }
+
+.basemap-preview-warning {
+  margin: 12px 0 0;
+}

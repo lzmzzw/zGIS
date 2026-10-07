@@ -2,12 +2,47 @@ import { useEffect, useRef, useState } from "react";
 import { Map as MapIcon, Check, X } from "lucide-react";
 import "./basemap-control.css";
 import { availableBasemaps, type BasemapService } from "./basemaps";
+import { previewTileUrl } from "./basemap-preview";
 interface Props {
   services: BasemapService[];
   value: string;
   visible: boolean;
   onChange(value: string): void;
   onVisible(visible: boolean): void;
+}
+function BasemapPreview({
+  service,
+  selected,
+}: {
+  service: BasemapService;
+  selected: boolean;
+}) {
+  const [failedSource, setFailedSource] = useState<string>();
+  const tileUrl = previewTileUrl(service);
+  const source = service.previewImage?.startsWith("data:image/png;base64,")
+    ? service.previewImage
+    : tileUrl && /^https?:\/\//i.test(tileUrl)
+      ? tileUrl
+      : undefined;
+  return (
+    <span className="basemap-preview" aria-hidden="true">
+      {source && failedSource !== source ? (
+        <img
+          src={source}
+          alt=""
+          aria-hidden="true"
+          onError={() => setFailedSource(source)}
+        />
+      ) : (
+        <MapIcon className="basemap-preview-placeholder" />
+      )}
+      {selected && (
+        <span className="basemap-check">
+          <Check />
+        </span>
+      )}
+    </span>
+  );
 }
 export default function BasemapControl(props: Props) {
   const [open, setOpen] = useState(false);
@@ -80,40 +115,11 @@ export default function BasemapControl(props: Props) {
                   checked={props.value === service.id}
                   onChange={() => props.onChange(service.id)}
                 />
-                <span
-                  className={`basemap-preview ${service.preview}`}
-                  aria-hidden="true"
-                >
-                  <svg
-                    viewBox="0 0 160 82"
-                    preserveAspectRatio="xMidYMid slice"
-                  >
-                    <path className="land" d="M0 0h160v82H0z" />
-                    <path
-                      className="park"
-                      d="m4 7 49-7 25 27-22 22L6 33ZM115 44l42-11 3 49h-59z"
-                    />
-                    <path
-                      className="water"
-                      d="M91-8c-25 27 8 29-9 50S51 72 73 94l18-5C61 70 119 49 101 32S85 19 108-3z"
-                    />
-                    <path
-                      className="road"
-                      d="M-5 56 165 20M25-8l89 98M-10 25l53 13 104 39M132-10 7 93"
-                    />
-                    <path
-                      className="street-line"
-                      d="m10 0 23 82m20-90 41 97m34-89 27 81M0 13l160 40M0 75 160 43"
-                    />
-                  </svg>
-                  {props.value === service.id && (
-                    <span className="basemap-check">
-                      <Check />
-                    </span>
-                  )}
-                </span>
+                <BasemapPreview
+                  service={service}
+                  selected={props.value === service.id}
+                />
                 <strong>{service.name}</strong>
-                <small>{service.type}</small>
               </label>
             ))}
           </div>

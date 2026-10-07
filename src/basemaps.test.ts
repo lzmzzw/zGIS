@@ -5,9 +5,49 @@ import {
   selectBasemap,
   moveBasemap,
   validateXyzUrl,
+  serializeBasemapPreferences,
 } from "./basemaps";
 
 describe("basemap services", () => {
+  it("keeps service metadata persistable when preview caches fill the configuration budget", () => {
+    const services = Array.from({ length: 12 }, (_, index) => ({
+      ...defaultBasemaps[0],
+      id: `tile-${index}`,
+      name: "武汉底图".repeat(20),
+      previewImage: `data:image/png;base64,${"A".repeat(128 * 1024 - 24)}`,
+    }));
+    const content = serializeBasemapPreferences(services, "tile-0", false);
+    expect(new TextEncoder().encode(content).byteLength).toBeLessThanOrEqual(
+      1024 * 1024,
+    );
+    const restored = loadBasemapPreferences(content);
+    expect(restored.services).toHaveLength(12);
+    expect(restored.services[0].previewImage).toBe(services[0].previewImage);
+    expect(
+      restored.services.map(({ previewImage: _, ...metadata }) => metadata),
+    ).toEqual(services.map(({ previewImage: _, ...metadata }) => metadata));
+    expect(restored.visible).toBe(false);
+    expect(services.every((service) => service.previewImage)).toBe(true);
+  });
+  it("restores bounded PNG previews and drops invalid caches without losing services", () => {
+    const previewImage = "data:image/png;base64,aGVsbG8=";
+    const load = (image: unknown) =>
+      loadBasemapPreferences(
+        JSON.stringify({
+          services: [{ ...defaultBasemaps[0], previewImage: image }],
+        }),
+      ).services[0];
+    expect(load(previewImage).previewImage).toBe(previewImage);
+    for (const image of [
+      null,
+      "https://example.com/old.png",
+      "data:image/svg+xml;base64,aGVsbG8=",
+      `${previewImage}${"a".repeat(128 * 1024)}`,
+    ]) {
+      expect(load(image).id).toBe("osm");
+      expect(load(image).previewImage).toBeUndefined();
+    }
+  });
   it("accepts XYZ templates and rejects incomplete, unsafe and credential URLs", () => {
     expect(
       validateXyzUrl("https://tiles.example.com/{z}/{x}/{y}.png?token=abc"),

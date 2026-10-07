@@ -61,6 +61,7 @@ export const api = {
     ),
   preferences: () => invoke<string | null>("load_preferences"),
   savePreferences: (content: string) => invoke("save_preferences", { content }),
+  fetchBasemapTile: (url: string) => invoke<string>("fetch_basemap_tile", { url }),
   recover: () => invoke<string | null>("load_recovery"),
   backup: (content: string) => invoke("save_recovery", { content }),
   connect: (config: DbConnection) =>

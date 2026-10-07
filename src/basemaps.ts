@@ -7,6 +7,7 @@ export interface BasemapService {
   attribution?: string;
   enabled?: boolean;
   maxZoom?: number;
+  previewImage?: string;
 }
 
 export const defaultBasemaps: BasemapService[] = [
@@ -97,6 +98,11 @@ export function loadBasemapPreferences(raw: string): {
         : "street",
       attribution: typeof item.attribution === "string" ? item.attribution : "",
       enabled: item.enabled !== false,
+      ...(typeof item.previewImage === "string" &&
+      item.previewImage.length <= 128 * 1024 &&
+      /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(item.previewImage)
+        ? { previewImage: item.previewImage }
+        : {}),
       ...(item.maxZoom !== undefined
         ? { maxZoom: item.maxZoom }
         : item.id === "osm" && url === defaultBasemaps[0].url
@@ -122,4 +128,27 @@ export function moveBasemap(
   const result = [...services];
   [result[index], result[target]] = [result[target], result[index]];
   return result;
+}
+
+export function serializeBasemapPreferences(
+  services: BasemapService[],
+  selected: string,
+  visible: boolean,
+): string {
+  const cached = services.map((service) => ({ ...service }));
+  const serialize = () =>
+    JSON.stringify({ services: cached, selected, visible, version: 2 });
+  let content = serialize();
+  // 图片可重新获取；配置容量不足时优先保留服务信息和当前底图的预览。
+  const discardOrder = [
+    ...cached.filter((service) => service.id !== selected),
+    ...cached.filter((service) => service.id === selected),
+  ];
+  for (const service of discardOrder) {
+    if (new TextEncoder().encode(content).byteLength <= 1024 * 1024) break;
+    if (!service.previewImage) continue;
+    delete service.previewImage;
+    content = serialize();
+  }
+  return content;
 }

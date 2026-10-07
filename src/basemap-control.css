@@ -90,60 +90,24 @@
   font-weight: var(--font-weight-medium);
   margin: 0 4px;
 }
-.basemap-card small {
-  font-size: var(--font-size-xs);
-  color: var(--muted);
-  margin: 0 4px;
-}
 .basemap-preview {
   height: 72px;
   overflow: hidden;
   border-radius: 3px;
   position: relative;
-  --land: #e2dfd4;
-  --park: #bbcbb4;
-  --water: #93bbc9;
-  --road: #faf8ea;
-  --street-line: #acb1a2;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  color: var(--muted);
 }
-.basemap-preview svg {
+.basemap-preview > img {
   width: 100%;
   height: 100%;
+  object-fit: cover;
   display: block;
 }
-.basemap-preview .land {
-  fill: var(--land);
-}
-.basemap-preview .park {
-  fill: var(--park);
-}
-.basemap-preview .water {
-  fill: var(--water);
-}
-.basemap-preview .road {
-  stroke: var(--road);
-  stroke-width: 4;
-  fill: none;
-}
-.basemap-preview .street-line {
-  stroke: var(--street-line);
-  stroke-width: 1;
-  fill: none;
-  opacity: 0.5;
-}
-.basemap-preview.vector {
-  --land: #1c324a;
-  --park: #233e53;
-  --water: #12618b;
-  --road: #66839a;
-  --street-line: #46617c;
-}
-.basemap-preview.imagery {
-  --land: #455740;
-  --park: #293f32;
-  --water: #1d394b;
-  --road: #a69f81;
-  --street-line: #7d8763;
+.basemap-preview-placeholder {
+  --icon-size: 28px;
 }
 .basemap-check {
   --icon-size: var(--icon-size-badge);

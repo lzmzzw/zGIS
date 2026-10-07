@@ -11,6 +11,9 @@ export interface DesktopTestState {
   backupError: string;
   saveError: string;
   saveCancelled: boolean;
+  tileError: string;
+  tileDelay: number;
+  tileCompleted: number;
   mcpTools: { name: string; description: string; inputSchema: Record<string, unknown> }[];
   mcpToolsError: string;
   snapshot: string | null;
@@ -42,6 +45,9 @@ export async function installDesktopMock(
         backupError: "",
         saveError: "",
         saveCancelled: false,
+        tileError: "",
+        tileDelay: 0,
+        tileCompleted: 0,
         mcpTools: [],
         mcpToolsError: "",
         snapshot,
@@ -93,6 +99,23 @@ export async function installDesktopMock(
             args: Record<string, unknown> = {},
           ) => {
             state.calls.push({ command, args });
+            if (command === "fetch_basemap_tile") {
+              const failure = state.tileError;
+              const delay = state.tileDelay;
+              if (delay > 0)
+                await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
+              state.tileCompleted++;
+              if (failure) throw Error(failure);
+              const canvas = document.createElement("canvas");
+              canvas.width = 256;
+              canvas.height = 256;
+              const context = canvas.getContext("2d")!;
+              context.fillStyle = "#5479b6";
+              context.fillRect(0, 0, 256, 256);
+              context.fillStyle = "#9fc5a8";
+              context.fillRect(0, 0, 64, 256);
+              return canvas.toDataURL("image/png");
+            }
             if (command === "gis_mcp_tool_catalog") {
               if (state.mcpToolsError) throw Error(state.mcpToolsError);
               return state.mcpTools;

@@ -58,7 +58,7 @@ import {
   updateTreeGroup,
   type LayerTreeNode,
 } from "./layerTree";
-import { defaultBasemaps, loadBasemapPreferences, selectBasemap, type BasemapService } from "./basemaps";
+import { defaultBasemaps, loadBasemapPreferences, serializeBasemapPreferences, selectBasemap, type BasemapService } from "./basemaps";
 import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
 import MapView, { type Tool } from "./MapView";
@@ -672,12 +672,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!configReady || configBlocked.current) return;
-    const content = JSON.stringify({
-      services,
-      selected: basemap,
-      visible: basemapVisible,
-      version: 2,
-    });
+    const content = serializeBasemapPreferences(services, basemap, basemapVisible);
     configQueue.current = configQueue.current
       .catch(() => {})
       .then(async () => {
