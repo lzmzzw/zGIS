@@ -90,13 +90,14 @@ export default function McpToolCatalog() {
                 </h3>
                 <div className="mcp-tool-list">
                   {items.map((tool) => (
-                    <div key={tool.name} className="mcp-tool-item">
-                      <div>
+                    <details key={tool.name} className="mcp-tool-item">
+                      <summary>
                         <strong>{labels[tool.name]?.[1] ?? tool.name}</strong>
                         <code>{tool.name}</code>
-                      </div>
+                        <ChevronDown />
+                      </summary>
                       <p>{tool.description}</p>
-                    </div>
+                    </details>
                   ))}
                 </div>
               </section>

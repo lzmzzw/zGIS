@@ -24,9 +24,9 @@ for (const theme of ["dark", "light"]) {
       "font-size",
       "17px",
     );
-    await expect(page.locator(".settings-fields small")).toHaveCSS(
+    await expect(page.locator(".settings-fields > label > span")).toHaveCSS(
       "font-size",
-      "12px",
+      "13px",
     );
     await iconSize(
       page

@@ -8,6 +8,8 @@ import {
   Map,
   Plug,
   Info,
+  Plus,
+  X,
 } from "lucide-react";
 import McpPanel from "./McpPanel";
 import { desktop } from "./bridge";
@@ -32,31 +34,130 @@ interface Props {
   onClose: () => void;
 }
 const categories = [
-  {
-    id: "appearance",
-    label: "外观",
-    icon: Palette,
-    description: "界面主题",
-  },
-  { id: "map", label: "地图", icon: Map, description: "底图、注记与服务配置" },
-  {
-    id: "mcp",
-    label: "空间分析 MCP",
-    icon: Plug,
-    description: "本机服务与外部文件访问",
-  },
-  {
-    id: "about",
-    label: "关于",
-    icon: Info,
-    description: "版本与数据处理",
-  },
+  { id: "appearance", label: "外观", icon: Palette },
+  { id: "map", label: "地图", icon: Map },
+  { id: "mcp", label: "空间分析 MCP", icon: Plug },
+  { id: "about", label: "关于", icon: Info },
 ] as const;
-export default function SettingsPage(props: Props) {
+
+function BasemapAddDialog({
+  onAdd,
+  onClose,
+  returnFocus,
+}: {
+  onAdd: (service: BasemapService) => void;
+  onClose: () => void;
+  returnFocus: HTMLButtonElement | null;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [attribution, setAttribution] = useState("");
-  const [serviceError, setServiceError] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    nameInput.current?.focus();
+    return () => {
+      element?.close();
+      if (returnFocus?.isConnected) returnFocus.focus();
+    };
+  }, [returnFocus]);
+  return (
+    <dialog
+      ref={dialog}
+      className="modal basemap-add-dialog"
+      aria-label="添加底图"
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <header>
+        <h2>添加底图</h2>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="关闭"
+          title="关闭"
+          onClick={onClose}
+        >
+          <X />
+        </button>
+      </header>
+      <form
+        className="basemap-add-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!name.trim()) {
+            setError("请输入底图名称。");
+            return;
+          }
+          if (!validateXyzUrl(url.trim())) {
+            setError("XYZ 地址须为 HTTP(S)，并包含 {z}、{x}、{y}。");
+            return;
+          }
+          onAdd({
+            id: `xyz-${crypto.randomUUID()}`,
+            name: name.trim(),
+            type: "XYZ 瓦片服务",
+            preview: "street",
+            url: url.trim(),
+            attribution: attribution.trim(),
+          });
+          onClose();
+        }}
+      >
+        <label>
+          名称
+          <input
+            aria-label="新底图名称"
+            ref={nameInput}
+            autoFocus
+            maxLength={100}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
+        <label>
+          XYZ 地址
+          <input
+            aria-label="XYZ 瓦片地址"
+            type="text"
+            placeholder="https://example.com/{z}/{x}/{y}.png"
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+          />
+        </label>
+        <label>
+          来源说明
+          <input
+            aria-label="底图来源说明"
+            maxLength={300}
+            value={attribution}
+            onChange={(event) => setAttribution(event.target.value)}
+          />
+        </label>
+        {error && (
+          <p className="warning" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="modal-actions">
+          <button type="button" onClick={onClose}>
+            取消
+          </button>
+          <button type="submit">添加</button>
+        </div>
+      </form>
+    </dialog>
+  );
+}
+
+export default function SettingsPage(props: Props) {
+  const [adding, setAdding] = useState(false);
+  const addButton = useRef<HTMLButtonElement>(null);
   const [removed, setRemoved] = useState<{
     service: BasemapService;
     index: number;
@@ -86,13 +187,17 @@ export default function SettingsPage(props: Props) {
   return (
     <main className="settings-page" aria-label="后台设置">
       <header className="settings-page-heading">
-        <button ref={back} className="quiet" onClick={props.onClose}>
+        <button
+          ref={back}
+          className="icon-button"
+          aria-label="返回地图"
+          title="返回地图"
+          onClick={props.onClose}
+        >
           <ArrowLeft />
-          返回地图
         </button>
         <div>
           <h1>设置</h1>
-          <p>外观、地图与本机服务</p>
         </div>
       </header>
       <div className="settings-page-body">
@@ -115,7 +220,6 @@ export default function SettingsPage(props: Props) {
         >
           <header>
             <h2 id="settings-section-title">{selected.label}</h2>
-            <p>{selected.description}</p>
           </header>
           {props.error && (
             <p className="warning" role="alert">
@@ -125,9 +229,7 @@ export default function SettingsPage(props: Props) {
           {props.category === "appearance" && (
             <div className="settings-fields">
               <label>
-                <span>
-                  主题<small>即时生效，自动保存。</small>
-                </span>
+                <span>主题</span>
                 <select
                   aria-label="主题"
                   value={props.theme}
@@ -142,68 +244,73 @@ export default function SettingsPage(props: Props) {
             </div>
           )}
           {props.category === "map" && (
-            <div className="settings-fields">
-              <label>
-                <span>
-                  底图类型<small>当前地图背景</small>
-                </span>
-                <select
-                  aria-label="底图类型"
-                  value={props.basemap}
-                  onChange={(e) => props.onBasemap(e.target.value)}
-                >
-                  {props.services.map((service) => (
-                    <option key={service.id} value={service.id}>
-                      {service.name}
-                    </option>
-                  ))}
-                  <option value="none">无底图</option>
-                </select>
-              </label>
-              {
-                <>
+            <div className="map-settings-grid">
+              <section
+                className="map-display-settings"
+                aria-labelledby="map-display-title"
+              >
+                <h3 id="map-display-title">地图显示</h3>
+                <div className="map-display-fields">
                   <label>
-                    <span>
-                      注记<small>地名与道路标注</small>
-                    </span>
-                    <span className="checkbox-label">
-                      <input
-                        aria-label="显示注记"
-                        type="checkbox"
-                        checked={props.annotations}
-                        onChange={(e) => props.onAnnotations(e.target.checked)}
-                      />
-                      显示注记
-                    </span>
+                    <span>底图类型</span>
+                    <select
+                      aria-label="底图类型"
+                      value={props.basemap}
+                      onChange={(event) => props.onBasemap(event.target.value)}
+                    >
+                      {props.services.map((service) => (
+                        <option key={service.id} value={service.id}>
+                          {service.name}
+                        </option>
+                      ))}
+                      <option value="none">无底图</option>
+                    </select>
+                  </label>
+                  <label className="checkbox-label map-annotation-toggle">
+                    <input
+                      aria-label="显示注记"
+                      type="checkbox"
+                      checked={props.annotations}
+                      onChange={(event) =>
+                        props.onAnnotations(event.target.checked)
+                      }
+                    />
+                    显示注记
                   </label>
                   <label>
-                    <span>
-                      天地图 tk<small>保存在本机。</small>
-                    </span>
+                    <span>天地图 tk</span>
                     <input
                       aria-label="天地图 tk"
                       type="password"
                       autoComplete="off"
                       value={props.tdtKey}
-                      onChange={(e) => props.onTdtKey(e.target.value)}
+                      onChange={(event) => props.onTdtKey(event.target.value)}
                     />
                   </label>
                   {props.basemap.startsWith("tdt") && !props.tdtKey.trim() && (
                     <p className="warning">填写 tk 后可载入天地图。</p>
                   )}
-                </>
-              }
+                </div>
+              </section>
               <section className="basemap-settings" aria-label="底图服务管理">
-                <h3>底图服务</h3>
-                <p className="form-note">按此顺序显示底图选项。</p>
+                <header className="basemap-settings-heading">
+                  <h3>
+                    底图服务{" "}
+                    <span className="count">{props.services.length}</span>
+                  </h3>
+                  <button ref={addButton} onClick={() => setAdding(true)}>
+                    <Plus />
+                    添加底图
+                  </button>
+                </header>
                 <ol className="basemap-service-list">
                   {props.services.map((service, index) => (
                     <li key={service.id}>
-                      <div>
-                        <strong>{service.name}</strong>
-                        <small>
-                          {service.url ? "XYZ 瓦片服务" : service.type}
-                        </small>
+                      <div className="basemap-service-name">
+                        <strong title={service.name}>{service.name}</strong>
+                        <span className="basemap-service-badge">
+                          {service.url ? "XYZ" : "内置"}
+                        </span>
                       </div>
                       <div className="basemap-service-actions">
                         <button
@@ -273,74 +380,16 @@ export default function SettingsPage(props: Props) {
                     </button>
                   </p>
                 )}
-                <form
-                  className="basemap-add-form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (!name.trim()) {
-                      setServiceError("请输入底图名称。");
-                      return;
-                    }
-                    if (!validateXyzUrl(url.trim())) {
-                      setServiceError(
-                        "请输入包含 {z}、{x}、{y} 的 HTTP(S) XYZ 瓦片地址。",
-                      );
-                      return;
-                    }
-                    props.onServices([
-                      ...props.services,
-                      {
-                        id: `xyz-${crypto.randomUUID()}`,
-                        name: name.trim(),
-                        type: "XYZ 瓦片服务",
-                        preview: "street",
-                        url: url.trim(),
-                        attribution: attribution.trim(),
-                      },
-                    ]);
-                    setName("");
-                    setUrl("");
-                    setAttribution("");
-                    setServiceError("");
-                  }}
-                >
-                  <h3>添加底图</h3>
-                  <label>
-                    名称
-                    <input
-                      aria-label="新底图名称"
-                      maxLength={100}
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    XYZ 地址
-                    <input
-                      aria-label="XYZ 瓦片地址"
-                      type="text"
-                      placeholder="https://example.com/{z}/{x}/{y}.png"
-                      value={url}
-                      onChange={(event) => setUrl(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    来源说明
-                    <input
-                      aria-label="底图来源说明"
-                      maxLength={300}
-                      value={attribution}
-                      onChange={(event) => setAttribution(event.target.value)}
-                    />
-                  </label>
-                  {serviceError && (
-                    <p className="warning" role="alert">
-                      {serviceError}
-                    </p>
-                  )}
-                  <button type="submit">添加底图</button>
-                </form>
               </section>
+              {adding && (
+                <BasemapAddDialog
+                  returnFocus={addButton.current}
+                  onAdd={(service) =>
+                    props.onServices([...props.services, service])
+                  }
+                  onClose={() => setAdding(false)}
+                />
+              )}
             </div>
           )}
           {props.category === "mcp" &&
@@ -356,14 +405,15 @@ export default function SettingsPage(props: Props) {
               <h3>
                 zGIS <span>0.1.0</span>
               </h3>
-              <p>轻量地理数据查看与编辑器</p>
               <dl className="summary-list">
+                <dt>格式</dt>
+                <dd>GeoJSON / CSV / SHP</dd>
                 <dt>来源坐标系</dt>
-                <dd>EPSG:4326 / 4490 / 3857，未指定时默认 4326</dd>
+                <dd>EPSG:4326 / 4490 / 3857（默认 4326）</dd>
                 <dt>高程</dt>
-                <dd>WKT / GeoJSON 保留 XYZ；新绘制要素默认 Z=0</dd>
+                <dd>保留 XYZ，新绘制要素默认 Z=0</dd>
                 <dt>工作副本</dt>
-                <dd>图层操作自动保存为工作副本，不覆盖源文件。</dd>
+                <dd>自动保存，不覆盖源文件</dd>
               </dl>
             </div>
           )}

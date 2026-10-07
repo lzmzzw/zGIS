@@ -16,6 +16,13 @@ test("custom XYZ services share settings order, selection and restart state", as
     .click();
   await page.getByRole("button", { name: "添加底图", exact: true }).click();
   await expect(
+    page.getByRole("dialog", { name: "添加底图", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "添加", exact: true })
+    .click();
+  await expect(
     page.getByText("请输入底图名称。", { exact: true }),
   ).toBeVisible();
   await page.getByLabel("新底图名称").fill("自定义测试底图");
@@ -23,7 +30,10 @@ test("custom XYZ services share settings order, selection and restart state", as
     .getByLabel("XYZ 瓦片地址")
     .fill("https://custom.example.com/{z}/{x}/{y}.png");
   await page.getByLabel("底图来源说明").fill("测试服务来源");
-  await page.getByRole("button", { name: "添加底图", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "添加", exact: true })
+    .click();
   for (let index = 0; index < 3; index++)
     await page
       .getByRole("button", { name: "上移 自定义测试底图", exact: true })

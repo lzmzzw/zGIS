@@ -1,55 +1,127 @@
-.basemap-settings {
-  padding: 24px 0;
+.map-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.85fr) minmax(330px, 1.15fr);
+  align-items: start;
+  gap: 32px;
+  max-width: 1100px;
 }
-.basemap-settings h3 {
-  margin: 0 0 8px;
+.map-display-settings,
+.basemap-settings {
+  min-width: 0;
+}
+.map-display-settings h3,
+.basemap-settings-heading h3 {
+  margin: 0;
   font-size: var(--font-size-section);
   font-weight: var(--font-weight-semibold);
+}
+.map-display-fields {
+  display: grid;
+  gap: 22px;
+  margin-top: 22px;
+}
+.map-display-fields > label:not(.checkbox-label) {
+  display: grid;
+  gap: 8px;
+}
+.map-display-fields > label > span {
+  color: var(--muted);
+}
+.map-display-fields input:not([type="checkbox"]),
+.map-display-fields select {
+  width: 100%;
+  min-width: 0;
+}
+.map-display-fields .map-annotation-toggle {
+  display: flex;
+  justify-content: flex-start;
+}
+.map-display-fields > .warning {
+  margin: -8px 0 0;
+}
+.basemap-settings-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: var(--control-height);
+}
+.basemap-settings-heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.basemap-settings-heading > button {
+  flex-shrink: 0;
 }
 .basemap-service-list {
   list-style: none;
   padding: 0;
-  margin: 16px 0 0;
+  margin: 14px 0 0;
   border-top: 1px solid var(--border);
 }
 .basemap-service-list li {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 12px 0;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
-.basemap-service-list li > div:first-child {
-  min-width: 0;
+.basemap-service-name {
+  display: flex;
   flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
 }
-.basemap-service-list strong {
-  display: block;
+.basemap-service-name strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: var(--font-weight-medium);
-  overflow-wrap: anywhere;
 }
-.basemap-service-list small {
-  margin-top: 4px;
+.basemap-service-badge {
+  flex-shrink: 0;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
 }
 .basemap-service-actions {
   display: flex;
+  flex-shrink: 0;
   gap: 4px;
 }
 .basemap-service-actions .icon-button {
   width: 28px;
   height: 28px;
 }
+.modal.basemap-add-dialog {
+  width: 460px;
+}
+.modal.basemap-add-dialog h2 {
+  font-size: var(--font-size-dialog);
+  font-weight: var(--font-weight-medium);
+}
 .basemap-add-form {
   display: grid;
-  gap: 12px;
-  margin-top: 28px;
+  gap: 16px;
 }
 .basemap-add-form label {
   display: grid;
-  gap: 7px;
+  gap: 8px;
 }
-.basemap-add-form > button {
-  justify-self: start;
+.basemap-add-form input {
+  width: 100%;
+  min-width: 0;
+}
+.basemap-add-form .warning {
+  margin: 0;
 }
 .basemap-undo {
   display: flex;
@@ -57,5 +129,12 @@
   align-items: center;
   gap: 12px;
   color: var(--muted);
-  margin-top: 12px;
+  margin: 12px 0 0;
+}
+@media (max-width: 1000px) {
+  .map-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 620px;
+    gap: 32px;
+  }
 }

@@ -18,6 +18,11 @@ test("catalog loads while stopped, groups every tool including unknown additions
   await toggle.click();
   await expect(toggle).toContainText("15 个工具");
   await expect(page.locator(".mcp-tool-item")).toHaveCount(15);
+  const firstTool = page.locator(".mcp-tool-item").first();
+  await expect(firstTool.locator("p")).toBeHidden();
+  await firstTool.locator("summary").click();
+  await expect(firstTool.locator("p")).toHaveText("说明 list_layers");
+  await expect(firstTool.locator("p")).toBeVisible();
   expect(await page.locator(".mcp-tool-item code").allTextContents()).toEqual(expect.arrayContaining(names));
   await expect(page.getByRole("region", { name: "其他工具" })).toContainText("future_tool");
   await expect(page.getByRole("button", { name: "启用 MCP", exact: true })).toBeVisible();
