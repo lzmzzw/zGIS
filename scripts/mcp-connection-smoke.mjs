@@ -35,7 +35,7 @@ export async function mcpConnectionSmoke(page) {
   };
   const initialized = await rpc("initialize", { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "install-smoke", version: "1" } });
   assert.match(initialized.instructions, /访问权限由调用 Agent 判断/);
-  assert.equal((await rpc("tools/list")).tools.length, 14);
+  assert.equal((await rpc("tools/list")).tools.length, 28);
   const loaded = await rpc("tools/call", { name: "load_vector_file", arguments: { path: resolve("output/smoke/fixtures/native.geojson") } });
   assert.equal(loaded.isError, false, "External file loads without zGIS authorization dialogs");
   await setEnabled(false);
@@ -59,6 +59,6 @@ export async function mcpConnectionSmoke(page) {
   const nextHeaders = await headers();
   assert.ok(nextHeaders.Authorization === initialHeaders.Authorization, "Restart must reuse the fixed credential");
   assert.equal((await fetch(current.endpoint, { method: "POST", headers: {}, body: "{}" })).status, 401);
-  assert.equal((await rpc("tools/list", {}, nextHeaders)).tools.length, 14);
+  assert.equal((await rpc("tools/list", {}, nextHeaders)).tools.length, 28);
   console.log("PASS: default MCP startup, installed keyring authentication helper, external-file direct load, fixed credential across stop/restart and visible port-conflict recovery");
 }

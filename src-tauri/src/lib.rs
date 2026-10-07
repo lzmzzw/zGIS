@@ -13,6 +13,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio_postgres::{Client, NoTls};
 mod shapefile_export;
 mod spatial;
+mod processing;
 mod gis_mcp;
 mod mcp_credentials;
 mod vector_files;
@@ -1053,6 +1054,7 @@ async fn export_database(
 pub fn run() {
     tauri::Builder::default()
         .manage(Backend::default())
+        .manage(processing::ProcessingState::default())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
                 handle_drop(window, paths.clone());
@@ -1067,6 +1069,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            processing::gis_run_analysis,
             gis_mcp::gis_mcp_status,
             gis_mcp::gis_mcp_tool_catalog,
             gis_mcp::gis_mcp_set_enabled,

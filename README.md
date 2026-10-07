@@ -13,17 +13,19 @@ Windows 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLaye
 - PostGIS 连接、元数据发现、geometry / WKT 文本读取、有主键图层事务编辑、冲突检测和新表导入。
 - 默认 OpenStreetMap；自定义 HTTP(S) XYZ 底图服务、逐服务显示管理与无底图模式。
 - 自动保存工作区与编辑草稿、保存后退出编辑、应用关闭询问和异常退出恢复、文件外部修改冲突保护。
-- 本机 MCP 空间查询、关联、拓扑检查、缓冲、裁剪和面合并；嵌入式 Codex CLI Agent。操作、工具与计算限制见 [空间分析说明](docs/spatial-mcp.md)。
+- 应用内空间分析工具箱，22 项矢量叠加、空间关系、几何转换和质量统计工具；分类搜索、收藏、运行记录与独立结果图层。操作与计算边界见 [工具箱说明](docs/processing-toolbox.md)。同一分析引擎也通过本机 MCP 提供给嵌入式 Codex CLI Agent，接入见 [空间分析说明](docs/spatial-mcp.md)。
 
 ## 运行与安装
 
-当前交付安装包在 `F:\Workspace\Deliverables\zGIS\zGIS_0.1.0_vector-edit-release_x64-setup.exe`。当前用户安装默认目录为 `%LOCALAPPDATA%\zGIS`，启动文件为 `zgis.exe`；可从开始菜单启动。卸载使用 Windows 应用管理或安装目录的 `uninstall.exe`。
+当前交付安装包在 `F:\Workspace\Deliverables\zGIS\zGIS_0.1.0_processing-release_x64-setup.exe`。当前用户安装默认目录为 `%LOCALAPPDATA%\zGIS`，启动文件为 `zgis.exe`；可从开始菜单启动。卸载使用 Windows 应用管理或安装目录的 `uninstall.exe`。
 
 MCP 默认随应用启动，固定本机地址与令牌；外部文件直接按路径读取，访问权限由调用 Agent 判断。Codex 接入方法见 [空间分析说明](docs/spatial-mcp.md)。
 
 依赖 Windows WebView2 Runtime。安装包使用 Tauri NSIS 引导方式，缺少 Runtime 时可能需要联网安装。当前构建未配置代码签名，不是已经签名的商业发布包。
 
 ## 操作
+
+主界面右上角「工具箱」打开空间分析侧栏，选择工具、输入/目标图层与参数后运行；结果作为独立未保存图层加入地图，可继续分析或保存。拓扑检查和图层摘要直接显示报告。编辑中的图层须先保存退出；完整工具、属性规则和距离精度见 [空间分析工具箱](docs/processing-toolbox.md)。
 
 界面采用无重复标题的自定义单行 header，空白区域可拖动窗口，双击可最大化或还原，右侧提供窗口控制按钮：文件菜单提供打开、保存、另存、导出与退出，数据菜单提供导入与 PostGIS，左侧图层默认展示，底部属性表通过自身标题行控制显示，右侧不再设置检查器。主界面仅在 header 保留一个「设置」入口，打开独立后台设置页：左侧分类，右侧集中管理外观、地图、MCP 与关于；「返回地图」或 Esc 返回原工作区，图层、选择和编辑状态保留。底图区域和 header 右侧不再提供重复设置或独立 MCP 入口。深浅主题在「设置 → 外观」即时切换并记住选择；底图按钮位于地图右下角，展开后单选已配置服务；「显示底图」开关保留当前选择，底图位于业务图层下方。「设置 → 地图」仅显示底图服务列表，支持添加、编辑、删除、排序和删除撤销。默认只提供 OpenStreetMap，同样可编辑或删除；天地图等服务由用户填写 HTTP(S) XYZ 地址添加（需包含 `{z}`、`{x}`、`{y}`）。添加与编辑弹窗的「在地图中显示」控制该服务是否出现在前台底图列表；隐藏当前服务时按顺序选择下一个可显示服务，全部隐藏或删除时不显示底图。底图切换卡片显示名称与武汉地图预览；添加或保存服务时刷新预览，获取失败仍可保存。预览缓存、服务列表、排序、逐项显示状态、当前选择及整体显隐跨重启保留，Windows 使用当前用户 DPAPI 加密配置。旧版内置天地图项移除，用户已有自定义服务保留。关于页展示实际版本、GitHub、GPL 3.0 和检查更新；检查公开 GitHub Releases，发现新版本后可在系统浏览器查看和下载安装包。完整改版约定见 [界面设计约定](docs/interface-design.md)。
 
@@ -78,7 +80,7 @@ pwsh -File scripts/build.ps1
 
 后端单测可执行 `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`，需先载入 `scripts/msvc-environment.ps1`。打包脚本显式载入 MSVC，防止 Git 的 link.exe 抢占。Cargo.lock 和 pnpm-lock.yaml 都提交，构建、截图与测试数据在 output/target，不提交。
 
-覆盖安装统一执行 `pwsh -File scripts/install.ps1 -Smoke`，先正常关闭现有 zGIS 会话。脚本通过临时、非提权的当前用户计划任务在 Codex MSIX 包外安装；任务无触发器，完成后删除。使用文件句柄解析真实安装路径、比较 release 内容（仅归一化 NSIS bundle 标记）、核对桌面/开始菜单快捷方式及启动进程，并在 `output/install` 保存报告。不能以安装器退出码或 Codex 包内 `%LOCALAPPDATA%` 文件核对认定安装成功，包内路径会被重定向到 Codex LocalCache。`-Smoke` 验证默认 MCP 启动、固定令牌与认证助手、文件操作及跨进程恢复，不发起模型推理；追加 `-Launch` 可在恢复用户配置后通过包外进程启动安装版；完整验收可从普通包外 PowerShell 执行 `pwsh -File scripts/installed-smoke.ps1`。脚本暂存并最终还原原恢复文件，使用独立 WebView2 目录，仅操作生成的测试文件；验证原生打开、保存、导出、取消、外部修改保护，以及真实退出后跨进程工作区及底图恢复。`node scripts/codex-mcp-smoke.mjs` 在 zGIS 运行时验证 Codex 从持久配置取得固定令牌并发现 14 个工具，不创建聊天或发起推理。完整 MCP/Agent 测试还需要 PATH 中有已登录的 Codex CLI，验证鉴权、链式分析、外部文件直读和 `/mcp` 工具发现，不发起模型推理。可用 `-Executable` 指定新构建的 release EXE。WebView2 本地 CDP 仅测试时通过环境启用，不写入产品配置，常规启动不开调试端口。独立 WebView2 目录本身不隔离 Rust 恢复文件，不直接对用户运行中的实例执行底层 smoke。
+覆盖安装统一执行 `pwsh -File scripts/install.ps1 -Smoke`，先正常关闭现有 zGIS 会话。脚本通过临时、非提权的当前用户计划任务在 Codex MSIX 包外安装；任务无触发器，完成后删除。使用文件句柄解析真实安装路径、比较 release 内容（仅归一化 NSIS bundle 标记）、核对桌面/开始菜单快捷方式及启动进程，并在 `output/install` 保存报告。不能以安装器退出码或 Codex 包内 `%LOCALAPPDATA%` 文件核对认定安装成功，包内路径会被重定向到 Codex LocalCache。`-Smoke` 验证默认 MCP 启动、固定令牌与认证助手、文件操作及跨进程恢复，不发起模型推理；追加 `-Launch` 可在恢复用户配置后通过包外进程启动安装版；完整验收可从普通包外 PowerShell 执行 `pwsh -File scripts/installed-smoke.ps1`。脚本暂存并最终还原原恢复文件，使用独立 WebView2 目录，仅操作生成的测试文件；验证原生打开、保存、导出、取消、外部修改保护，以及真实退出后跨进程工作区及底图恢复。`node scripts/codex-mcp-smoke.mjs` 在 zGIS 运行时验证 Codex 从持久配置取得固定令牌并发现 28 个工具，不创建聊天或发起推理。完整 MCP/Agent 测试还需要 PATH 中有已登录的 Codex CLI，验证鉴权、链式分析、外部文件直读和 `/mcp` 工具发现，不发起模型推理。可用 `-Executable` 指定新构建的 release EXE。WebView2 本地 CDP 仅测试时通过环境启用，不写入产品配置，常规启动不开调试端口。独立 WebView2 目录本身不隔离 Rust 恢复文件，不直接对用户运行中的实例执行底层 smoke。
 
 接口见 [src-tauri/IPC.md](src-tauri/IPC.md)。最初设计见 [zGIS技术方案](../../../Deliverables/zGIS/zGIS技术方案.md)，实现边界以本 README 为准。数据库的 AI 直接操作仍遵守工作台 DBX 入口，应用数据层不提供旁路工具。
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api, type McpToolDefinition } from "./bridge";
+import { getAnalysisTool } from "./analysisTools";
 
 const labels: Record<string, [string, string]> = {
   list_layers: ["图层与数据", "列举图层"],
@@ -45,7 +46,7 @@ export default function McpToolCatalog() {
   }
   const groups = new Map<string, McpToolDefinition[]>();
   for (const tool of tools ?? []) {
-    const group = labels[tool.name]?.[0] ?? "其他工具";
+    const group = labels[tool.name]?.[0] ?? (getAnalysisTool(tool.name) ? "空间分析" : "其他工具");
     groups.set(group, [...(groups.get(group) ?? []), tool]);
   }
   return (
@@ -92,7 +93,7 @@ export default function McpToolCatalog() {
                   {items.map((tool) => (
                     <details key={tool.name} className="mcp-tool-item">
                       <summary>
-                        <strong>{labels[tool.name]?.[1] ?? tool.name}</strong>
+                        <strong>{labels[tool.name]?.[1] ?? getAnalysisTool(tool.name)?.label ?? tool.name}</strong>
                         <code>{tool.name}</code>
                         <ChevronDown />
                       </summary>

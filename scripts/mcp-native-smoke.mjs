@@ -37,7 +37,7 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   assert.equal((await fetch(status.endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);
   assert.equal((await fetch(status.endpoint,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${status.token}`,Origin:'https://evil.invalid'},body:'{}'})).status,403);
   await rpc('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'zgis-smoke',version:'1'}});
-  assert.equal((await rpc('tools/list')).tools.length,14);
+  assert.equal((await rpc('tools/list')).tools.length,28);
   let layers;
   for(let i=0;i<40;i++) { layers=await call('list_layers'); if(layers.layers.length===1)break; await page.waitForTimeout(100); }
   assert.equal(layers.layers.length,1);
@@ -77,7 +77,7 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   await page.evaluate(sessionId => window.__TAURI_INTERNALS__.invoke('agent_write',{sessionId,data:'\r'}), agent.sessionId);
   await waitIPC('agent_read', value => {
     const text = plain(value.data);
-    return /zgis/.test(text) && /spatial_query|14\s*tools|tools:\s*14/i.test(text);
+    return /zgis/.test(text) && /spatial_query|28\s*tools|tools:\s*28/i.test(text);
   }, {sessionId:agent.sessionId});
   await page.getByRole('button',{name:'设置',exact:true}).click();
   await page.getByRole('button',{name:'MCP',exact:true}).click();
@@ -91,5 +91,5 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   await page.locator('.layer-row').first().click();
   await fileAction('移除图层');
   await page.waitForFunction(() => document.querySelectorAll('.layer-row').length===0);
-  console.log('PASS: native authenticated MCP, 14 tools, chained buffer/publication, source preservation, direct external-file loading/Chinese SHP ZIP, live Codex PTY and shutdown');
+  console.log('PASS: native authenticated MCP, 28 tools, chained buffer/publication, source preservation, direct external-file loading/Chinese SHP ZIP, live Codex PTY and shutdown');
 }

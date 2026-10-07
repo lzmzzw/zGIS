@@ -9,6 +9,9 @@ export interface DesktopTestState {
   commitError: string;
   queryError: string;
   backupError: string;
+  analysisError: string;
+  analysisDelay: number;
+  analysisResult: unknown;
   saveError: string;
   saveCancelled: boolean;
   tileError: string;
@@ -48,6 +51,9 @@ export async function installDesktopMock(
         commitError: "",
         queryError: "",
         backupError: "",
+        analysisError: "",
+        analysisDelay: 0,
+        analysisResult: null,
         saveError: "",
         saveCancelled: false,
         tileError: "",
@@ -109,6 +115,19 @@ export async function installDesktopMock(
             args: Record<string, unknown> = {},
           ) => {
             state.calls.push({ command, args });
+            if (command === "gis_run_analysis") {
+              const failure = state.analysisError;
+              const result = state.analysisResult;
+              if (state.analysisDelay)
+                await new Promise<void>((resolve) => window.setTimeout(resolve, state.analysisDelay));
+              if (failure) throw Error(failure);
+              if (result !== null) return structuredClone(result);
+              if (args.operation === "layer_summary")
+                return { featureCount: (args.source as unknown[]).length, geometryTypes: { Polygon: 1 }, fields: ["name"], bbox: [116, 40, 116.01, 40.01], crs: "EPSG:4326" };
+              if (args.operation === "topology_check")
+                return { featureCount: (args.source as unknown[]).length, valid: false, issues: [{ kind: "polygon_overlap", featureIndices: [0, 1] }], checks: ["geometry_validity", "exact_geometry_duplicates", "polygon_overlap"] };
+              return { type: "FeatureCollection", features: structuredClone(args.source) };
+            }
             if (command === "plugin:app|version") return state.appVersion;
             if (command === "open_project_link") {
               if (state.linkError) throw Error(state.linkError);

@@ -42,6 +42,7 @@ import {
   Maximize2,
   Minimize2,
   Move,
+  Workflow,
 } from "lucide-react";
 import BasemapControl from "./BasemapControl";
 import ContextMenu, {
@@ -68,6 +69,11 @@ import {
 } from "./basemaps";
 import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
+import ProcessingToolbox, {
+  type ProcessingRequest,
+  type ProcessingOutcome,
+} from "./ProcessingToolbox";
+import { getAnalysisTool } from "./analysisTools";
 import MapView, { type Tool, type DrawDraft } from "./MapView";
 import { ImportPanel, ExportPanel } from "./FilePanels";
 import {
@@ -290,6 +296,10 @@ export default function App() {
   }, []);
 
   const [agentOpen, setAgentOpen] = useState(false);
+  const [toolboxOpen, setToolboxOpen] = useState(false);
+  const [toolboxMounted, setToolboxMounted] = useState(false);
+  const [toolboxRunning, setToolboxRunning] = useState(false);
+  const toolboxTrigger = useRef<HTMLButtonElement>(null);
   const [layers, setLayers] = useState<DocumentLayer[]>([]);
   const [activeId, setActiveId] = useState<string>();
   const [selectedId, setSelectedId] = useState<string>();
@@ -1072,6 +1082,92 @@ export default function App() {
       busyRef.current = false;
       setBusy(false);
     }
+  }
+  async function runToolboxAnalysis(
+    request: ProcessingRequest,
+  ): Promise<ProcessingOutcome> {
+    if (!desktop) throw new Error("空间分析需要桌面版，请在 zGIS 应用中运行");
+    if (busyRef.current || exitPending.current || !recoveryReady)
+      throw new Error("请等待当前操作完成后再运行分析");
+    if (editingLayerId || cellDraft || drawDraft || gestureActive || modal)
+      throw new Error("请先完成当前操作并保存退出编辑，再运行空间分析");
+    const definition = getAnalysisTool(request.operation);
+    if (!definition) throw new Error("未知分析工具");
+    const source = currentLayers.current.find(
+      (layer) => layer.id === request.sourceId,
+    );
+    const target = request.targetId
+      ? currentLayers.current.find((layer) => layer.id === request.targetId)
+      : undefined;
+    if (!source || (request.targetId && !target))
+      throw new Error("输入图层已移除，请重新选择");
+    const input = request.selectedOnly
+      ? source.id === activeId && selectedId
+        ? source.features.filter((feature) => feature.id === selectedId)
+        : []
+      : source.features;
+    if (!input.length) throw new Error("输入范围没有要素，请重新选择");
+    const name = request.outputName.trim();
+    if (!definition.report && (!name || name.length > 100))
+      throw new Error("结果图层名称须为 1–100 个字符");
+    busyRef.current = true;
+    setBusy(true);
+    const start = performance.now();
+    setStatus(`正在运行${definition.label}…`);
+    try {
+      const raw = await api.runAnalysis(
+        request.operation,
+        request.parameters,
+        input,
+        target?.features,
+      );
+      if (!raw || typeof raw !== "object" || Array.isArray(raw))
+        throw new Error("分析结果结构无效");
+      const result = raw as Record<string, unknown>;
+      if (
+        result.type === "FeatureCollection" &&
+        Array.isArray(result.features)
+      ) {
+        const features = importGeoJSON(JSON.stringify(result));
+        const layer = makeLayer(
+          /\.geojson$/i.test(name) ? name : `${name}.geojson`,
+          features,
+          "geojson",
+          {
+            displayName: name,
+            dirty: true,
+            warnings: [
+              `${definition.label}结果；输入为当前已加载要素的独立副本，核对后可保存或导出。`,
+            ],
+          },
+        );
+        addLayers([layer]);
+        setLayersOpen(true);
+        setStatus(`${definition.label}完成：${features.length} 个结果要素`);
+        return {
+          featureCount: features.length,
+          layerId: layer.id,
+          layerName: name,
+          durationMs: performance.now() - start,
+        };
+      }
+      if (!["topology_check", "layer_summary"].includes(request.operation))
+        throw new Error("分析未返回矢量结果");
+      setStatus(`${definition.label}完成`);
+      return { report: result, durationMs: performance.now() - start };
+    } catch (reason) {
+      setStatus(`${definition.label}失败`);
+      throw reason;
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+  function toggleToolbox() {
+    if (busyRef.current) return;
+    setToolboxMounted(true);
+    setAgentOpen(false);
+    setToolboxOpen((open) => !open);
   }
   function addLayers(imported: DocumentLayer[]) {
     if (cellDraft) {
@@ -2388,12 +2484,29 @@ export default function App() {
             {active?.dirty && <span className="dirty-dot" title="未保存" />}
           </div>
           <div className="header-actions">
+            {modal !== "settings" && (
+              <button
+                ref={toolboxTrigger}
+                className={toolboxOpen ? "active" : "quiet"}
+                aria-label="空间分析工具箱"
+                aria-pressed={toolboxOpen}
+                disabled={busy}
+                onClick={toggleToolbox}
+              >
+                <Workflow />
+                工具箱
+              </button>
+            )}
             {desktop && modal !== "settings" && (
               <>
                 <IconButton
                   label="Codex Agent"
                   active={agentOpen}
-                  onClick={() => setAgentOpen((v) => !v)}
+                  disabled={busy}
+                  onClick={() => {
+                    setToolboxOpen(false);
+                    setAgentOpen((v) => !v);
+                  }}
                 >
                   <Bot />
                 </IconButton>
@@ -2460,6 +2573,7 @@ export default function App() {
             } as CSSProperties
           }
           data-layers={layersOpen}
+          data-toolbox={toolboxOpen}
         >
           <aside className="layers-panel" hidden={!layersOpen}>
             <div
@@ -3427,6 +3541,42 @@ export default function App() {
               )}
             </section>
           </section>
+          {toolboxMounted && (
+            <div className="processing-toolbox-host" hidden={!toolboxOpen}>
+              <ProcessingToolbox
+                layers={layers}
+                activeLayerId={activeId}
+                selectedFeatureId={selectedId}
+                editing={Boolean(editingLayerId)}
+                blockedReason={
+                  !desktop
+                    ? "空间分析需要桌面版，请在 zGIS 应用中运行"
+                    : modal ||
+                        gestureActive ||
+                        !recoveryReady ||
+                        (busy && !toolboxRunning)
+                      ? "请先完成当前操作"
+                      : undefined
+                }
+                onRun={runToolboxAnalysis}
+                onRunningChange={setToolboxRunning}
+                onClose={() => {
+                  if (busyRef.current) return;
+                  setToolboxOpen(false);
+                  toolboxTrigger.current?.focus();
+                }}
+                onLocateResult={(id) => {
+                  if (busyRef.current || editingLayerId) return;
+                  if (!currentLayers.current.some((layer) => layer.id === id)) {
+                    setError("结果图层已移除");
+                    return;
+                  }
+                  activateLayer(id);
+                  setFitNonce((n) => n + 1);
+                }}
+              />
+            </div>
+          )}
         </main>
         {error && !modal && (
           <div className="error-banner" role="alert">

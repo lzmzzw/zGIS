@@ -111,7 +111,7 @@ async function editCell(field) {
 await page.getByRole("button", { name: "设置", exact: true }).click();
 await page.getByRole("button", { name: "MCP", exact: true }).click();
 const nativeTools = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("gis_mcp_tool_catalog"));
-assert.equal(nativeTools.length, 14);
+assert.equal(nativeTools.length, 28);
 await page.getByRole("button", { name: /工具详情/ }).click();
 await page.waitForSelector(".mcp-tool-item");
 assert.deepEqual((await page.locator(".mcp-tool-item code").allTextContents()).sort(), nativeTools.map(tool => tool.name).sort());

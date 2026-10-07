@@ -750,6 +750,28 @@ fn page(f: &[Value], args: &Value, mut extra: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn new_algorithms_share_bounded_schema_cache_and_publication() {
+        let m = GisMcp::default();
+        let layer = json!({"id":"test-polygons","name":"测试面","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[116.,40.],[116.01,40.],[116.01,40.01],[116.,40.01],[116.,40.]]]},"properties":{"group":"甲"}}]});
+        m.inner.lock().unwrap().layers.push(layer.clone());
+        for name in ["intersection", "difference", "symmetric_difference", "centroid", "point_on_surface", "convex_hull", "envelope", "multipart_to_singleparts", "extract_vertices", "polygon_to_lines", "simplify", "geometry_attributes", "count_points", "merge"] {
+            let definition = definitions().into_iter().find(|d| d["name"] == name).unwrap();
+            assert_eq!(definition["annotations"]["readOnlyHint"], true);
+            assert_eq!(definition["inputSchema"]["additionalProperties"], false);
+            assert!(call(&m, name, &json!({"source":{"layerId":"test-polygons"},"shell":"ignored"})).is_err());
+        }
+        let result = call(&m, "centroid", &json!({"source":{"layerId":"test-polygons"}})).unwrap();
+        let read = call(&m, "read_result", &json!({"resultId":result["resultId"]})).unwrap();
+        assert_eq!(read["features"][0]["geometry"]["type"], "Point");
+        assert!(call(&m, "simplify", &json!({"source":{"layerId":"test-polygons"},"toleranceMeters":0})).is_err());
+        let next = call(&m, "buffer", &json!({"source":{"resultId":result["resultId"]},"distanceMeters":10})).unwrap();
+        call(&m, "publish_result", &json!({"resultId":next["resultId"],"name":"缓冲结果"})).unwrap();
+        let inner = m.inner.lock().unwrap();
+        assert_eq!(inner.layers[0], layer);
+        assert_eq!(inner.queue.len(), 1);
+        assert_eq!(inner.queue[0]["features"][0]["geometry"]["type"], "MultiPolygon");
+    }
     #[tokio::test]
     async fn shutdown_cancels_queued_enable_requests() {
         let m = GisMcp::default();

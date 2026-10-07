@@ -32,6 +32,19 @@ export const api = {
   openProjectLink: (target: "github" | "license" | "releases") =>
     invoke<void>("open_project_link", { target }),
   mcpTools: () => invoke<McpToolDefinition[]>("gis_mcp_tool_catalog"),
+  runAnalysis: (
+    operation: string,
+    parameters: Record<string, unknown>,
+    source: GeoFeature[],
+    target?: GeoFeature[],
+  ) => {
+    const features = (input: GeoFeature[]) => input.map(({ id, geometry, properties }) => ({
+      type: "Feature", id, geometry, properties,
+    }));
+    return invoke<unknown>("gis_run_analysis", {
+      operation, parameters, source: features(source), target: target ? features(target) : null,
+    });
+  },
   mcpStatus: () => invoke<McpStatus>("gis_mcp_status"),
   mcpEnable: (enabled: boolean) => invoke<McpStatus>("gis_mcp_set_enabled", { enabled }),
   mcpSync: (layers: unknown[], activeLayerId?: string) =>
