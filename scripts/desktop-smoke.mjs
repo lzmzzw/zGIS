@@ -118,9 +118,13 @@ const opening = nativeDialog("output/smoke/fixtures/native.geojson");
 await fileAction("打开文件…");
 await opening;
 await page.getByRole("button", { name: "导入", exact: true }).click();
+assert.equal(await page.locator(".attribute-title").innerText(), "属性表");
+assert.equal(await page.locator(".attribute-panel > header button").count(), 1);
+assert.equal(await page.locator(".header-actions").getByRole("button", { name: "属性表", exact: true }).count(), 0);
+assert.equal(await page.locator(".header-menus").getByRole("button", { name: "设置", exact: true }).isVisible(), true);
 await page
-  .locator(".header-actions")
-  .getByRole("button", { name: "属性表", exact: true })
+  .locator(".attribute-panel")
+  .getByRole("button", { name: "展开属性表", exact: true })
   .click();
 await page.waitForSelector("tbody tr");
 assert.equal(await page.locator("tbody tr").count(), 1);
