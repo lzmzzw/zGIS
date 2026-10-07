@@ -1,6 +1,7 @@
 param(
   [string]$Installer,
   [switch]$Smoke,
+  [switch]$Launch,
   [switch]$Worker,
   [string]$Request
 )
@@ -44,6 +45,20 @@ if ($Worker) {
       & (Join-Path $PSScriptRoot 'installed-smoke.ps1') -Executable $executable -InstallationOnly *>&1 | Tee-Object -FilePath $job.log | Out-Null
       $report.smoke = 'passed'
     }
+    if ($job.launch) {
+      $started = Start-Process -FilePath $executable -WindowStyle Hidden -PassThru
+      $launchDeadline = [DateTime]::UtcNow.AddSeconds(5)
+      $startedPath = $null
+      while (-not $startedPath -and [DateTime]::UtcNow -lt $launchDeadline) {
+        $started.Refresh()
+        if ($started.HasExited) { throw 'Installed zGIS exited during launch.' }
+        $startedPath = $started.Path
+        if (-not $startedPath) { Start-Sleep -Milliseconds 100 }
+      }
+      if (-not $startedPath) { throw 'Installed zGIS process path was unavailable after launch.' }
+      if ([ZgisInstallNative]::FinalPath($startedPath) -ne $finalPath) { throw 'Launch resolved to another physical executable.' }
+      $report.launchedPid = $started.Id
+    }
     $report.success = $true
   } catch { $report.error = $_.Exception.Message }
   $temporaryReport = "$($job.report).tmp"
@@ -61,7 +76,7 @@ $directory = Join-Path $repository 'output/install'
 New-Item -ItemType Directory -Path $directory -Force | Out-Null
 $requestPath = Join-Path $directory "$id-request.json"
 $reportPath = Join-Path $directory "$id-report.json"
-@{installer=$Installer; release=$release; smoke=[bool]$Smoke; report=$reportPath; log=(Join-Path $directory "$id-smoke.log")} | ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding utf8
+@{installer=$Installer; release=$release; smoke=[bool]$Smoke; launch=[bool]$Launch; report=$reportPath; log=(Join-Path $directory "$id-smoke.log")} | ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding utf8
 
 # Task Scheduler starts an interactive-user process outside Codex's MSIX identity.
 # No elevation, persistent trigger, credential or background automation is created.

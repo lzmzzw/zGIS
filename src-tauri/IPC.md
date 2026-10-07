@@ -31,16 +31,15 @@ TLS `require` 和 `prefer` 均验证系统受信证书并要求加密；prefer �
 
 ## 空间分析与 Agent
 
-- `gis_mcp_status` / `gis_mcp_set_enabled {enabled}`：返回 `{enabled,endpoint?,token?,authorizedPaths}`；token 仅供本次服务，不持久化。
+- `gis_mcp_status` / `gis_mcp_set_enabled {enabled}`：返回 `{enabled,endpoint?,token?,startupError?,headersHelper?}`；应用启动自动启用，地址固定为 `http://127.0.0.1:9420/mcp`。token 首次生成后保存到当前用户 Windows 凭据管理器并复用，停止和重启不轮换；不写配置或日志。headersHelper 为安装目录中的认证助手命令；startupError 展示启动失败原因。
 - `gis_workspace_sync {layers,activeLayerId}`：layers 为 `{id,name,features}`，只接受标准 GeoJSON Feature 快照。
 - `gis_results_drain`：消费待导入的 `{id,name,features}` 结果；前端暂存队列避免退出或繁忙期间丢失。
-- `gis_authorize_files` / `gis_authorize_directory`：原生对话框授权只读路径；`gis_revoke_access` 撤销并使缓存失效。
 - `gis_mcp_audit`：有界工具审计摘要。
 - `agent_open` / `agent_current`：`{sessionId,running}`；current 无会话时 null。
 - `agent_read {sessionId}`：`{data,sequence}`；`agent_write {sessionId,data}`、`agent_resize {sessionId,cols,rows}`、`agent_close {sessionId}`。
 - 事件 `zgis-agent-output {sessionId,data,sequence}` 与 `zgis-agent-exit {sessionId,running}`；先订阅后回放，按序号去重。启动与关闭按代次串行校验，取消中的启动不能发布会话。
 
-MCP 工具及计算边界见 [空间分析说明](../docs/spatial-mcp.md)。这些接口不提供任意文件写入、数据库提交或 shell 调用。
+MCP 工具及计算边界见 [空间分析说明](../docs/spatial-mcp.md)。zGIS 内部图层的 Agent 操作统一使用 zGIS MCP，具体操作以工具清单和 schema 为准。外部文件是否可访问由调用 Agent 按自身权限规则判断，zGIS 不校验外部文件访问授权；这些接口不提供任意文件写入、数据库提交或 shell 调用。PostGIS 按场景使用 zGIS 已加载图层快照或 DBX 直接操作，zGIS MCP 不提供数据库直连。
 
 ### 默认与来源坐标系
 

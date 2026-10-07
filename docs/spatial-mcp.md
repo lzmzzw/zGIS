@@ -2,9 +2,22 @@
 
 ## 使用入口
 
-桌面 header 的「空间分析 MCP」启用本机服务，默认关闭。服务采用 loopback Streamable HTTP、随机端口和每次启用重新生成的 Bearer token；界面提供外部客户端 TOML 配置，token 使用 `ZGIS_MCP_TOKEN` 环境变量引用。停止服务后旧地址与令牌失效。
+桌面应用启动时自动启用 MCP，固定监听 `http://127.0.0.1:9420/mcp`，仅本机访问。「设置 → 空间分析 MCP」可查看状态、停止或重新启用；手动停止仅影响本次运行，下次启动应用仍自动启用。端口占用或凭据读取失败时保留地图工作区，并在设置页显示原因。
 
-当前图层自动同步为 WGS84 GeoJSON 快照，包括尚未保存的编辑；只传几何、属性和要素 ID，不传数据库连接、主键基线或密码。外部文件先在该窗口选择文件或授权目录，仅本次运行有效，可撤销；规范路径与符号链接检查防止越界，`_credentials` 始终排除。
+Bearer token 首次启动时生成并保存到当前用户的 Windows 凭据管理器 `zGIS/MCP`，以后启动和启停均复用，不自动轮换。令牌不写入配置、恢复文件或日志。停止服务和退出应用关闭监听；固定令牌继续保留。
+
+Codex 使用固定地址与安装包中的 `mcp-headers.ps1` 认证助手。助手只在客户端取得认证请求头时读取 Windows 凭据管理器，不需要手动设置令牌环境变量。当前用户默认安装路径的配置如下；修改安装目录时同步助手路径。
+
+```toml
+[mcp_servers.zgis]
+url = "http://127.0.0.1:9420/mcp"
+http_headers_helper = 'pwsh -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Users\PKUWHAI\AppData\Local\zGIS\mcp-headers.ps1"'
+enabled = true
+```
+
+Codex 的 MCP 配置与认证助手支持见 [官方 MCP 文档](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)。添加后重启 Codex 的 MCP 连接或重新打开聊天，再查看 `zgis` 工具。
+
+Agent 对 zGIS 内部图层的操作统一使用 zGIS MCP，具体操作以工具清单和 schema 为准。当前图层自动同步为 WGS84 GeoJSON 快照，包括尚未保存的编辑；只传几何、属性和要素 ID，不传数据库连接、主键基线或密码。外部 GeoJSON、SHP、含 WKT 的 CSV 等数据优先交由 zGIS MCP 加载和分析，由调用 Agent 按自身权限规则判断是否可访问；zGIS 不校验外部文件访问授权。
 
 「Codex Agent」侧栏连接本机已安装、已登录的 Codex CLI。沿用 zTerm 的 PTY 交互方式，隐藏侧栏保留会话，停止会话、停止 MCP 或退出应用终止所属进程树。Agent 使用私有工作目录和只读 sandbox，禁用继承的 MCP、apps、plugins，只连接 zGIS；不改写 CLI 登录文件，内嵌会话不检查或执行 CLI 更新，版本维护在应用外进行。用户发送到 Codex 的提示与工具数据受所使用 Codex 服务的数据政策约束。
 
@@ -14,7 +27,7 @@
 | --- | --- |
 | `list_layers` / `describe_layer` | 当前图层、字段、要素数和版本 |
 | `read_features` | 当前图层分页要素 |
-| `load_vector_file` | 加载已授权外部矢量文件，生成缓存结果 |
+| `load_vector_file` | 按路径加载外部矢量文件，生成缓存结果 |
 | `spatial_query` | bbox 或 intersects/within/contains/touches/disjoint 查询 |
 | `spatial_join` | 空间关联，源属性加匹配目标信息 |
 | `nearest` | 最近目标及近似米制距离 |
@@ -26,7 +39,7 @@
 | `read_result` | 分页读取结果或拓扑问题 |
 | `publish_result` | 导入独立未保存结果图层 |
 
-分析的 `source` / `target` 三选一：`{"layerId":"图层ID"}`、`{"resultId":"缓存结果ID"}`、`{"path":"已授权文件路径","crs":"EPSG:4326"}`。文件参数另支持 `wktField`、`xField`、`yField`；以工具返回的 schema 为准。示例 tools/call arguments：
+分析的 `source` / `target` 三选一：`{"layerId":"图层ID"}`、`{"resultId":"缓存结果ID"}`、`{"path":"Agent 已判断可访问的文件路径","crs":"EPSG:4326"}`。文件参数另支持 `wktField`、`xField`、`yField`；以工具返回的 schema 为准。示例 tools/call arguments：
 
 ```json
 {"source":{"layerId":"图层ID"},"bbox":[116,39,117,41]}
@@ -52,7 +65,7 @@
 
 单次分析最多 1 万要素、100 万顶点和 100 万候选对。当前快照最多 10 万要素/100 MB；缓存最多 20 个结果、20 万要素/100 MB，30 分钟失效；工具响应样本最多 100 条/512 KB，完整数据分页读取。服务并发最多 2，请求最多 2 MB。大规模工程级计算应使用专业 GIS 引擎。
 
-MCP 不提供任意 SQL、shell、源文件覆盖或数据库提交工具；审计保存有界调用摘要，不记录访问 token。
+PostGIS 表按实际场景选择 zGIS MCP 分析已加载图层快照，或通过 DBX 直接操作数据库。zGIS MCP 不直连数据库，不提供任意 SQL、shell、源文件覆盖或数据库提交工具；审计保存有界调用摘要，不记录访问 token。
 
 ## 工具清单展示
 

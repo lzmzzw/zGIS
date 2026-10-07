@@ -10,7 +10,6 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, VecDeque},
-    path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -19,6 +18,7 @@ use tokio::{sync::Semaphore, task::JoinHandle};
 #[derive(Clone, Default)]
 pub struct GisMcp {
     inner: Arc<Mutex<Inner>>,
+    start_lock: Arc<tokio::sync::Mutex<()>>,
 }
 #[derive(Default)]
 struct Inner {
@@ -28,7 +28,7 @@ struct Inner {
     server: Option<JoinHandle<()>>,
     layers: Vec<Value>,
     active: Option<String>,
-    grants: Vec<PathBuf>,
+    startup_error: Option<String>,
     results: HashMap<String, Cached>,
     queue: Vec<Value>,
     audit: VecDeque<Value>,
@@ -48,7 +48,8 @@ pub struct McpStatus {
     enabled: bool,
     endpoint: Option<String>,
     token: Option<String>,
-    authorized_paths: Vec<String>,
+    startup_error: Option<String>,
+    headers_helper: Option<String>,
 }
 impl GisMcp {
     fn start_generation(&self) -> Option<u64> {
@@ -63,6 +64,7 @@ impl GisMcp {
         &self,
         listener: tokio::net::TcpListener,
         generation: u64,
+        external_access: bool,
     ) -> Result<(), String> {
         let endpoint = format!(
             "http://{}/mcp",
@@ -75,13 +77,39 @@ impl GisMcp {
         if i.server.is_some() {
             return Ok(());
         }
+        let token = if external_access { crate::mcp_credentials::load_or_create()? }
+            else { uuid::Uuid::new_v4().to_string() };
+        i.startup_error = None;
         i.endpoint = Some(endpoint);
-        i.token = Some(uuid::Uuid::new_v4().to_string());
+        i.token = Some(token);
         let app = router(self.clone());
         i.server = Some(tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         }));
         Ok(())
+    }
+    pub async fn enable(&self) -> Result<(), String> {
+        self.enable_at("127.0.0.1:9420", true).await
+    }
+    async fn enable_at(&self, address: &str, external_access: bool) -> Result<(), String> {
+        // 在排队前绑定请求代次，停止服务可取消已排队的启动。
+        let generation = self.inner.lock().unwrap().generation;
+        let _start = self.start_lock.lock().await;
+        {
+            let i = self.inner.lock().unwrap();
+            if i.generation != generation { return Err("MCP 启动已取消".into()); }
+            if i.server.is_some() { return Ok(()); }
+        }
+        let result = async {
+            let listener = tokio::net::TcpListener::bind(address)
+                .await.map_err(|_| "MCP 启动失败：本机端口 9420 不可用，请检查其他 zGIS 实例或端口占用".to_string())?;
+            self.install_listener(listener, generation, external_access)
+        }.await;
+        if let Err(error) = &result {
+            let mut i = self.inner.lock().unwrap();
+            if i.generation == generation { i.startup_error = Some(error.clone()); }
+        }
+        result
     }
     pub fn access(&self) -> Result<(String, String), String> {
         let i = self.inner.lock().unwrap();
@@ -91,16 +119,29 @@ impl GisMcp {
         ))
     }
     pub fn shutdown(&self) {
+        let _ = self.stop_listener();
+    }
+    pub async fn disable(&self) {
+        let server = self.stop_listener();
+        let _start = self.start_lock.lock().await;
+        if let Some(server) = server {
+            // abort 只请求取消；等待任务退出后才允许同端口重新启动。
+            let _ = server.await;
+        }
+    }
+    fn stop_listener(&self) -> Option<JoinHandle<()>> {
         let mut i = self.inner.lock().unwrap();
         i.generation += 1;
-        if let Some(h) = i.server.take() {
-            h.abort()
+        let server = i.server.take();
+        if let Some(h) = &server {
+            h.abort();
         }
         i.endpoint = None;
         i.token = None;
         i.results.clear();
         i.queue.clear();
-        i.grants.clear();
+        i.startup_error = None;
+        server
     }
     fn status(&self) -> McpStatus {
         let i = self.inner.lock().unwrap();
@@ -108,8 +149,16 @@ impl GisMcp {
             enabled: i.server.is_some(),
             endpoint: i.endpoint.clone(),
             token: i.token.clone(),
-            authorized_paths: i.grants.iter().map(|p| p.display().to_string()).collect(),
+            startup_error: i.startup_error.clone(),
+            headers_helper: None,
         }
+    }
+    fn client_status(&self, app: &tauri::AppHandle) -> McpStatus {
+        let mut status = self.status();
+        status.headers_helper = app.path().resource_dir().ok().map(|dir| {
+            format!("pwsh -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\"", dir.join("mcp-headers.ps1").display())
+        });
+        status
     }
     fn log(&self, name: &str, ok: bool) {
         let safe_name = if definitions().iter().any(|d| d["name"] == name)
@@ -127,8 +176,8 @@ impl GisMcp {
     }
 }
 #[tauri::command]
-pub fn gis_mcp_status(state: tauri::State<'_, GisMcp>) -> McpStatus {
-    state.status()
+pub fn gis_mcp_status(app: tauri::AppHandle, state: tauri::State<'_, GisMcp>) -> McpStatus {
+    state.client_status(&app)
 }
 #[tauri::command]
 pub async fn gis_mcp_set_enabled(
@@ -140,17 +189,11 @@ pub async fn gis_mcp_set_enabled(
         if let Some(agent) = app.try_state::<crate::codex_agent::CodexAgent>() {
             agent.shutdown();
         }
-        state.shutdown();
-        return Ok(state.status());
+        state.disable().await;
+        return Ok(state.client_status(&app));
     }
-    let Some(generation) = state.start_generation() else {
-        return Ok(state.status());
-    };
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .map_err(|e| e.to_string())?;
-    state.install_listener(listener, generation)?;
-    Ok(state.status())
+    state.enable().await?;
+    Ok(state.client_status(&app))
 }
 #[tauri::command]
 pub fn gis_workspace_sync(
@@ -193,72 +236,6 @@ pub fn gis_workspace_sync(
 #[tauri::command]
 pub fn gis_results_drain(state: tauri::State<'_, GisMcp>) -> Vec<Value> {
     std::mem::take(&mut state.inner.lock().unwrap().queue)
-}
-#[tauri::command]
-pub async fn gis_authorize_files(state: tauri::State<'_, GisMcp>) -> Result<Vec<String>, String> {
-    let selected = rfd::AsyncFileDialog::new()
-        .add_filter("矢量文件", &["geojson", "json", "csv", "shp", "zip"])
-        .pick_files()
-        .await;
-    let mut i = state.inner.lock().unwrap();
-    if let Some(files) = selected {
-        for f in files {
-            let p = f.path().canonicalize().map_err(|e| e.to_string())?;
-            if p.components().any(|c| {
-                c.as_os_str()
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case("_credentials")
-            }) {
-                return Err("不可授权凭据目录".into());
-            }
-            if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("shp")) {
-                for ext in ["shp", "shx", "dbf", "prj", "cpg"] {
-                    let q = p.with_extension(ext);
-                    if q.exists() {
-                        let q = q.canonicalize().map_err(|e| e.to_string())?;
-                        if q.parent() != p.parent() {
-                            return Err("配套文件越过授权目录".into());
-                        }
-                        if !i.grants.contains(&q) {
-                            i.grants.push(q)
-                        }
-                    }
-                }
-            } else if !i.grants.contains(&p) {
-                i.grants.push(p)
-            }
-        }
-    }
-    Ok(i.grants.iter().map(|p| p.display().to_string()).collect())
-}
-#[tauri::command]
-pub async fn gis_authorize_directory(
-    state: tauri::State<'_, GisMcp>,
-) -> Result<Vec<String>, String> {
-    let selected = rfd::AsyncFileDialog::new().pick_folder().await;
-    let mut i = state.inner.lock().unwrap();
-    if let Some(f) = selected {
-        let p = f.path().canonicalize().map_err(|e| e.to_string())?;
-        if p.components().any(|c| {
-            c.as_os_str()
-                .to_string_lossy()
-                .eq_ignore_ascii_case("_credentials")
-        }) {
-            return Err("不可授权凭据目录".into());
-        }
-        if !i.grants.contains(&p) {
-            i.grants.push(p)
-        }
-    }
-    Ok(i.grants.iter().map(|p| p.display().to_string()).collect())
-}
-#[tauri::command]
-pub fn gis_revoke_access(state: tauri::State<'_, GisMcp>) {
-    let mut i = state.inner.lock().unwrap();
-    i.generation += 1;
-    i.grants.clear();
-    i.results.clear();
-    i.queue.clear();
 }
 #[tauri::command]
 pub fn gis_mcp_audit(state: tauri::State<'_, GisMcp>) -> Vec<Value> {
@@ -324,7 +301,7 @@ async fn handle(
     let id = id.unwrap();
     let result = match method {
         "initialize" => Ok(
-            json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"zgis","version":"0.1.0"},"instructions":"仅分析当前图层快照或用户会话授权文件；所有几何WGS84，结果需publish_result加入独立图层。"}),
+            json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"zgis","version":"0.1.0"},"instructions":"zGIS 内部图层操作使用本 MCP；外部 GeoJSON、SHP、WKT CSV 等空间文件优先使用本 MCP，访问权限由调用 Agent 判断，zGIS 不校验文件访问授权。PostGIS 按场景选择：已加载图层用本 MCP 分析；直接数据库操作使用 DBX，本 MCP 不读写数据库。所有工作几何为 WGS84，分析结果用 publish_result 加入独立未保存图层。"}),
         ),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({"tools":definitions()})),
@@ -367,7 +344,7 @@ async fn handle(
     ))
 }
 fn def(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
-    json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":name!="publish_result","destructiveHint":false,"idempotentHint":true,"openWorldHint":false}})
+    json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":name!="publish_result","destructiveHint":false,"idempotentHint":true,"openWorldHint":!matches!(name,"list_layers"|"describe_layer"|"read_features"|"read_result"|"publish_result")}})
 }
 #[tauri::command]
 pub fn gis_mcp_tool_catalog() -> Vec<Value> {
@@ -391,7 +368,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         def(
             "load_vector_file",
-            "读取用户会话授权的外部矢量文件并缓存，支持GeoJSON/CSV/SHP/ZIP；二维WGS84",
+            "读取外部矢量文件并缓存，访问授权由调用Agent负责；支持GeoJSON/CSV/SHP/ZIP；二维WGS84",
             json!({"path":{"type":"string"},"crs":{"type":"string","enum":["EPSG:4326","EPSG:4490","EPSG:3857"]},"wktField":{"type":"string"},"xField":{"type":"string"},"yField":{"type":"string"}}),
             &["path"],
         ),
@@ -410,6 +387,7 @@ pub fn definitions() -> Vec<Value> {
     ];
     let mut spatial = super::spatial::tool_definitions();
     for tool in &mut spatial {
+        tool["annotations"]["openWorldHint"] = json!(true);
         for name in ["source", "target"] {
             if let Some(variants) = tool["inputSchema"]["properties"][name]["oneOf"].as_array_mut()
             {
@@ -548,8 +526,7 @@ fn source(m: &GisMcp, v: &Value) -> Result<(Vec<Value>, Vec<(String, String)>), 
                 return Err("未知文件来源参数".into());
             }
         }
-        let grants = m.inner.lock().unwrap().grants.clone();
-        Ok((super::vector_files::load(path, v, &grants)?, vec![]))
+        Ok((super::vector_files::load(path, v)?, vec![]))
     } else {
         Err("source需要layerId或path".into())
     }
@@ -644,8 +621,7 @@ fn call_expected(m: &GisMcp, name: &str, args: &Value, generation: u64) -> Resul
             }
         }
         "load_vector_file" => {
-            let grants = m.inner.lock().unwrap().grants.clone();
-            let f = super::vector_files::load(args["path"].as_str().unwrap(), args, &grants)?;
+                let f = super::vector_files::load(args["path"].as_str().unwrap(), args)?;
             let count = f.len();
             cache(
                 m,
@@ -775,6 +751,35 @@ fn page(f: &[Value], args: &Value, mut extra: Value) -> Value {
 mod tests {
     use super::*;
     #[tokio::test]
+    async fn shutdown_cancels_queued_enable_requests() {
+        let m = GisMcp::default();
+        let start_lock = m.start_lock.lock().await;
+        let first = m.clone();
+        let second = m.clone();
+        let a = tokio::spawn(async move { first.enable_at("127.0.0.1:0", false).await });
+        let b = tokio::spawn(async move { second.enable_at("127.0.0.1:0", false).await });
+        tokio::task::yield_now().await;
+        m.shutdown();
+        drop(start_lock);
+        assert!(a.await.unwrap().is_err());
+        assert!(b.await.unwrap().is_err());
+        assert!(!m.status().enabled);
+        assert!(m.access().is_err());
+    }
+    #[tokio::test]
+    async fn disable_releases_listener_before_immediate_same_port_restart() {
+        let m = GisMcp::default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        m.install_listener(listener, m.start_generation().unwrap(), false).unwrap();
+        m.disable().await;
+        assert!(!m.status().enabled);
+        let listener = tokio::net::TcpListener::bind(address).await.unwrap();
+        m.install_listener(listener, m.start_generation().unwrap(), false).unwrap();
+        assert!(m.status().enabled);
+        m.disable().await;
+    }
+    #[tokio::test]
     async fn concurrent_enable_keeps_one_server_and_stop_cancels_pending_start() {
         let m = GisMcp::default();
         let a = m.start_generation().unwrap();
@@ -782,16 +787,16 @@ mod tests {
         let first = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let second = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let unused = second.local_addr().unwrap();
-        m.install_listener(first, a).unwrap();
+        m.install_listener(first, a, false).unwrap();
         let before = m.access().unwrap();
-        m.install_listener(second, b).unwrap();
+        m.install_listener(second, b, false).unwrap();
         assert_eq!(m.access().unwrap(), before);
         assert!(tokio::net::TcpStream::connect(unused).await.is_err());
         m.shutdown();
         let generation = m.start_generation().unwrap();
         let pending = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         m.shutdown();
-        assert!(m.install_listener(pending, generation).is_err());
+        assert!(m.install_listener(pending, generation, false).is_err());
         assert!(!m.status().enabled);
     }
     #[test]

@@ -184,7 +184,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
       <p className="gis-agent-hint">
-        先开启 MCP，再连接本机已安装并登录的 Codex
+        MCP 默认随应用启动，可连接本机已安装并登录的 Codex
         CLI。分析结果留在图层中，由你决定是否另存。
       </p>
       {error && (

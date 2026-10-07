@@ -34,9 +34,6 @@ export const api = {
   mcpSync: (layers: unknown[], activeLayerId?: string) =>
     invoke("gis_workspace_sync", { layers, activeLayerId: activeLayerId ?? null }),
   mcpResults: () => invoke<AnalysisLayer[]>("gis_results_drain"),
-  mcpAuthorizeFiles: () => invoke<string[]>("gis_authorize_files"),
-  mcpAuthorizeDirectory: () => invoke<string[]>("gis_authorize_directory"),
-  mcpRevoke: () => invoke("gis_revoke_access"),
   mcpAudit: () => invoke<unknown[]>("gis_mcp_audit"),
   open: () => invoke<InputFile[]>("open_files"),
   save: (
@@ -100,7 +97,8 @@ export interface McpStatus {
   enabled: boolean;
   endpoint?: string | null;
   token?: string | null;
-  authorizedPaths?: string[];
+  startupError?: string | null;
+  headersHelper?: string | null;
 }
 export interface McpToolDefinition {
   name: string;

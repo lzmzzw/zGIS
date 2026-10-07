@@ -14,6 +14,7 @@ use tokio_postgres::{Client, NoTls};
 mod shapefile_export;
 mod spatial;
 mod gis_mcp;
+mod mcp_credentials;
 mod vector_files;
 mod preferences;
 mod codex_agent;
@@ -1057,15 +1058,18 @@ pub fn run() {
         })
         .manage(gis_mcp::GisMcp::default())
         .manage(codex_agent::CodexAgent::default())
+        .setup(|app| {
+            // 完成启动尝试后再显示前端；失败详情由设置页状态呈现，不阻止地图工作区。
+            let mcp = app.state::<gis_mcp::GisMcp>().inner().clone();
+            let _ = tauri::async_runtime::block_on(mcp.enable());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             gis_mcp::gis_mcp_status,
             gis_mcp::gis_mcp_tool_catalog,
             gis_mcp::gis_mcp_set_enabled,
             gis_mcp::gis_workspace_sync,
             gis_mcp::gis_results_drain,
-            gis_mcp::gis_authorize_files,
-            gis_mcp::gis_authorize_directory,
-            gis_mcp::gis_revoke_access,
             gis_mcp::gis_mcp_audit,
             codex_agent::agent_open,
             codex_agent::agent_current,

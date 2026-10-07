@@ -19,7 +19,6 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1);
   await page.getByRole('button', {name:'设置',exact:true}).click();
   await page.getByRole('button', {name:'空间分析 MCP',exact:true}).click();
-  await page.getByRole('button', {name:'启用 MCP',exact:true}).click();
   await page.getByRole('button', {name:'停止 MCP',exact:true}).waitFor();
   const status = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('gis_mcp_status'));
   let seq = 0;
@@ -52,11 +51,7 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   await page.waitForFunction(() => document.querySelectorAll('.layer-row').length===2);
   assert.deepEqual(await call('read_features',{layerId}),original);
   const path = resolve('output/smoke/fixtures/cities.zip');
-  assert.equal((await rpc('tools/call',{name:'load_vector_file',arguments:{path}})).isError,true);
-  const choosing = nativeDialog('output/smoke/fixtures/cities.zip');
-  await page.getByRole('button',{name:'选择可读文件…',exact:true}).click(); await choosing;
-  const grants = (await waitIPC('gis_mcp_status', value => value.authorizedPaths.length > 0)).authorizedPaths;
-  assert.ok(grants.some(p => p.toLowerCase().endsWith('cities.zip')), `unexpected selected file: ${JSON.stringify(grants)}`);
+  assert.equal(await page.getByRole('button',{name:'选择可读文件…',exact:true}).count(),0);
   const loaded = await call('load_vector_file',{path,crs:'EPSG:4326'});
   assert.equal(loaded.featureCount,2);
   assert.match(JSON.stringify(await call('read_result',{resultId:loaded.resultId})),/北京/);
@@ -96,5 +91,5 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   await page.locator('.layer-row').first().click();
   await fileAction('移除图层');
   await page.waitForFunction(() => document.querySelectorAll('.layer-row').length===0);
-  console.log('PASS: native authenticated MCP, 14 tools, chained buffer/publication, source preservation, file authorization/Chinese SHP ZIP, live Codex PTY and shutdown');
+  console.log('PASS: native authenticated MCP, 14 tools, chained buffer/publication, source preservation, direct external-file loading/Chinese SHP ZIP, live Codex PTY and shutdown');
 }

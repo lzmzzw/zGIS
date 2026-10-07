@@ -30,7 +30,7 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
-    "resources": ["../THIRD_PARTY_NOTICES.md"],
+    "resources": {"../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md", "../scripts/mcp-headers.ps1": "mcp-headers.ps1"},
     "shortDescription": "轻量地理数据查看与编辑器",
     "windows": {
       "nsis": {

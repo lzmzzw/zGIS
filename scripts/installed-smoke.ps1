@@ -31,10 +31,17 @@ try {
   & node scripts/desktop-smoke.mjs $testProcess.Id @smokeArguments
   if ($LASTEXITCODE -ne 0) { throw 'Native file smoke failed.' }
   if (-not $testProcess.WaitForExit(10000)) { throw 'Test instance did not exit.' }
+  $authHelper = Join-Path (Split-Path $Executable -Parent) 'mcp-headers.ps1'
+  $firstAuth = & pwsh -NoProfile -ExecutionPolicy Bypass -File $authHelper 2>$null
+  if ($LASTEXITCODE -ne 0) { throw 'Fixed MCP credential was not retained after exit.' }
   $testProcess = Start-Process -FilePath $Executable -WindowStyle Hidden -PassThru
   & node scripts/desktop-smoke.mjs $testProcess.Id --recovery-only
   if ($LASTEXITCODE -ne 0) { throw 'Native restart recovery smoke failed.' }
   if (-not $testProcess.WaitForExit(10000)) { throw 'Recovery test instance did not exit.' }
+  $secondAuth = & pwsh -NoProfile -ExecutionPolicy Bypass -File $authHelper 2>$null
+  if ($LASTEXITCODE -ne 0 -or $firstAuth -cne $secondAuth) { throw 'MCP fixed credential changed across process restart.' }
+  $firstAuth = $null; $secondAuth = $null
+  Write-Output 'PASS: MCP fixed token persists across application exit and process restart.'
   if (-not (Test-Path -LiteralPath $preferencesPath)) { throw 'Encrypted basemap configuration was not saved.' }
   Write-Output 'PASS: installed binary, native dialogs and cross-process recovery/exit.'
 } finally {

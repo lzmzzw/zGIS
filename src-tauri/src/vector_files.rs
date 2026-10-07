@@ -1,10 +1,10 @@
-//! 会话授权范围内的只读矢量加载；输出统一为 WGS84 GeoJSON，保留 XYZ 高程。
+//! 只读矢量加载；文件访问授权由调用方负责，输出统一为 WGS84 GeoJSON，保留 XYZ 高程。
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     fs,
     io::{Cursor, Read},
-    path::{Path, PathBuf},
+    path::Path,
 };
 const MAX_BYTES: u64 = 100 * 1024 * 1024;
 fn wkt_geometry(g: &wkt::Wkt<f64>) -> Result<Value, String> {
@@ -118,40 +118,26 @@ fn identify_prj(prj: &str) -> Result<&'static str, String> {
     }
     Err("PRJ无法严格识别为EPSG:4326/4490/3857，请明确指定已核实的crs或预先转换".into())
 }
-pub fn authorized(path: &Path, grants: &[PathBuf]) -> Result<PathBuf, String> {
-    if path.components().any(|c| {
-        c.as_os_str()
-            .to_string_lossy()
-            .eq_ignore_ascii_case("_credentials")
-    }) {
-        return Err("凭据目录不可读取".into());
-    }
-    let p = path.canonicalize().map_err(|_| "文件不存在或不可访问")?;
-    if p.components().any(|c| {
-        c.as_os_str()
-            .to_string_lossy()
-            .eq_ignore_ascii_case("_credentials")
-    }) {
-        return Err("凭据目录不可读取".into());
-    }
-    if !grants
-        .iter()
-        .any(|g| p == *g || (g.is_dir() && p.starts_with(g)))
-    {
-        return Err("文件未获当前会话授权，请在 zGIS 授权文件或目录".into());
-    }
-    if !p.is_file() || fs::metadata(&p).map_err(|_| "读取元数据失败")?.len() > MAX_BYTES {
+fn read(path: &Path) -> Result<Vec<u8>, String> {
+    let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let metadata = file.metadata().map_err(|_| "读取元数据失败")?;
+    if !metadata.is_file() || metadata.len() > MAX_BYTES {
         return Err("文件必须小于100MB".into());
     }
-    Ok(p)
+    let mut bytes = Vec::new();
+    file.by_ref()
+        .take(MAX_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return Err("文件必须小于100MB".into());
+    }
+    Ok(bytes)
 }
-fn read(path: &Path, grants: &[PathBuf]) -> Result<Vec<u8>, String> {
-    let p = authorized(path, grants)?;
-    fs::read(p).map_err(|e| e.to_string())
-}
-pub fn load(path: &str, args: &Value, grants: &[PathBuf]) -> Result<Vec<Value>, String> {
-    let p = authorized(Path::new(path), grants)?;
-    let bytes = read(&p, grants)?;
+pub fn load(path: &str, args: &Value) -> Result<Vec<Value>, String> {
+    // 解析实际文件位置，使 SHP 符号链接仍能找到目标文件组的配套文件。
+    let p = Path::new(path).canonicalize().map_err(|_| "文件不存在或不可访问")?;
+    let bytes = read(&p)?;
     let mut features = match p
         .extension()
         .and_then(|e| e.to_str())
@@ -193,7 +179,7 @@ pub fn load(path: &str, args: &Value, grants: &[PathBuf]) -> Result<Vec<Value>, 
             for ext in ["shp", "shx", "dbf", "prj", "cpg"] {
                 let q = p.with_extension(ext);
                 if q.exists() {
-                    parts.insert(ext.into(), read(&q, grants)?);
+                    parts.insert(ext.into(), read(&q)?);
                 }
             }
             shp_features(parts, args)?
@@ -208,13 +194,6 @@ pub fn load(path: &str, args: &Value, grants: &[PathBuf]) -> Result<Vec<Value>, 
                 let Some(q) = f.enclosed_name() else {
                     return Err("ZIP含越界路径".into());
                 };
-                if q.components().any(|c| {
-                    c.as_os_str()
-                        .to_string_lossy()
-                        .eq_ignore_ascii_case("_credentials")
-                }) {
-                    return Err("ZIP含凭据目录".into());
-                }
                 let ext = q
                     .extension()
                     .and_then(|e| e.to_str())
@@ -519,24 +498,47 @@ pub fn validate_geometry(g: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+
+    fn zip_entries(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, bytes) in entries {
+            archive.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+            archive.write_all(bytes).unwrap();
+        }
+        archive.finish().unwrap().into_inner()
+    }
+
+    fn write_shp_group(dir: &Path) -> std::path::PathBuf {
+        let feature = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[116.4,39.9]},"properties":{"name":"北京","value":12.125}});
+        let bytes = crate::shapefile_export::build_zip(&[feature], "points").unwrap();
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        for ext in ["shp", "shx", "dbf", "prj", "cpg"] {
+            let name = format!("points.{ext}");
+            let mut bytes = Vec::new();
+            archive.by_name(&name).unwrap().read_to_end(&mut bytes).unwrap();
+            fs::write(dir.join(name), bytes).unwrap();
+        }
+        dir.join("points.shp")
+    }
+
     #[test]
     fn geojson_crs_metadata_and_override() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("point.geojson");
-        let grants = [dir.path().canonicalize().unwrap()];
         for crs in ["EPSG:4326", "EPSG:4490", "EPSG:3857"] {
             let xy = if crs == "EPSG:3857" { json!([111319.49079327357,0]) } else { json!([1,0]) };
             let mut document = json!({"type":"Feature","geometry":{"type":"Point","coordinates":xy},"properties":{},"crs":{"type":"name","properties":{"name":format!("urn:ogc:def:crs:EPSG::{}", &crs[5..])}}});
             fs::write(&path, document.to_string()).unwrap();
-            let out = load(path.to_str().unwrap(), &json!({}), &grants).unwrap();
+            let out = load(path.to_str().unwrap(), &json!({})).unwrap();
             assert!((out[0]["geometry"]["coordinates"][0].as_f64().unwrap() - 1.0).abs() < 1e-8);
-            if crs != "EPSG:4326" { assert!(load(path.to_str().unwrap(), &json!({"crs":"EPSG:4326"}), &grants).is_err()); }
+            if crs != "EPSG:4326" { assert!(load(path.to_str().unwrap(), &json!({"crs":"EPSG:4326"})).is_err()); }
             document.as_object_mut().unwrap().remove("crs");
             fs::write(&path, document.to_string()).unwrap();
-            assert!((load(path.to_str().unwrap(), &json!({"crs":crs}), &grants).unwrap()[0]["geometry"]["coordinates"][0].as_f64().unwrap() - 1.0).abs() < 1e-8);
+            assert!((load(path.to_str().unwrap(), &json!({"crs":crs})).unwrap()[0]["geometry"]["coordinates"][0].as_f64().unwrap() - 1.0).abs() < 1e-8);
         }
         fs::write(&path, r#"{"type":"FeatureCollection","features":[],"crs":{"type":"name","properties":{"name":"EPSG:9999"}}}"#).unwrap();
-        assert!(load(path.to_str().unwrap(), &json!({}), &grants).is_err());
+        assert!(load(path.to_str().unwrap(), &json!({})).is_err());
     }
     #[test]
     fn three_crs_shapefile_roundtrip() {
@@ -559,7 +561,7 @@ mod tests {
             } else { panic!("Expected point"); }
             let path = dir.path().join("points.zip");
             fs::write(&path, bytes).unwrap();
-            let out = load(path.to_str().unwrap(), &json!({}), &[dir.path().canonicalize().unwrap()]).unwrap();
+            let out = load(path.to_str().unwrap(), &json!({})).unwrap();
             let xy = &out[0]["geometry"]["coordinates"];
             assert!((xy[0].as_f64().unwrap() - 116.4).abs() < 1e-8);
             assert!((xy[1].as_f64().unwrap() - 39.9).abs() < 1e-8);
@@ -583,8 +585,7 @@ mod tests {
         fs::write(&p, r#"{"type":"FeatureCollection","features":[]}"#).unwrap();
         assert!(load(
             p.to_str().unwrap(),
-            &json!({"crs":"EPSG:9999"}),
-            &[p.canonicalize().unwrap()]
+            &json!({"crs":"EPSG:9999"})
         )
         .is_err());
     }
@@ -593,12 +594,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("f.geojson");
         fs::write(&p,r#"{"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]},"properties":{"id":9007199254740993,"decimal":1.1234567890123456789,"nested":[9007199254740993],"normal":1.25}}"#).unwrap();
-        let f = load(
-            p.to_str().unwrap(),
-            &json!({}),
-            &[p.canonicalize().unwrap()],
-        )
-        .unwrap();
+        let f = load(p.to_str().unwrap(), &json!({})).unwrap();
         assert_eq!(f[0]["properties"]["id"], "9007199254740993");
         assert_eq!(f[0]["properties"]["decimal"], "1.1234567890123456789");
         assert_eq!(f[0]["properties"]["normal"], 1.25);
@@ -608,11 +604,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("points.csv");
         fs::write(&p, "east,north,name\n111319.49079327357,0,北京\n").unwrap();
-        let grants = vec![dir.path().canonicalize().unwrap()];
         let f = load(
             p.to_str().unwrap(),
             &json!({"xField":"east","yField":"north","crs":"EPSG:3857"}),
-            &grants,
         )
         .unwrap();
         assert!((f[0]["geometry"]["coordinates"][0].as_f64().unwrap() - 1.).abs() < 1e-9);
@@ -625,40 +619,118 @@ mod tests {
         let f = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[116.4,39.9]},"properties":{"name":"北京","value":12.125}});
         let bytes = crate::shapefile_export::build_zip(&[f], "points").unwrap();
         fs::write(&p, bytes).unwrap();
-        let out = load(
-            p.to_str().unwrap(),
-            &json!({}),
-            &[p.canonicalize().unwrap()],
-        )
-        .unwrap();
+        let out = load(p.to_str().unwrap(), &json!({})).unwrap();
         assert_eq!(out[0]["properties"]["name"], "北京");
         assert_eq!(out[0]["properties"]["value"], 12.125);
         assert_eq!(out[0]["geometry"]["coordinates"], json!([116.4, 39.9]));
     }
-    #[cfg(windows)]
     #[test]
-    fn canonical_symlink_cannot_escape_grant() {
+    fn loads_external_geojson_without_path_permissions() {
         let dir = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let target = outside.path().join("data.json");
-        fs::write(&target, "{}").unwrap();
-        let link = dir.path().join("data.json");
-        if std::os::windows::fs::symlink_file(&target, &link).is_ok() {
-            assert!(authorized(&link, &[dir.path().canonicalize().unwrap()]).is_err());
-        }
+        let feature = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]},"properties":{"name":"external"}});
+        let p = dir.path().join("a.geojson");
+        fs::write(&p, feature.to_string()).unwrap();
+        assert_eq!(load(p.to_str().unwrap(), &json!({})).unwrap(), vec![feature.clone()]);
+        let named_dir = dir.path().join("_credentials");
+        fs::create_dir(&named_dir).unwrap();
+        let p = named_dir.join("a.geojson");
+        fs::write(&p, feature.to_string()).unwrap();
+        assert_eq!(load(p.to_str().unwrap(), &json!({})).unwrap(), vec![feature]);
     }
     #[test]
-    fn denies_ungranted_and_credentials() {
+    fn loads_external_wkt_csv_without_grants() {
         let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("a.geojson");
-        fs::write(&p, b"{}").unwrap();
-        assert!(authorized(&p, &[]).is_err());
-        assert!(authorized(&p, &[dir.path().canonicalize().unwrap()]).is_ok());
-        let secret = dir.path().join("_credentials");
-        fs::create_dir(&secret).unwrap();
-        let p = secret.join("a.json");
-        fs::write(&p, b"{}").unwrap();
-        assert!(authorized(&p, &[dir.path().canonicalize().unwrap()]).is_err());
+        let path = dir.path().join("points.csv");
+        fs::write(&path, "label,shape\norigin,POINT Z (1 2 3)\n").unwrap();
+        let out = load(path.to_str().unwrap(), &json!({"wktField":"shape"})).unwrap();
+        assert_eq!(out[0]["geometry"]["coordinates"], json!([1.0, 2.0, 3.0]));
+        assert_eq!(out[0]["properties"], json!({"label":"origin"}));
+    }
+    #[test]
+    fn loads_external_shp_file_group_without_grants() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_shp_group(dir.path());
+        let out = load(path.to_str().unwrap(), &json!({})).unwrap();
+        assert_eq!(out[0]["geometry"]["coordinates"], json!([116.4, 39.9]));
+        assert_eq!(out[0]["properties"]["name"], "北京");
+        assert_eq!(out[0]["properties"]["value"], 12.125);
+        fs::remove_file(path.with_extension("dbf")).unwrap();
+        assert_eq!(load(path.to_str().unwrap(), &json!({})).unwrap_err(), "缺少DBF");
+    }
+    #[cfg(any(windows, unix))]
+    #[test]
+    fn symbolic_links_load_external_geojson_and_shp_file_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("data.geojson");
+        let feature = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[1,2]},"properties":{}});
+        fs::write(&target, feature.to_string()).unwrap();
+        let link = dir.path().join("data.geojson");
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_file(&target, &link);
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&target, &link);
+        if let Err(error) = linked {
+            eprintln!("当前环境不能创建符号链接，跳过此用例：{error}");
+            return;
+        }
+        assert_eq!(load(link.to_str().unwrap(), &json!({})).unwrap(), vec![feature]);
+
+        let target = write_shp_group(outside.path());
+        let link = dir.path().join("linked.shp");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&target, &link).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let out = load(link.to_str().unwrap(), &json!({})).unwrap();
+        assert_eq!(out[0]["geometry"]["coordinates"], json!([116.4, 39.9]));
+        assert_eq!(out[0]["properties"]["name"], "北京");
+    }
+    #[test]
+    fn rejects_unsupported_invalid_and_oversized_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.txt");
+        fs::write(&path, "{}").unwrap();
+        assert_eq!(load(path.to_str().unwrap(), &json!({})).unwrap_err(), "仅支持GeoJSON、CSV、SHP及SHP ZIP");
+        let path = dir.path().join("invalid.geojson");
+        fs::write(&path, "not json").unwrap();
+        assert_eq!(load(path.to_str().unwrap(), &json!({})).unwrap_err(), "无效GeoJSON");
+        let path = dir.path().join("oversized.geojson");
+        fs::File::create(&path).unwrap().set_len(MAX_BYTES + 1).unwrap();
+        assert_eq!(load(path.to_str().unwrap(), &json!({})).unwrap_err(), "文件必须小于100MB");
+    }
+    #[test]
+    fn loads_shp_zip_with_policy_neutral_directory_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let feature = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[116.4,39.9]},"properties":{"name":"北京"}});
+        let source = crate::shapefile_export::build_zip(&[feature], "points").unwrap();
+        let mut source = zip::ZipArchive::new(Cursor::new(source)).unwrap();
+        let mut entries = Vec::new();
+        for ext in ["shp", "shx", "dbf", "prj", "cpg"] {
+            let mut bytes = Vec::new();
+            source.by_name(&format!("points.{ext}")).unwrap().read_to_end(&mut bytes).unwrap();
+            entries.push((format!("_credentials/points.{ext}"), bytes));
+        }
+        let entries: Vec<_> = entries.iter().map(|(name, bytes)| (name.as_str(), bytes.as_slice())).collect();
+        let path = dir.path().join("points.zip");
+        fs::write(&path, zip_entries(&entries)).unwrap();
+        let out = load(path.to_str().unwrap(), &json!({})).unwrap();
+        assert_eq!(out[0]["geometry"]["coordinates"], json!([116.4, 39.9]));
+        assert_eq!(out[0]["properties"]["name"], "北京");
+    }
+    #[test]
+    fn rejects_zip_traversal_and_oversized_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("unsafe.zip");
+        fs::write(&path, zip_entries(&[("../points.shp", b"untrusted")])).unwrap();
+        assert_eq!(load(path.to_str().unwrap(), &json!({})).unwrap_err(), "ZIP含越界路径");
+
+        let mut bytes = zip_entries(&[("points.shp", b"untrusted")]);
+        let central = bytes.windows(4).position(|part| part == b"PK\x01\x02").unwrap();
+        // 在 ZIP 目录中声明超限解压大小，确认读取内容前就会拒绝。
+        bytes[central + 24..central + 28].copy_from_slice(&((MAX_BYTES + 1) as u32).to_le_bytes());
+        fs::write(&path, bytes).unwrap();
+        assert_eq!(load(path.to_str().unwrap(), &json!({})).unwrap_err(), "解压大小超过100MB");
     }
     #[test]
     fn accepts_z_rejects_extra_and_outside() {

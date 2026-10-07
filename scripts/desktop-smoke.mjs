@@ -7,6 +7,7 @@ import shp from "shpjs";
 import { layerBasemapSmoke } from "./layer-basemap-smoke.mjs";
 import { layerTreeStyleSmoke } from "./layer-tree-style-smoke.mjs";
 import { mcpNativeSmoke } from "./mcp-native-smoke.mjs";
+import { mcpConnectionSmoke } from "./mcp-connection-smoke.mjs";
 const appPid = Number(process.argv[2]);
 if (!appPid) throw new Error("Pass the isolated zGIS test process ID");
 mkdirSync("output/desktop", { recursive: true });
@@ -26,6 +27,7 @@ const page =
     .pages()
     .find((p) => p.url().includes("tauri")) ?? browser.contexts()[0].pages()[0];
 await page.waitForSelector(".app");
+await mcpConnectionSmoke(page);
 if (process.argv.includes("--recovery-only")) {
   await page.waitForFunction(() =>
     document
@@ -110,7 +112,13 @@ assert.equal(nativeTools.length, 14);
 await page.getByRole("button", { name: /工具详情/ }).click();
 await page.waitForSelector(".mcp-tool-item");
 assert.deepEqual((await page.locator(".mcp-tool-item code").allTextContents()).sort(), nativeTools.map(tool => tool.name).sort());
+assert.equal(await page.getByRole("button", { name: "停止 MCP", exact: true }).isVisible(), true);
+await page.getByRole("button", { name: "停止 MCP", exact: true }).click();
+await page.getByRole("button", { name: "启用 MCP", exact: true }).waitFor();
 assert.equal(await page.getByRole("button", { name: "启用 MCP", exact: true }).isVisible(), true);
+assert.deepEqual((await page.locator(".mcp-tool-item code").allTextContents()).sort(), nativeTools.map(tool => tool.name).sort());
+await page.getByRole("button", { name: "启用 MCP", exact: true }).click();
+await page.getByRole("button", { name: "停止 MCP", exact: true }).waitFor();
 await page.screenshot({ path: "output/desktop/mcp-tool-catalog.png" });
 await page.getByRole("button", { name: "返回地图", exact: true }).click();
 console.log("PASS: native MCP catalog lists every registered tool while service is stopped");
