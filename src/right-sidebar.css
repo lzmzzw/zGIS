@@ -1,0 +1,38 @@
+.workspace[data-sidebar="true"] {
+  grid-template-columns: var(--layer-panel-width, 260px) minmax(0, 1fr) var(
+      --right-sidebar-width,
+      368px
+    );
+}
+.workspace[data-sidebar="true"][data-layers="false"] {
+  grid-template-columns: minmax(0, 1fr) var(--right-sidebar-width, 368px);
+}
+.right-sidebar {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+}
+.right-sidebar-resizer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  z-index: 5;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.right-sidebar-resizer:hover,
+.right-sidebar-resizer:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+@media (max-width: 800px) {
+  .right-sidebar {
+    width: var(--right-sidebar-width, 368px);
+    flex-shrink: 0;
+  }
+}

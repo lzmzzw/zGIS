@@ -5,14 +5,6 @@
   min-height: 0;
   background: var(--panel);
   color: var(--text);
-  border-left: 1px solid var(--border);
-}
-.gis-agent-panel header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
 }
 .gis-agent-panel header span {
   margin-left: 12px;
@@ -21,6 +13,7 @@
 }
 .gis-agent-toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 14px 0;
 }
@@ -29,6 +22,7 @@
   line-height: 1.6;
   color: var(--muted);
   margin: 10px 14px;
+  overflow-wrap: anywhere;
 }
 .gis-agent-error {
   font-size: var(--font-size-sm);

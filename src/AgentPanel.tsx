@@ -25,7 +25,9 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
     });
     const syncTheme = () => {
       const styles = getComputedStyle(document.documentElement);
-      term.options.fontSize = parseFloat(styles.getPropertyValue("--font-size-sm"));
+      term.options.fontSize = parseFloat(
+        styles.getPropertyValue("--font-size-sm"),
+      );
       term.options.fontFamily = styles.getPropertyValue("--font-mono").trim();
       term.options.theme = {
         background: styles.getPropertyValue("--panel").trim(),
@@ -163,7 +165,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
   };
   return (
     <section className="gis-agent-panel" aria-label="Codex 空间分析助手">
-      <header>
+      <header className="processing-heading">
         <div>
           <strong>Codex Agent</strong>
           <span>{running ? "运行中" : "未连接"}</span>
@@ -174,7 +176,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
           onClick={onClose}
           title="隐藏侧栏，保留会话"
         >
-          <X />
+          <X size={16} />
         </button>
       </header>
       <div className="gis-agent-toolbar">
@@ -186,7 +188,8 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
       <p className="gis-agent-hint">
-        需在本机安装并登录 Codex CLI。MCP 随应用启动，分析结果保留为图层，可另存。
+        需在本机安装并登录 Codex CLI。MCP
+        随应用启动，分析结果保留为图层，可另存。
       </p>
       {error && (
         <p role="alert" className="gis-agent-error">

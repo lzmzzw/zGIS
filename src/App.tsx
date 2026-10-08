@@ -69,6 +69,7 @@ import {
 } from "./basemaps";
 import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
+import RightSidebar from "./RightSidebar";
 import ProcessingToolbox, {
   type ProcessingRequest,
   type ProcessingOutcome,
@@ -356,26 +357,55 @@ export default function App() {
       return 260;
     }
   });
-  const [layerPanelMaxWidth, setLayerPanelMaxWidth] = useState(() =>
-    Math.max(200, Math.min(480, window.innerWidth - 360)),
-  );
+  const [workspaceWidth, setWorkspaceWidth] = useState(window.innerWidth);
   const workspaceElement = useRef<HTMLElement>(null);
+  const rightSidebarOpen = toolboxOpen || (agentOpen && desktop);
+  const [sidebarWidths, setSidebarWidths] = useState(() => {
+    const read = (key: string) => {
+      try {
+        const value = Number(localStorage.getItem(key));
+        return value >= 320 && value <= 720 ? Math.round(value) : 368;
+      } catch {
+        return 368;
+      }
+    };
+    return {
+      toolbox: read("zgis.toolboxWidth"),
+      agent: read("zgis.agentWidth"),
+    };
+  });
+  const sidebarKind = toolboxOpen ? "toolbox" : "agent";
+  const layerPanelMaxWidth = Math.max(
+    200,
+    Math.min(480, workspaceWidth - 360 - (rightSidebarOpen ? 320 : 0)),
+  );
   const shownLayerPanelWidth = Math.min(layerPanelWidth, layerPanelMaxWidth);
+  const sidebarMaxWidth = Math.max(
+    320,
+    Math.min(
+      720,
+      workspaceWidth - (layersOpen ? shownLayerPanelWidth : 0) - 360,
+    ),
+  );
+  const shownSidebarWidth = Math.min(
+    sidebarWidths[sidebarKind],
+    sidebarMaxWidth,
+  );
   useEffect(() => {
     try {
       localStorage.setItem("zgis.layerPanelWidth", String(layerPanelWidth));
+      localStorage.setItem("zgis.toolboxWidth", String(sidebarWidths.toolbox));
+      localStorage.setItem("zgis.agentWidth", String(sidebarWidths.agent));
     } catch {
       /* 当前窗口仍可调整宽度。 */
     }
-  }, [layerPanelWidth]);
+  }, [layerPanelWidth, sidebarWidths]);
   useEffect(() => {
     const workspace = workspaceElement.current;
     if (!workspace) return;
-    const observer = new ResizeObserver(() =>
-      setLayerPanelMaxWidth(
-        Math.max(200, Math.min(480, workspace.clientWidth - 360)),
-      ),
-    );
+    const observer = new ResizeObserver(() => {
+      if (workspace.clientWidth) setWorkspaceWidth(workspace.clientWidth);
+    });
     observer.observe(workspace);
     return () => observer.disconnect();
   }, []);
@@ -2570,10 +2600,11 @@ export default function App() {
           style={
             {
               "--layer-panel-width": `${shownLayerPanelWidth}px`,
+              "--right-sidebar-width": `${shownSidebarWidth}px`,
             } as CSSProperties
           }
           data-layers={layersOpen}
-          data-toolbox={toolboxOpen}
+          data-sidebar={rightSidebarOpen}
         >
           <aside className="layers-panel" hidden={!layersOpen}>
             <div
@@ -3541,41 +3572,58 @@ export default function App() {
               )}
             </section>
           </section>
-          {toolboxMounted && (
-            <div className="processing-toolbox-host" hidden={!toolboxOpen}>
-              <ProcessingToolbox
-                layers={layers}
-                activeLayerId={activeId}
-                selectedFeatureId={selectedId}
-                editing={Boolean(editingLayerId)}
-                blockedReason={
-                  !desktop
-                    ? "空间分析需要桌面版，请在 zGIS 应用中运行"
-                    : modal ||
-                        gestureActive ||
-                        !recoveryReady ||
-                        (busy && !toolboxRunning)
-                      ? "请先完成当前操作"
-                      : undefined
-                }
-                onRun={runToolboxAnalysis}
-                onRunningChange={setToolboxRunning}
-                onClose={() => {
-                  if (busyRef.current) return;
-                  setToolboxOpen(false);
-                  toolboxTrigger.current?.focus();
-                }}
-                onLocateResult={(id) => {
-                  if (busyRef.current || editingLayerId) return;
-                  if (!currentLayers.current.some((layer) => layer.id === id)) {
-                    setError("结果图层已移除");
-                    return;
-                  }
-                  activateLayer(id);
-                  setFitNonce((n) => n + 1);
-                }}
-              />
-            </div>
+          {(toolboxMounted || (agentOpen && desktop)) && (
+            <RightSidebar
+              hidden={!rightSidebarOpen}
+              label={toolboxOpen ? "工具箱" : "Agent"}
+              width={shownSidebarWidth}
+              maxWidth={sidebarMaxWidth}
+              onWidthChange={(width) =>
+                setSidebarWidths((old) => ({ ...old, [sidebarKind]: width }))
+              }
+            >
+              {toolboxMounted && (
+                <div className="processing-toolbox-host" hidden={!toolboxOpen}>
+                  <ProcessingToolbox
+                    layers={layers}
+                    activeLayerId={activeId}
+                    selectedFeatureId={selectedId}
+                    editing={Boolean(editingLayerId)}
+                    blockedReason={
+                      !desktop
+                        ? "空间分析需要桌面版，请在 zGIS 应用中运行"
+                        : modal ||
+                            gestureActive ||
+                            !recoveryReady ||
+                            (busy && !toolboxRunning)
+                          ? "请先完成当前操作"
+                          : undefined
+                    }
+                    onRun={runToolboxAnalysis}
+                    onRunningChange={setToolboxRunning}
+                    onClose={() => {
+                      if (busyRef.current) return;
+                      setToolboxOpen(false);
+                      toolboxTrigger.current?.focus();
+                    }}
+                    onLocateResult={(id) => {
+                      if (busyRef.current || editingLayerId) return;
+                      if (
+                        !currentLayers.current.some((layer) => layer.id === id)
+                      ) {
+                        setError("结果图层已移除");
+                        return;
+                      }
+                      activateLayer(id);
+                      setFitNonce((n) => n + 1);
+                    }}
+                  />
+                </div>
+              )}
+              {agentOpen && desktop && (
+                <AgentPanel onClose={() => setAgentOpen(false)} />
+              )}
+            </RightSidebar>
           )}
         </main>
         {error && !modal && (
@@ -3660,11 +3708,6 @@ export default function App() {
               onClose={() => openModal(null)}
             />
           </Modal>
-        )}
-        {agentOpen && desktop && (
-          <div className="agent-dock" hidden={modal === "settings"}>
-            <AgentPanel onClose={() => setAgentOpen(false)} />
-          </div>
         )}
         {modal === "settings" && (
           <SettingsPage

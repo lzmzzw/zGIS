@@ -257,13 +257,22 @@ test("toolbox stays inside 960px dark and light windows with keyboard controls",
     await page.evaluate((theme) => {
       document.documentElement.dataset.theme = theme;
     }, theme);
-    const box = (await toolbox(page).boundingBox())!;
-    const map = (await page
-      .getByLabel("地理数据地图", { exact: true })
-      .boundingBox())!;
-    expect(box.x + box.width).toBeLessThanOrEqual(960);
-    expect(map.width).toBeGreaterThan(200);
-    expect(map.x + map.width).toBeLessThanOrEqual(box.x + 1);
+    // ResizeObserver may clamp the dock between two independent DOM reads.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const box = document
+            .querySelector(".processing-toolbox")!
+            .getBoundingClientRect();
+          const map = document
+            .querySelector(".map-surface")!
+            .getBoundingClientRect();
+          return (
+            box.right <= 960 && map.width > 200 && map.right <= box.left + 1
+          );
+        }),
+      )
+      .toBe(true);
     await toolbox(page).getByLabel("搜索分析工具").fill("centroid");
     await toolbox(page).locator(".processing-tool-option").focus();
     await page.keyboard.press("Enter");

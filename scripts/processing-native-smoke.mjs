@@ -97,6 +97,49 @@ try {
   await page
     .getByRole("button", { name: "空间分析工具箱", exact: true })
     .click();
+  const checkDock = async () => {
+    const side = await page.locator(".right-sidebar").boundingBox();
+    for (const selector of [
+      ".map-column",
+      ".map-surface",
+      ".attribute-panel",
+    ]) {
+      const content = await page.locator(selector).boundingBox();
+      assert.ok(
+        content.x + content.width <= side.x + 1,
+        `${selector} covered by dock`,
+      );
+    }
+  };
+  await page.getByRole("button", { name: "展开属性表", exact: true }).click();
+  const toolboxResize = page.getByRole("separator", {
+    name: "调整工具箱侧栏宽度",
+  });
+  await toolboxResize.focus();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowLeft");
+  await expect(toolboxResize).toHaveAttribute("aria-valuenow", "340");
+  await checkDock();
+  await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
+  const agentResize = page.getByRole("separator", {
+    name: "调整Agent侧栏宽度",
+  });
+  const agentBox = await agentResize.boundingBox();
+  await page.mouse.move(agentBox.x + 2, agentBox.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(agentBox.x - 48, agentBox.y + 100);
+  await page.mouse.up();
+  await checkDock();
+  const agentWidth = await agentResize.getAttribute("aria-valuenow");
+  await page.screenshot({ path: resolve(output, "agent-dock-native.png") });
+  await page.getByRole("button", { name: "隐藏助手侧栏" }).click();
+  await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
+  await expect(agentResize).toHaveAttribute("aria-valuenow", agentWidth);
+  await page
+    .getByRole("button", { name: "空间分析工具箱", exact: true })
+    .click();
+  await expect(toolboxResize).toHaveAttribute("aria-valuenow", "340");
+  await checkDock();
   const toolbox = page.locator(".processing-toolbox");
   const selectTool = (name) =>
     toolbox
@@ -190,6 +233,8 @@ try {
           "source preservation",
           "28 tool native catalog",
           "normal snapshot exit",
+          "docked agent and toolbox do not cover map or attribute table",
+          "independent sidebar widths, native pointer drag and keyboard resize",
         ],
         errors,
       },

@@ -1147,7 +1147,6 @@ select[aria-invalid="true"] {
     min-width: 150px;
   }
 }
-.agent-dock { position: absolute; right: 0; top: 52px; bottom: 30px; width: min(480px, 65vw); z-index: 25; background: var(--panel); border-left: 1px solid var(--border); box-shadow: -8px 0 24px #0003; }
 .mcp-panel { display: grid; gap: 16px; max-width: 820px; }
 .mcp-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
 
