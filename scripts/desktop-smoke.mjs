@@ -259,11 +259,9 @@ await page.waitForFunction(
 );
 await page.locator("tbody tr").first().click();
 await setName("北京编辑后");
-await page
-  .locator(".attribute-panel summary")
-  .filter({ hasText: /^更多$/ })
-  .click();
-await page.getByRole("button", { name: "WKT 几何…", exact: true }).click();
+await page.getByLabel("地理数据地图", {exact:true}).focus();
+await page.keyboard.press("Shift+F10");
+await page.getByRole("menuitem", {name:"WKT 几何…",exact:true}).click();
 await page
   .getByRole("textbox", { name: "WKT 几何", exact: true })
   .fill("POINT (117 40)");
@@ -444,7 +442,7 @@ await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).t
 await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_field === "")).toBe(true);
 await expect(page.getByRole("button", {name:"新增记录",exact:true})).toBeEnabled();
 await page.locator(".attribute-panel th").filter({hasText:"native_field"}).click({button:"right"});
-await page.getByRole("menuitem",{name:"重命名字段…",exact:true}).click();
+await page.getByRole("menuitem",{name:"重命名字段",exact:true}).click();
 await page.getByLabel("新字段名",{exact:true}).fill("native_renamed");
 await page.getByRole("dialog").getByRole("button",{name:"重命名字段",exact:true}).click();
 await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
@@ -452,7 +450,7 @@ await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).t
 await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_renamed === "" && !Object.hasOwn(f.properties,"native_field"))).toBe(true);
 await expect(page.getByRole("button", {name:"新增记录",exact:true})).toBeEnabled();
 await page.locator(".attribute-panel th").filter({hasText:"native_renamed"}).click({button:"right"});
-await page.getByRole("menuitem",{name:"删除字段…",exact:true}).click();
+await page.getByRole("menuitem",{name:"删除字段",exact:true}).click();
 await page.getByRole("dialog").getByRole("button",{name:"删除字段",exact:true}).click();
 await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
 await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();

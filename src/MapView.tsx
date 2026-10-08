@@ -777,6 +777,7 @@ export default function MapView(props: Props) {
           y: rect.top + rect.height / 2,
           coordinate: toLonLat(coordinate),
           returnFocus: event.currentTarget,
+          featureId: props.selectedId,
         });
       }}
     />

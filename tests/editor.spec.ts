@@ -80,11 +80,10 @@ async function cities(page: Page) {
 async function wktEditor(page: Page) {
   const enter = page.getByRole("button", { name: "编辑", exact: true });
   if (await enter.count() && await enter.isEnabled()) await enter.click();
-  await page
-    .locator(".attribute-panel summary")
-    .filter({ hasText: /^更多$/ })
-    .click();
-  await page.getByRole("button", { name: "WKT 几何…", exact: true }).click();
+  await page.getByRole("button", {name:"选择",exact:true}).click();
+  await page.getByLabel("地理数据地图", {exact:true}).focus();
+  await page.keyboard.press("Shift+F10");
+  await page.getByRole("menuitem", {name:"WKT 几何…",exact:true}).click();
 }
 
 async function editCell(page: Page, field: string) {

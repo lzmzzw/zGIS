@@ -439,6 +439,7 @@ export default function App() {
   } | null>(null);
   const [tableEditing, setTableEditing] = useState(false);
   const [closingLayerId, setClosingLayerId] = useState<string>();
+  const [featurePreview, setFeaturePreview] = useState(false);
   const [tableMaximized, setTableMaximized] = useState(false);
   const [columnWidths, setColumnWidths] = useState<Record<string, Record<string, number>>>({});
   const [columnOrders, setColumnOrders] = useState<Record<string, string[]>>({});
@@ -540,7 +541,7 @@ export default function App() {
             }
           : undefined,
         panelDraft:
-          (draftModal === "json" || draftModal === "wkt") && selectedId
+          !featurePreview && (draftModal === "json" || draftModal === "wkt") && selectedId
             ? {
                 kind: draftModal,
                 featureId: selectedId,
@@ -692,6 +693,7 @@ export default function App() {
               : ".csv"),
       );
     setError("");
+    setFeaturePreview(false);
     setModal(value);
   }
   useEffect(() => {
@@ -902,7 +904,7 @@ export default function App() {
         (layerStyleDraft.color !== active?.color ||
           layerStyleDraft.opacity !== (active?.opacity ?? 1) ||
           layerStyleDraft.strokeWidth !== (active?.strokeWidth ?? 2))) ||
-      (editable && (modal === "json" || modal === "wkt" || modal === "field"))
+      (editable && !featurePreview && (modal === "json" || modal === "wkt" || modal === "field"))
     ) {
       exitPreviousModal.current = modal;
       setModal("quit");
@@ -1647,7 +1649,7 @@ export default function App() {
     if (
       drawDraft ||
       gestureActive ||
-      (editable && (modal === "json" || modal === "wkt"))
+      (editable && !featurePreview && (modal === "json" || modal === "wkt"))
     ) {
       setError("请先完成或取消当前绘制、几何或属性草稿，再保存");
       return;
@@ -2396,43 +2398,58 @@ export default function App() {
     contextAction("copy-text", "复制", () => copyText(context.text));
   } else if (context?.kind === "field") {
     contextAction("copy-name", "复制字段名", () => copyText(context.field));
-    contextAction("copy-summary", "复制字段摘要", () =>
-      copyText(`${context.field}：${fieldSummary(context.field)}`),
-    );
-    contextItems.push({ id: "field-separator", separator: true });
-    contextAction(
-      "add-field",
-      "添加字段…",
-      () => {
-        if (!editing) beginEditing();
-        openModal("field");
-      },
-      contextBlocked || sketching || !canEdit,
-      false,
-      undefined,
-    );
-    contextAction(
-      "rename-field",
-      "重命名字段…",
-      () => {
-        if (!editing) beginEditing();
-        setFieldTarget(context.field);
-        setNewField(context.field);
-        openModal("rename-field");
-      },
-      contextBlocked || sketching || !canEdit,
-    );
-    contextAction(
-      "delete-field",
-      "删除字段…",
-      () => {
-        if (!editing) beginEditing();
-        setFieldTarget(context.field);
-        openModal("delete-field");
-      },
-      contextBlocked || sketching || !canEdit,
-      true,
-    );
+    if (tableEditing) {
+      contextItems.push({ id: "field-separator", separator: true });
+      contextAction(
+        "add-field",
+        "添加字段",
+        () => {
+          if (!editing) beginEditing();
+          openModal("field");
+        },
+        contextBlocked || sketching || !canEdit,
+        false,
+        undefined,
+      );
+      contextAction(
+        "rename-field",
+        "重命名字段",
+        () => {
+          if (!editing) beginEditing();
+          setFieldTarget(context.field);
+          setNewField(context.field);
+          openModal("rename-field");
+        },
+        contextBlocked || sketching || !canEdit,
+      );
+      contextAction(
+        "delete-field",
+        "删除字段",
+        () => {
+          if (!editing) beginEditing();
+          setFieldTarget(context.field);
+          openModal("delete-field");
+        },
+        contextBlocked || sketching || !canEdit,
+        true,
+      );
+    }
+  } else if (context?.kind === "record" && contextFeature) {
+    const feature = contextFeature;
+    const blocked = contextBlocked || sketching || feature.id !== selectedId;
+    contextAction("fit-feature", "定位到要素", () => setFeatureFitNonce((n) => n + 1), blocked || !feature.geometry);
+    contextAction("json-preview", "JSON属性预览", () => { openModal("json"); setFeaturePreview(true); }, blocked);
+    contextAction("wkt-preview", "WKT几何预览", () => { openModal("wkt"); setFeaturePreview(true); }, blocked || !feature.geometry);
+    contextItems.push({ id: "copy-separator", separator: true });
+    contextAction("copy-value", "复制单元格", () => {
+      if (context.field !== undefined) copyText(feature.properties[context.field] === null ? "NULL" : stringify(feature.properties[context.field]));
+    }, context.field === undefined);
+    contextAction("copy-properties", "复制JSON属性", () => copyText(JSON.stringify(feature.properties, null, 2)));
+    contextAction("copy-wkt", "复制WKT几何", () => copyText(geometryToWkt(feature.geometry!)), !feature.geometry);
+    if (tableEditing) {
+      contextItems.push({ id: "delete-separator", separator: true });
+      contextAction("delete-feature", "删除要素", () => openModal("delete"), blocked || !editable, true);
+    }
   } else if (context) {
     if (context.kind === "map") {
       contextAction("copy-coordinate", "复制经纬度", () =>
@@ -2491,28 +2508,6 @@ export default function App() {
       const feature = contextFeature;
       const featureBlocked =
         contextBlocked || sketching || feature.id !== selectedId;
-      if (context.kind === "record" && context.field !== undefined) {
-        const field = context.field;
-        contextAction("copy-value", "复制单元格值", () =>
-          copyText(
-            feature.properties[field] === null
-              ? "NULL"
-              : stringify(feature.properties[field]),
-          ),
-        );
-        contextAction(
-          "edit-cell",
-          "编辑单元格",
-          () => beginCell(feature, field, true),
-          featureBlocked || !canEdit,
-          false,
-          !canEdit
-            ? "当前来源只读"
-            : cellDraft
-              ? "请先应用或取消当前编辑"
-              : undefined,
-        );
-      }
       contextAction(
         "fit-feature",
         "定位到要素",
@@ -3545,13 +3540,6 @@ export default function App() {
                         </IconButton>
                       </>
                     )}
-                    <IconButton
-                      label="定位到选中要素"
-                      disabled={!selected || Boolean(cellDraft)}
-                      onClick={() => setFeatureFitNonce((n) => n + 1)}
-                    >
-                      <LocateFixed />
-                    </IconButton>
                     <HeaderMenu label="更多">
                       <span className="field-info">
                         {selected ? `选中要素：${selected.id}` : "请先选择要素"}
@@ -3565,9 +3553,9 @@ export default function App() {
                       </button>
                       <button
                         disabled={!selected || busy || Boolean(cellDraft)}
-                        onClick={() => openModal("wkt")}
+                        onClick={() => { openModal("wkt"); setFeaturePreview(true); }}
                       >
-                        WKT 几何…
+                        WKT几何预览
                       </button>
                     </HeaderMenu>
                     <div className="pagination">
@@ -3676,6 +3664,7 @@ export default function App() {
                           <th
                             key={field}
                             title={field}
+                            aria-label={field}
                             draggable={!cellDraft}
                             onDragStart={(e) => {
                               if ((e.target as HTMLElement).closest(".column-resizer")) { e.preventDefault(); return; }
@@ -4331,7 +4320,7 @@ export default function App() {
         )}
         {(modal === "json" || modal === "wkt") && selected && (
           <Modal
-            title={modal === "json" ? "JSON 属性" : "WKT 几何"}
+            title={featurePreview ? (modal === "json" ? "JSON属性预览" : "WKT几何预览") : (modal === "json" ? "JSON 属性" : "WKT 几何")}
             onClose={() => openModal(null)}
           >
             <div className="editor-layout">
@@ -4341,7 +4330,7 @@ export default function App() {
                   <textarea
                     aria-label={modal === "json" ? "JSON 属性" : "WKT 几何"}
                     value={modal === "json" ? propertyText : wktText}
-                    readOnly={!editable || busy}
+                    readOnly={featurePreview || !editable || busy}
                     onChange={(e) =>
                       modal === "json"
                         ? setPropertyText(e.target.value)
@@ -4357,7 +4346,7 @@ export default function App() {
                   <dd>{active?.displayName ?? active?.name}</dd>
                   <dt>要素</dt>
                   <dd>{selected.id}</dd>
-                  <dt>{modal === "json" ? "草稿字段" : "草稿类型"}</dt>
+                  <dt>{featurePreview ? (modal === "json" ? "字段" : "类型") : (modal === "json" ? "草稿字段" : "草稿类型")}</dt>
                   <dd>{draftError ? "未通过校验" : draftSummary}</dd>
                   <dt>工作坐标</dt>
                   <dd>WGS84</dd>
@@ -4372,13 +4361,13 @@ export default function App() {
             </div>
             <div className="modal-actions">
               <button onClick={() => openModal(null)}>关闭</button>
-              <button
+              {!featurePreview && <button
                 disabled={!editable || busy || Boolean(draftError)}
                 onClick={modal === "json" ? applyProperties : applyWkt}
               >
                 <Check />
                 {modal === "json" ? "应用属性" : "应用几何"}
-              </button>
+              </button>}
             </div>
           </Modal>
         )}

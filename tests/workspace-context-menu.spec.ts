@@ -100,21 +100,47 @@ test("record actions select and copy the clicked record, including NULL and WKT"
   await setup(page);
   await rows(page).first().click();
   await cell(page, 1).click({ button: "right" });
+  await expect(page.getByRole("menuitem")).toHaveText([
+    "定位到要素", "JSON属性预览", "WKT几何预览", "复制单元格", "复制JSON属性", "复制WKT几何",
+  ]);
+  await expect(page.getByRole("button", {name:"定位到选中要素",exact:true})).toHaveCount(0);
   await expect(rows(page).nth(1)).toHaveAttribute("aria-selected", "true");
-  await item(page, "复制单元格值").click();
+  await item(page, "复制单元格").click();
   await expectClipboard(page, "第二条");
   await cell(page, 1).click({ button: "right" });
-  await item(page, "复制属性 JSON").click();
+  await item(page, "复制JSON属性").click();
   await expectClipboard(
     page,
     JSON.stringify({ name: "第二条", count: 2, empty: null }, null, 2),
   );
   await cell(page, 1).click({ button: "right" });
-  await item(page, "复制 WKT").click();
+  await item(page, "复制WKT几何").click();
   await expectClipboard(page, "POINT(117 40)");
   await cell(page, 0, "empty").click({ button: "right" });
-  await item(page, "复制单元格值").click();
+  await item(page, "复制单元格").click();
   await expectClipboard(page, "NULL");
+});
+
+test("record previews stay read only while editing and deletion is the final action", async ({page}) => {
+  await setup(page);
+  await rows(page).first().click();
+  await page.getByRole("button", {name:"编辑属性",exact:true}).click();
+  for (const [action, label] of [["JSON属性预览", "JSON 属性"], ["WKT几何预览", "WKT 几何"]]) {
+    await cell(page, 1).click({button:"right"});
+    await expect(page.getByRole("menuitem")).toHaveText([
+      "定位到要素", "JSON属性预览", "WKT几何预览", "复制单元格", "复制JSON属性", "复制WKT几何", "删除要素",
+    ]);
+    await item(page, action).click();
+    const dialog = page.getByRole("dialog", {name:action,exact:true});
+    await expect(dialog.getByRole("textbox", {name:label,exact:true})).toHaveAttribute("readonly", "");
+    await expect(dialog.getByRole("button", {name:/应用/})).toHaveCount(0);
+    await dialog.getByRole("button", {name:"关闭",exact:true}).last().click();
+  }
+  await cell(page, 1).click({button:"right"});
+  await item(page, "删除要素").click();
+  await page.getByRole("dialog").getByRole("button", {name:"删除",exact:true}).click();
+  await expect(rows(page)).toHaveCount(1);
+  expect(await page.evaluate(() => window.__ZG_TEST__.calls.filter(call => /commit.*changes|save_source_file/.test(call.command)))).toEqual([]);
 });
 
 test("direct cell editing preserves the active draft when another record is right-clicked", async ({
@@ -122,7 +148,9 @@ test("direct cell editing preserves the active draft when another record is righ
 }) => {
   await setup(page);
   await cell(page, 1).click({ button: "right" });
-  await item(page, "编辑单元格").click();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", {name:"编辑属性",exact:true}).click();
+  await cell(page, 1).dblclick();
   const draft = page.getByRole("textbox", { name: "属性 name", exact: true });
   await expect(draft).toBeFocused();
   await expect(draft).toHaveValue("第二条");
@@ -130,16 +158,10 @@ test("direct cell editing preserves the active draft when another record is righ
   await cell(page, 0).click({ button: "right" });
   await expect(rows(page).nth(1)).toHaveAttribute("aria-selected", "true");
   await expect(draft).toHaveValue("修改第二条");
-  for (const name of [
-    "编辑单元格",
-    "定位到要素",
-    "JSON 属性…",
-    "WKT 几何…",
-    "编辑顶点",
-    "删除要素…",
-  ])
+  for (const name of ["定位到要素", "JSON属性预览", "WKT几何预览", "删除要素"])
     await expect(item(page, name)).toBeDisabled();
-  await item(page, "复制单元格值").click();
+  await expect(item(page, "编辑顶点")).toHaveCount(0);
+  await item(page, "复制单元格").click();
   await expectClipboard(page, "第一条");
   await draft.press("Enter");
   await expect(cell(page, 0)).toHaveText("第一条");
@@ -159,15 +181,16 @@ test("field menus support keyboard access, restore focus and open an editable fi
     page.getByRole("menu", { name: "字段操作", exact: true }),
   ).toBeVisible();
   await expect(item(page, "复制字段名")).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await expect(item(page, "复制字段摘要")).toBeFocused();
+  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名"]);
   await page.keyboard.press("Enter");
-  await expectClipboard(page, "name：文本 · 2 条 · 0 空值");
+  await expectClipboard(page, "name");
   await expect(summary).toBeFocused();
+  await page.getByRole("button", {name:"编辑属性",exact:true}).click();
+  await summary.focus();
   await page.keyboard.press("Shift+F10");
+  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名", "添加字段", "重命名字段", "删除字段"]);
   await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("ArrowDown");
-  await expect(item(page, "添加字段…")).toBeFocused();
+  await expect(item(page, "添加字段")).toBeFocused();
   await page.keyboard.press("Space");
   await expect(
     page.getByRole("dialog", { name: "添加字段", exact: true }),
@@ -180,16 +203,16 @@ test("file field menus add, rename and delete with undo and redo preserving valu
   await setup(page);
   await page.getByRole("button", {name:"编辑",exact:true}).click();
   const fieldMenu = async (field: string) => page.locator(`.attribute-panel th[title="${field}"]`).click({button:"right"});
-  await fieldMenu("name"); await item(page, "添加字段…").click();
+  await fieldMenu("name"); await item(page, "添加字段").click();
   await page.getByLabel("新字段名", {exact:true}).fill("extra");
   await page.getByRole("dialog").getByRole("button", {name:"添加字段",exact:true}).click();
   await expect(cell(page, 0, "extra")).toHaveText("");
-  await fieldMenu("name"); await item(page, "重命名字段…").click();
+  await fieldMenu("name"); await item(page, "重命名字段").click();
   await page.getByLabel("新字段名", {exact:true}).fill("label");
   await page.getByRole("dialog").getByRole("button", {name:"重命名字段",exact:true}).click();
   await expect(cell(page, 0, "label")).toHaveText("第一条");
   await expect(cell(page, 0, "name")).toHaveCount(0);
-  await fieldMenu("label"); await item(page, "删除字段…").click();
+  await fieldMenu("label"); await item(page, "删除字段").click();
   await page.getByRole("dialog").getByRole("button", {name:"删除字段",exact:true}).click();
   await expect(cell(page, 0, "label")).toHaveCount(0);
   await page.getByRole("button", {name:"撤销",exact:true}).click();
@@ -291,8 +314,8 @@ test("drawing menu disables incomplete geometry and completes only after enough 
   await page.getByRole("button", { name: "新增线", exact: true }).click();
   await cell(page, 1).click({ button: "right" });
   await expect(rows(page).first()).toHaveAttribute("aria-selected", "true");
-  await expect(item(page, "编辑单元格")).toBeDisabled();
-  await expect(item(page, "删除要素…")).toBeDisabled();
+  await expect(item(page, "编辑单元格")).toHaveCount(0);
+  await expect(item(page, "删除要素")).toBeDisabled();
   await page.keyboard.press("Escape");
   const box = (await map(page).boundingBox())!;
   await map(page).click({
@@ -364,21 +387,18 @@ test("read-only database records expose copying while edits and schema changes r
   await page.getByRole("button", { name: "展开属性表", exact: true }).click();
   await cell(page, 0).click({ button: "right" });
   for (const name of ["编辑单元格", "编辑顶点", "删除要素…"])
-    await expect(item(page, name)).toBeDisabled();
-  await item(page, "复制单元格值").click();
+    await expect(item(page, name)).toHaveCount(0);
+  await item(page, "复制单元格").click();
   await expectClipboard(page, "道路");
   await page
     .locator(".attribute-panel thead summary")
     .filter({ hasText: /^name$/ })
     .focus();
   await page.keyboard.press("Shift+F10");
-  await expect(item(page, "添加字段…")).toBeDisabled();
-  await expect(item(page, "重命名字段…")).toBeDisabled();
-  await expect(item(page, "删除字段…")).toBeDisabled();
+  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名"]);
   await page.keyboard.press("End");
-  await expect(item(page, "复制字段摘要")).toBeFocused();
-  await page.keyboard.press("ArrowDown");
   await expect(item(page, "复制字段名")).toBeFocused();
+
 });
 
 test("clipboard rejection surfaces an error without losing the selected record", async ({
@@ -389,7 +409,7 @@ test("clipboard rejection surfaces an error without losing the selected record",
     window.__CONTEXT_CLIPBOARD_FAIL__ = true;
   });
   await cell(page, 1).click({ button: "right" });
-  await item(page, "复制单元格值").click();
+  await item(page, "复制单元格").click();
   await expect(page.getByRole("alert")).toContainText("无法访问剪贴板");
   await expect(rows(page).nth(1)).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("menu")).toHaveCount(0);
@@ -404,7 +424,7 @@ test("empty field names retain their value and field-copy actions", async ({
   recovery[0].features[1].properties[""] = "空字段第二条";
   await setup(page, JSON.stringify(recovery));
   await cell(page, 1, "").click({ button: "right" });
-  await item(page, "复制单元格值").click();
+  await item(page, "复制单元格").click();
   await expectClipboard(page, "空字段第二条");
   await page
     .locator('.attribute-panel th[title=""]')
@@ -426,8 +446,8 @@ for (const theme of ["dark", "light"]) {
     await cell(page, 1).click({ button: "right" });
     await expect(page.getByRole("menu")).toHaveCSS("width", "192px");
     await expect(page.getByRole("menu")).toHaveCSS("font-size", "13px");
-    await expect(item(page, "复制单元格值")).toHaveCSS("height", "30px");
-    await expect(item(page, "复制单元格值")).toBeFocused();
+    await expect(item(page, "复制单元格")).toHaveCSS("height", "30px");
+    await expect(item(page, "定位到要素")).toBeFocused();
     await page.screenshot({
       path: `output/playwright/workspace-context-menu-${theme}.png`,
     });

@@ -65,8 +65,9 @@ test("MySQL tables without a primary key remain selectable and read only", async
 test("MySQL WKT geometry editing commits through the MySQL source route", async ({page}) => {
   await loadMysql(page);
   await page.getByRole("button", {name:"编辑",exact:true}).click();
-  await page.locator(".attribute-panel summary").filter({hasText:/^更多$/}).click();
-  await page.getByRole("button", {name:"WKT 几何…",exact:true}).click();
+  await page.getByLabel("地理数据地图", {exact:true}).focus();
+  await page.keyboard.press("Shift+F10");
+  await page.getByRole("menuitem", {name:"WKT 几何…",exact:true}).click();
   await page.getByRole("textbox", {name:"WKT 几何",exact:true}).fill("POINT(117 41)");
   await page.getByRole("button", {name:"应用几何",exact:true}).click();
   await page.getByRole("dialog").getByRole("button", {name:"关闭",exact:true}).first().click();
@@ -99,7 +100,7 @@ const fieldHeader = (page: Page, field: string) => page.locator(".attribute-pane
 test("MySQL partially committed DDL preserves the schema draft and blocks every save route", async ({page}) => {
   await loadMysql(page);
   await page.getByRole("button", {name:"编辑属性",exact:true}).click();
-  await fieldAction(page, "name", "添加字段…");
+  await fieldAction(page, "name", "添加字段");
   await page.getByLabel("新字段名", {exact:true}).fill("partial_field");
   await page.getByRole("dialog").getByRole("button", {name:"添加字段",exact:true}).click();
   await page.evaluate(() => {
@@ -161,7 +162,7 @@ for (const engine of ["PostGIS", "Mysql"] as const) {
       await page.locator(".attribute-panel tbody tr").first().click();
     }
     await page.getByRole("button", {name:"编辑",exact:true}).click();
-    await fieldAction(page, "name", "添加字段…");
+    await fieldAction(page, "name", "添加字段");
     await page.getByLabel("新字段名", {exact:true}).fill("extra");
     await page.getByRole("dialog").getByRole("button", {name:"添加字段",exact:true}).click();
     await expect(fieldHeader(page, "extra")).toHaveCount(1);
@@ -169,12 +170,12 @@ for (const engine of ["PostGIS", "Mysql"] as const) {
     await expect(fieldHeader(page, "extra")).toHaveCount(0);
     await page.getByRole("button", {name:"重做",exact:true}).click();
     await expect(fieldHeader(page, "extra")).toHaveCount(1);
-    await fieldAction(page, "name", "重命名字段…");
+    await fieldAction(page, "name", "重命名字段");
     await page.getByLabel("新字段名", {exact:true}).fill("label");
     await page.getByRole("dialog").getByRole("button", {name:"重命名字段",exact:true}).click();
     await expect(fieldHeader(page, "label")).toHaveCount(1);
     await expect(page.locator('td[data-field="label"]')).toContainText("道路");
-    await fieldAction(page, "extra", "删除字段…");
+    await fieldAction(page, "extra", "删除字段");
     await page.getByRole("dialog").getByRole("button", {name:"删除字段",exact:true}).click();
     await expect(fieldHeader(page, "extra")).toHaveCount(0);
     await page.evaluate(() => { window.__ZG_TEST__.commitError = "字段修改冲突"; });

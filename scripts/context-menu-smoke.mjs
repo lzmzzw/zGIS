@@ -42,7 +42,9 @@ export async function contextMenuSmoke(page) {
   await expect(targetRow).toHaveAttribute("aria-selected", "true");
   await expect(firstRow).toHaveAttribute("aria-selected", "false");
   await expect(page.getByRole("menu", { name: "要素操作", exact: true })).toBeVisible();
-  for (const name of ["编辑单元格", "复制单元格值", "定位到要素", "JSON 属性…", "WKT 几何…"])
+  await expect(page.getByRole("menuitem")).toHaveText(["定位到要素", "JSON属性预览", "WKT几何预览", "复制单元格", "复制JSON属性", "复制WKT几何", "删除要素"]);
+  await expect(page.getByRole("button", {name:"定位到选中要素",exact:true})).toHaveCount(0);
+  for (const name of ["定位到要素", "JSON属性预览", "WKT几何预览", "复制单元格", "复制JSON属性", "复制WKT几何"])
     await expect(page.getByRole("menuitem", { name, exact: true })).toBeEnabled();
   await page.keyboard.press("Escape");
   await expect(targetRow).toBeFocused();
@@ -52,26 +54,18 @@ export async function contextMenuSmoke(page) {
   await fieldSummary.focus();
   await page.keyboard.press("Shift+F10");
   await expect(page.getByRole("menu", { name: "字段操作", exact: true })).toBeVisible();
-  for (const name of ["复制字段名", "复制字段摘要", "添加字段…"])
+  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名", "添加字段", "重命名字段", "删除字段"]);
+  for (const name of ["复制字段名", "添加字段"])
     await expect(page.getByRole("menuitem", { name, exact: true })).toBeEnabled();
   await page.keyboard.press("Escape");
   await expect(fieldSummary).toBeFocused();
 
   await firstRow.locator('td[data-field="城市"]').click({ button: "right" });
-  await page.getByRole("menuitem", { name: "JSON 属性…", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "JSON 属性", exact: true });
+  await page.getByRole("menuitem", { name: "JSON属性预览", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "JSON属性预览", exact: true });
   const json = dialog.getByRole("textbox", { name: "JSON 属性", exact: true });
-  const original = await json.inputValue();
-  await json.fill("{");
-  const error = dialog.locator(".inline-error").first();
-  await expect(error).toBeVisible();
-  await error.click({ button: "right" });
-  await expect(dialog.getByRole("menu", { name: "文本操作", exact: true })).toBeVisible();
-  await expect(dialog.getByRole("menuitem", { name: "复制", exact: true })).toBeEnabled();
-  await page.keyboard.press("Escape");
-  await expect(menu).toHaveCount(0);
-  await expect(dialog).toBeVisible();
-  await json.fill(original);
+  await expect(json).toHaveAttribute("readonly", "");
+  await expect(dialog.getByRole("button", {name:"应用属性",exact:true})).toHaveCount(0);
   await dialog.getByRole("button", { name: "关闭", exact: true }).last().click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(firstRow).toHaveAttribute("aria-selected", "true");

@@ -393,6 +393,10 @@ for (const kind of ["json", "wkt", "cell"] as const) {
           : "未应用的属性";
     if (kind === "cell") {
       await page.locator('td[data-field="名称"]').dblclick();
+    } else if (kind === "wkt") {
+      await page.getByLabel("地理数据地图", {exact:true}).focus();
+      await page.keyboard.press("Shift+F10");
+      await page.getByRole("menuitem", {name:"WKT 几何…",exact:true}).click();
     } else {
       await page
         .locator(".attribute-panel summary")
