@@ -135,7 +135,7 @@ await page.getByRole("button", { name: "返回地图", exact: true }).click();
 console.log("PASS: native MCP catalog lists every registered tool while service is stopped");
 await settingsInfoSmoke(page);
 const opening = nativeDialog("output/smoke/fixtures/native.geojson");
-await fileAction("打开文件");
+await fileAction("打开");
 await opening;
 await page.getByRole("button", { name: "导入", exact: true }).click();
 assert.equal(await page.locator(".attribute-title").innerText(), "属性表");
@@ -251,7 +251,7 @@ const originalGroup = Object.fromEntries(
   ]),
 );
 const shpOpening = nativeDialog("output/smoke/fixtures/cities.shp");
-await fileAction("打开文件");
+await fileAction("打开");
 await shpOpening;
 await page.waitForFunction(
   () => document.querySelectorAll("tbody tr").length === 2,
@@ -344,7 +344,7 @@ await page.locator(".app-header summary").filter({ hasText: /^数据$/ }).click(
 assert.deepEqual(await page.locator(".app-header .header-menu[open] button").allTextContents(), ["新建矢量图层…", "导入数据…", "PostGIS 数据源…"]);
 await page.keyboard.press("Escape");
 const editingOpening = nativeDialog("output/smoke/fixtures/editing.geojson");
-await fileAction("打开文件");
+await fileAction("打开");
 await editingOpening;
 await page.getByRole("button", { name: "导入", exact: true }).click();
 await page.waitForFunction(() => document.querySelectorAll(".attribute-panel tbody tr").length === 4);

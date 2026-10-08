@@ -16,8 +16,8 @@ test("file menu contains only four actions and projected GeoJSON save-as preserv
   await page.goto("/");
   const empty = await menu(page);
   await expect(empty.locator("button")).toHaveText([
-    "新建矢量图层",
-    "打开文件",
+    "新建",
+    "打开",
     "另存为",
     "导出为",
   ]);

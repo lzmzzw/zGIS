@@ -96,7 +96,7 @@ test("save exits a fresh session; cancellation and failure preserve edits", asyn
     window.__ZG_TEST__.saveCancelled = true;
   });
   await save.click();
-  await expect(page.getByRole("alert")).toContainText("已取消保存");
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(save).toBeEnabled();
   await page.evaluate(() => {
     window.__ZG_TEST__.saveCancelled = false;

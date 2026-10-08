@@ -1660,7 +1660,8 @@ export default function App() {
       return;
     }
     await task(async () => {
-      await saveDocument(active, asNew);
+      const saved = await saveDocument(active, asNew);
+      if (!saved) return;
       if (editing) {
         if (stopEditing) finishEditing(active.id);
         else markEditingSaved(active.id);
@@ -1708,7 +1709,7 @@ export default function App() {
   async function saveDocument(
     doc: DocumentLayer,
     asNew = false,
-  ): Promise<DocumentLayer> {
+  ): Promise<DocumentLayer | null> {
     const content =
       doc.sourceKind === "csv"
         ? exportCsv(doc.features, {
@@ -1734,7 +1735,7 @@ export default function App() {
         !asNew && Boolean(doc.sourceId),
         asNew ? filename.split(".").pop()?.toLowerCase() : undefined,
       );
-      if (!result) throw new Error("已取消保存，工作区仍保留");
+      if (!result) return null;
       updated = { ...updated, sourceId: result.sourceId, name: result.name };
     } else download(content, filename);
     setLayers((old) =>
@@ -2462,11 +2463,11 @@ export default function App() {
             <HeaderMenu label="文件">
               <button onClick={requestNewLayer} disabled={busy}>
                 <Plus />
-                新建矢量图层
+                新建
               </button>
               <button onClick={openFiles} disabled={busy}>
                 <FolderOpen />
-                打开文件
+                打开
               </button>
               <button
                 onClick={() => void save(true)}

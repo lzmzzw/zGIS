@@ -82,7 +82,7 @@ async function newLayer(kind) {
     .locator(".app-header summary")
     .filter({ hasText: /^文件$/ })
     .click();
-  await button("新建矢量图层").click();
+  await button("新建").click();
   await page.getByLabel("矢量图层名称", { exact: true }).fill(`native-${kind}`);
   await page.getByLabel("矢量几何类型", { exact: true }).selectOption(kind);
   await page.getByLabel("矢量属性字段", { exact: true }).fill("name");
@@ -124,9 +124,8 @@ try {
       data.layers[0]?.features.length === 2 && data.session?.tool === "Point",
   );
   await nativeSave("cancelled.geojson", true);
-  await expect(page.getByRole("alert")).toContainText("已取消保存");
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByLabel("矢量编辑提示")).toBeVisible();
-  await button("关闭错误").click();
   await nativeSave("points.geojson");
   await expect(button("编辑")).toBeVisible();
   assert.equal(

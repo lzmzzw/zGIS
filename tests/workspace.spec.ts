@@ -26,7 +26,7 @@ test("empty header can drag while menus and window buttons remain interactive", 
   await expect(
     page
       .locator(".header-menus")
-      .getByRole("button", { name: "打开文件", exact: true }),
+      .getByRole("button", { name: "打开", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "最小化", exact: true }).click();
   expect(
@@ -83,7 +83,7 @@ test("native open continues into worker import after dialog busy state", async (
     .click();
   await page
     .locator(".app-header")
-    .getByRole("button", { name: "打开文件", exact: true })
+    .getByRole("button", { name: "打开", exact: true })
     .filter({ visible: true })
     .click();
   await page.getByRole("button", { name: "导入", exact: true }).click();
