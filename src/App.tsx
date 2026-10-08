@@ -2438,6 +2438,7 @@ export default function App() {
     const feature = contextFeature;
     const blocked = contextBlocked || sketching || feature.id !== selectedId;
     contextAction("fit-feature", "定位到要素", () => setFeatureFitNonce((n) => n + 1), blocked || !feature.geometry);
+    contextItems.push({ id: "locate-separator", separator: true });
     contextAction("json-preview", "JSON属性预览", () => { openModal("json"); setFeaturePreview(true); }, blocked);
     contextAction("wkt-preview", "WKT几何预览", () => { openModal("wkt"); setFeaturePreview(true); }, blocked || !feature.geometry);
     contextItems.push({ id: "copy-separator", separator: true });

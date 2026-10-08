@@ -104,6 +104,7 @@ test("record actions select and copy the clicked record, including NULL and WKT"
     "定位到要素", "JSON属性预览", "WKT几何预览", "复制单元格", "复制JSON属性", "复制WKT几何",
   ]);
   await expect(page.getByRole("button", {name:"定位到选中要素",exact:true})).toHaveCount(0);
+  await expect(page.getByRole("menu").locator(":scope > button:first-child + hr")).toHaveAttribute("role", "separator");
   await expect(rows(page).nth(1)).toHaveAttribute("aria-selected", "true");
   await item(page, "复制单元格").click();
   await expectClipboard(page, "第二条");
