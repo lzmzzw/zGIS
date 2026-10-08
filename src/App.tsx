@@ -841,9 +841,9 @@ export default function App() {
     setServices(next);
     setBasemap(selectBasemap(next, basemap));
   }
-  function writeSnapshot(documents: DocumentLayer[]) {
+  function writeSnapshot(documents: DocumentLayer[], omitEditSession = false) {
     if (
-      sessionRef.current?.selectedId &&
+      !omitEditSession && sessionRef.current?.selectedId &&
       !documents
         .find((l) => l.id === sessionRef.current?.layerId)
         ?.features.some((f) => f.id === sessionRef.current?.selectedId)
@@ -854,7 +854,7 @@ export default function App() {
     const content = snapshotWorkspace(
       documents,
       currentTree.current,
-      sessionRef.current,
+      omitEditSession ? undefined : sessionRef.current,
     );
     // Synchronous write-ahead copy covers termination before the native atomic write.
     try {
@@ -2064,7 +2064,7 @@ export default function App() {
     if (!targetId || !layers.some((layer) => layer.id === targetId)) return;
     await task(async () => {
       const next = layers.filter((l) => l.id !== targetId);
-      if (desktop) await writeSnapshot(next);
+      if (desktop) await writeSnapshot(next, sessionRef.current?.layerId === targetId);
       if (targetId === editingLayerId) {
         finishEditing(targetId);
         editingBaseline.current = undefined;
