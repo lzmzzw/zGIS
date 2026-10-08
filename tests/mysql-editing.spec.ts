@@ -19,7 +19,7 @@ async function changeName(page: Page, value: string) {
   await page.getByRole("button", {name:"编辑属性",exact:true}).click();
   await page.locator('.attribute-panel tbody tr.selected td[data-field="name"]').dblclick();
   await page.getByLabel("属性 name", {exact:true}).fill(value);
-  await page.getByRole("button", {name:"应用",exact:true}).click();
+  await page.locator(".cell-editor input").press("Enter");
 }
 
 const mysqlCommits = (page: Page) => page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "commit_mysql_changes"));
@@ -106,10 +106,10 @@ test("MySQL partially committed DDL preserves the schema draft and blocks every 
   await page.evaluate(() => {
     window.__ZG_TEST__.commitError = "字段结构已提交；数据修改未完成或结果待核对，请重新加载核实，禁止直接重试";
   });
-  await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
+  await page.getByRole("button", {name:"保存编辑",exact:true}).click();
   await expect(page.getByRole("alert")).toContainText("字段结构已提交");
   await expect(fieldHeader(page, "partial_field")).toHaveCount(1);
-  for (const name of ["保存属性编辑", "保存编辑", "保存并退出编辑"])
+  for (const name of ["保存编辑", "保存并退出编辑"])
     await expect(page.getByRole("button", {name,exact:true})).toBeDisabled();
   await page.keyboard.press("Control+s");
   const commits = await mysqlCommits(page);
@@ -119,7 +119,7 @@ test("MySQL partially committed DDL preserves the schema draft and blocks every 
 });
 
 for (const engine of ["PostGIS", "Mysql"] as const) {
-  test(`${engine} attribute toolbar inserts and deletes records with the same direct-save interaction`, async ({page}) => {
+  test(`${engine} map inserts and attribute menu deletes records with the same direct-save interaction`, async ({page}) => {
     if (engine === "Mysql") await loadMysql(page);
     else {
       await installDesktopMock(page); await page.goto("/"); await loadDatabaseTestLayer(page);
@@ -128,24 +128,28 @@ for (const engine of ["PostGIS", "Mysql"] as const) {
       await page.locator(".attribute-panel tbody tr").first().click();
     }
     await page.getByRole("button", {name:"编辑属性",exact:true}).click();
-    await page.getByRole("button", {name:"新增记录",exact:true}).click();
+    await page.getByRole("button", {name:"新增点",exact:true}).click();
+    const map = await page.getByLabel("地理数据地图", {exact:true}).boundingBox();
+    await page.mouse.click(map!.x + map!.width / 2, map!.y + map!.height / 2);
+    await page.getByRole("button", {name:"选择",exact:true}).click();
     await expect(page.locator(".attribute-panel tbody tr")).toHaveCount(2);
     await page.locator('.attribute-panel tbody tr.selected td[data-field="name"]').dblclick();
     await page.getByLabel("属性 name", {exact:true}).fill("新增的数据库记录");
-    await page.getByRole("button", {name:"应用",exact:true}).click();
-    await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
-    await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
+    await page.locator(".cell-editor input").press("Enter");
+    await page.getByRole("button", {name:"保存编辑",exact:true}).click();
+    await expect(page.getByRole("button", {name:"保存编辑",exact:true})).toBeDisabled();
     await expect(page.locator(".attribute-panel tbody tr")).toHaveCount(2);
     const command = engine === "Mysql" ? "commit_mysql_changes" : "commit_changes";
     let commits = await page.evaluate(command => window.__ZG_TEST__.calls.filter(c => c.command === command), command);
     expect(commits).toHaveLength(1);
-    expect(commits[0].args.changes).toEqual([expect.objectContaining({kind:"insert",geometry:null,properties:{name:"新增的数据库记录"}})]);
+    expect(commits[0].args.changes).toEqual([expect.objectContaining({kind:"insert",geometry:expect.any(Object),properties:{name:"新增的数据库记录"}})]);
     await page.locator(".attribute-panel tbody tr").first().click();
-    await page.getByRole("button", {name:"删除记录",exact:true}).click();
+    await page.locator('.attribute-panel tbody tr.selected td[data-field="name"]').click({button:"right"});
+    await page.getByRole("menuitem", {name:"删除要素",exact:true}).click();
     await page.getByRole("dialog", {name:"删除选中要素",exact:true}).getByRole("button", {name:"删除",exact:true}).click();
     await expect(page.locator(".attribute-panel tbody tr")).toHaveCount(1);
-    await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
-    await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
+    await page.getByRole("button", {name:"保存编辑",exact:true}).click();
+    await expect(page.getByRole("button", {name:"保存编辑",exact:true})).toBeDisabled();
     commits = await page.evaluate(command => window.__ZG_TEST__.calls.filter(c => c.command === command), command);
     expect(commits).toHaveLength(2);
     expect(commits[1].args.changes).toEqual([expect.objectContaining({kind:"delete",baseline:"baseline-1",dbKey:engine === "Mysql" ? ["9007199254740993"] : [1]})]);

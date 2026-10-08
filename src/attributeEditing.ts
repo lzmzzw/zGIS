@@ -7,7 +7,7 @@ export function parseCellValue(
 ): unknown {
   if (isNull) return null;
   if (typeof original === "string") return text;
-  if (!text.trim()) throw new Error("请输入值；空值请使用 NULL");
+  if (!text.trim()) throw new Error("请输入有效值");
   // 先校验单个 JSON 值，再使用领域解析器保留数值精度。
   JSON.parse(text);
   const value = parseProperties(`{"value":${text}}`).value;
@@ -19,7 +19,7 @@ export function parseCellValue(
       "请输入可保真保存的有限数值；高精度数值请使用 JSON 属性编辑",
     );
   if (typeof original === "boolean" && typeof value !== "boolean")
-    throw new Error("请选择 true 或 false");
+    throw new Error("请输入 true 或 false");
   if (
     original !== null &&
     typeof original === "object" &&

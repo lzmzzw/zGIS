@@ -58,14 +58,68 @@ for (const theme of ["dark", "light"]) {
         await input.fill("不会撑开列宽的较长编辑内容".repeat(8));
         expect(await geometry()).toEqual(before);
         await page.locator(".attribute-panel").screenshot({ path: `output/smoke/inline-cell-${theme}.png` });
-        await page.getByRole("button", { name: "展开单元格编辑", exact: true }).click();
-        await expect(page.getByRole("dialog")).toBeVisible();
-        await page.keyboard.press("Escape");
+        await expect(page.getByRole("button", { name: "展开单元格编辑", exact: true })).toHaveCount(0);
+        await input.press("Escape");
       } else {
         await input.press("Escape");
       }
       expect(await geometry()).toEqual(before);
     }
+  });
+}
+
+for (const theme of ["dark", "light"]) {
+  test(`compact edit controls and cell confirmation (${theme})`, async ({page}) => {
+    await setup(page);
+    await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+    const edit = page.getByRole("button", {name:"编辑属性",exact:true});
+    const mapEdit = page.getByRole("button", {name:"保存并退出编辑",exact:true});
+    await expect(edit).toHaveText("");
+    await expect(edit).toHaveAttribute("aria-pressed", "true");
+    const border = theme === "dark" ? "rgb(120, 168, 255)" : "rgb(50, 100, 193)";
+    await expect(edit).toHaveCSS("border-color", border);
+    await expect(mapEdit).toHaveCSS("border-color", border);
+    const activeColor = await edit.evaluate(el => getComputedStyle(el).color);
+    await edit.click();
+    await expect(edit).toHaveAttribute("aria-pressed", "false");
+    await expect.poll(() => edit.evaluate(el => getComputedStyle(el).color)).not.toBe(activeColor);
+    await edit.click();
+    for (const name of ["新增记录", "删除记录", "保存属性编辑", "设为 NULL", "展开单元格编辑"])
+      await expect(page.getByRole("button", {name,exact:true})).toHaveCount(0);
+    await expect(page.locator(".attribute-panel > header")).not.toContainText("更多");
+    await cell(page, "code").dblclick();
+    await cell(page, "count").click();
+    await expect(page.getByLabel("属性 code", {exact:true})).toHaveCount(0);
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await cell(page, "code").dblclick();
+    await page.getByLabel("属性 code", {exact:true}).fill("changed");
+    await cell(page, "count").click();
+    const prompt = page.getByRole("alertdialog", {name:"单元格修改确认",exact:true});
+    await expect(prompt).toBeVisible();
+    const box = (await prompt.boundingBox())!;
+    expect(box.y + box.height).toBeLessThan(300);
+    expect(box.height).toBeLessThan(80);
+    expect(box.width).toBeLessThan(420);
+    await page.screenshot({path:`output/smoke/cell-confirmation-${theme}.png`});
+    await prompt.getByRole("button", {name:"应用",exact:true}).click();
+    await expect(prompt).toHaveCount(0);
+    await expect(cell(page, "code")).toHaveText("changed");
+    await expect(cell(page, "count")).toBeFocused();
+    await cell(page, "code").dblclick();
+    await page.getByLabel("属性 code", {exact:true}).fill("discarded");
+    await page.locator('tbody tr').nth(1).locator('td[data-field="count"]').click();
+    await prompt.getByRole("button", {name:"取消",exact:true}).click();
+    await expect(prompt).toHaveCount(0);
+    await expect(page.locator('tbody tr').first().locator('td[data-field="code"]')).toHaveText("changed");
+    await expect(page.locator('tbody tr').nth(1)).toHaveAttribute("aria-selected", "true");
+    await cell(page, "count").dblclick();
+    await page.getByLabel("属性 count", {exact:true}).fill("invalid");
+    await cell(page, "code").click();
+    await prompt.getByRole("button", {name:"应用",exact:true}).click();
+    await expect(prompt).toBeVisible();
+    await expect(page.getByLabel("属性 count", {exact:true})).toHaveValue("invalid");
+    await prompt.getByRole("button", {name:"取消",exact:true}).click();
+    await expect(prompt).toHaveCount(0);
   });
 }
 
@@ -102,7 +156,7 @@ test("column widths and display order change without changing attribute values",
   await expect(page.locator(".layer-text").filter({ hasText: "attributes.geojson" })).not.toContainText("*");
 });
 
-test("cell validation, keyboard commit, cancellation and NULL retain correct types", async ({
+test("cell validation, keyboard commit, cancellation and clearing text retain correct types", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -120,7 +174,7 @@ test("cell validation, keyboard commit, cancellation and NULL retain correct typ
   await count.press("Tab");
   await expect(cell(page, "enabled")).toBeFocused();
   await page.keyboard.press("Enter");
-  await page.getByLabel("属性 enabled", { exact: true }).selectOption("false");
+  await page.getByLabel("属性 enabled", { exact: true }).fill("false");
   await page.getByLabel("属性 enabled", { exact: true }).press("Enter");
   await cell(page, "code").dblclick();
   await page.getByLabel("属性 code", { exact: true }).fill("009");
@@ -130,12 +184,13 @@ test("cell validation, keyboard commit, cancellation and NULL retain correct typ
   await page.getByLabel("属性 code", { exact: true }).fill("007");
   await page.getByLabel("属性 code", { exact: true }).press("Enter");
   await cell(page, "empty").dblclick();
-  await page.getByLabel("属性 empty", { exact: true }).fill('"filled"');
+  await page.getByLabel("属性 empty", { exact: true }).fill("filled");
   await page.getByLabel("属性 empty", { exact: true }).press("Enter");
   await cell(page, "code").dblclick();
-  await page.getByLabel("设为 NULL", { exact: true }).check();
-  await page.getByRole("button", { name: "应用", exact: true }).click();
-  await expect(cell(page, "code")).toHaveText("NULL");
+  await expect(page.getByLabel("设为 NULL", { exact: true })).toHaveCount(0);
+  await page.getByLabel("属性 code", { exact: true }).fill("");
+  await page.getByLabel("属性 code", { exact: true }).press("Enter");
+  await expect(cell(page, "code")).toHaveText("");
   await page.getByRole("button", { name: "撤销", exact: true }).click();
   await expect(cell(page, "code")).toHaveText("007");
   await page
@@ -158,22 +213,22 @@ test("cell validation, keyboard commit, cancellation and NULL retain correct typ
   expect(errors).toEqual([]);
 });
 
-test("complex cells use an independent editor and maximized table restores the map", async ({
+test("complex cells edit inline and maximized table restores the map", async ({
   page,
 }) => {
   await setup(page);
   await cell(page, "detail").dblclick();
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("输入 JSON");
+  await expect(dialog).toHaveCount(0);
   await page.getByLabel("属性 detail", { exact: true }).fill("[]");
-  await dialog.getByRole("button", { name: "应用", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toContainText("JSON 对象");
+  await page.getByLabel("属性 detail", { exact: true }).press("Enter");
+  await expect(page.locator(".cell-error")).toContainText("JSON 对象");
   await page.getByLabel("属性 detail", { exact: true }).fill('{"name":"更新"}');
-  await dialog.getByRole("button", { name: "应用", exact: true }).click();
+  await page.getByLabel("属性 detail", { exact: true }).press("Enter");
   await expect(dialog).toHaveCount(0);
   await expect(cell(page, "detail")).toContainText("更新");
   await cell(page, "long").dblclick();
-  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveCount(0);
   await page.getByLabel("属性 long", { exact: true }).fill("cancelled");
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);

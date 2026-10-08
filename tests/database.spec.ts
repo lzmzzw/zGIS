@@ -63,7 +63,7 @@ test("source loading and direct save conflicts retain edits without a submit dia
   await loadSource(page);
   await editName(page);
   await page.getByLabel("属性 name", { exact: true }).fill("更新道路");
-  await page.getByRole("button", { name: "应用", exact: true }).click();
+  await page.locator(".cell-editor input").press("Enter");
   expect(
     await page.evaluate(
       () =>
@@ -106,7 +106,7 @@ test("uncertain commit disables repeat submission", async ({ page }) => {
   await loadSource(page);
   await editName(page);
   await page.getByLabel("属性 name", { exact: true }).fill("待核对");
-  await page.getByRole("button", { name: "应用", exact: true }).click();
+  await page.locator(".cell-editor input").press("Enter");
   await page.evaluate(() => {
     window.__ZG_TEST__.commitError = "提交结果待核对";
   });
@@ -129,14 +129,12 @@ for (const viewer of ["JSON 属性", "WKT 几何"]) {
     page,
   }) => {
     await loadSource(page, "readonly");
-    await page
-      .locator(".attribute-panel summary")
-      .filter({ hasText: /^更多$/ })
-      .click();
-    await page.getByRole("button", { name: `${viewer}…`, exact: true }).click();
+    await page.locator(".attribute-panel tbody tr").first().click({button:"right"});
+    const preview = viewer === "JSON 属性" ? "JSON属性预览" : "WKT几何预览";
+    await page.getByRole("menuitem", { name: preview, exact: true }).click();
     const dialog = page.getByRole("dialog");
     await expect(
-      dialog.getByRole("heading", { name: viewer, exact: true }),
+      dialog.getByRole("heading", { name: preview, exact: true }),
     ).toBeVisible();
     await expect(
       dialog.getByRole("textbox", { name: viewer, exact: true }),

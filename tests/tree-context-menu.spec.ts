@@ -176,7 +176,7 @@ test("tree menus open tables, preserve drafts and confirm dirty layer removal", 
   await page.getByRole("menuitem", {name:"移除",exact:true}).click();
   await page.getByRole("dialog").getByRole("button", {name:"取消",exact:true}).click();
   await expect(draft).toHaveValue("未应用");
-  await page.getByRole("button", {name:"应用",exact:true}).click();
+  await page.locator(".cell-editor input").press("Enter");
   await page.locator('.attribute-panel tbody tr.selected td[data-field="name"]').dblclick();
   await draft.fill("第二份未应用草稿");
   await row(page, "points.geojson").click({ button: "right" });

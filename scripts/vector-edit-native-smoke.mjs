@@ -180,10 +180,7 @@ try {
   await expect(page.getByLabel("属性 name", { exact: true })).toHaveValue(
     "unfinished native draft",
   );
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "应用", exact: true })
-    .click();
+  await page.getByLabel("属性 name", {exact:true}).press("Enter");
   await page
     .locator(".app-header summary")
     .filter({ hasText: /^文件$/ })

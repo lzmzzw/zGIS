@@ -157,16 +157,18 @@ function IconButton({
   onClick,
   disabled,
   active,
+  className = "",
 }: {
   label: string;
   children: ReactNode;
   onClick: () => void;
   disabled?: boolean;
   active?: boolean;
+  className?: string;
 }) {
   return (
     <button
-      className={`icon-button ${active ? "active" : ""}`}
+      className={`icon-button ${active ? "active" : ""} ${className}`}
       title={label}
       aria-label={label}
       aria-pressed={active}
@@ -452,10 +454,11 @@ export default function App() {
     text: string;
     original: unknown;
     isNull: boolean;
-    expanded: boolean;
     error: string;
   } | null>(null);
   const [tableHeight, setTableHeight] = useState(250);
+  const [cellConfirmation, setCellConfirmation] = useState(false);
+  const cellDestination = useRef<{ featureId: string; field?: string } | null>(null);
   const [featureFitNonce, setFeatureFitNonce] = useState(0);
   const [finishNonce, setFinishNonce] = useState(0);
   const [nodeCount, setNodeCount] = useState(0);
@@ -484,7 +487,6 @@ export default function App() {
     | "json"
     | "wkt"
     | "field"
-    | "cell"
     | "layer"
     | "style"
     | "delete"
@@ -679,7 +681,7 @@ export default function App() {
       setError("请先完成或取消当前绘制");
       return;
     }
-    if (cellDraft && value && !["settings", "cell", "quit"].includes(value)) {
+    if (cellDraft && value && !["settings", "quit"].includes(value)) {
       setError("请先应用或取消当前单元格编辑");
       return;
     }
@@ -702,8 +704,7 @@ export default function App() {
   }, [modal]);
   function selectFeature(id?: string, locateInTable = false) {
     if (cellDraft && id !== cellDraft.featureId) {
-      setError("请先应用或取消当前单元格编辑");
-      return;
+      if (!leaveCell(id ? {featureId: id} : undefined)) return;
     }
     centerImmediately.current = locateInTable;
     setSelectedId(id);
@@ -1077,11 +1078,11 @@ export default function App() {
           ...draft,
           layerId: layer.id,
           original,
-          expanded: true,
+          isNull: false,
           error: "",
         });
         setTableOpen(true);
-        setModal("cell");
+        setSelectedId(draft.featureId);
       }
       if (session.panelDraft) {
         restoringPanel.current = session.panelDraft;
@@ -1413,10 +1414,6 @@ export default function App() {
       else setTableEditing(true);
     }
     const original = feature.properties[field];
-    const expanded =
-      (typeof original === "object" && original !== null) ||
-      (typeof original === "string" &&
-        (original.length > 80 || original.includes("\n")));
     selectFeature(feature.id);
     setTool("select");
     setCellDraft({
@@ -1426,18 +1423,37 @@ export default function App() {
       original,
       text: cellText(original),
       isNull: false,
-      expanded,
       error: "",
     });
-    if (expanded) openModal("cell");
+    setCellConfirmation(false);
+    cellDestination.current = null;
+  }
+  function leaveCell(destination?: { featureId: string; field?: string }) {
+    if (!cellDraft) return true;
+    if (destination?.featureId === cellDraft.featureId && destination.field === cellDraft.field)
+      return true;
+    if (cellDraft.text === cellText(cellDraft.original) && !cellDraft.isNull) {
+      setCellDraft(null);
+      setCellConfirmation(false);
+      cellDestination.current = null;
+      return true;
+    }
+    cellDestination.current = destination ?? null;
+    setCellConfirmation(true);
+    return false;
+  }
+  function finishCellFocus(featureId: string, field: string) {
+    const destination = cellDestination.current;
+    cellDestination.current = null;
+    setCellConfirmation(false);
+    if (destination) setSelectedId(destination.featureId);
+    requestAnimationFrame(() => focusCell(destination?.featureId ?? featureId, destination?.field ?? field));
   }
   function cancelCell() {
     const field = cellDraft?.field;
     const featureId = cellDraft?.featureId;
     setCellDraft(null);
-    if (modal === "cell") setModal(null);
-    if (field && featureId)
-      requestAnimationFrame(() => focusCell(featureId, field));
+    if (field && featureId) finishCellFocus(featureId, field);
   }
   function focusCell(featureId: string, field: string) {
     const cells = document.querySelectorAll<HTMLElement>(".attribute-cell");
@@ -1455,10 +1471,10 @@ export default function App() {
     )
       return;
     try {
-      const value = parseCellValue(
+      const unchanged = cellDraft.text === cellText(cellDraft.original) && !cellDraft.isNull;
+      const value = unchanged ? cellDraft.original : parseCellValue(
         cellDraft.text,
-        cellDraft.original,
-        cellDraft.isNull,
+        cellDraft.original == null ? "" : cellDraft.original,
       );
       const feature = active.features.find((f) => f.id === cellDraft.featureId);
       if (!feature) throw new Error("要素已不存在，请取消编辑后重新选择");
@@ -1480,107 +1496,38 @@ export default function App() {
       const nextField = displayFields[fieldIndex + direction];
       const oldField = cellDraft.field;
       setCellDraft(null);
-      if (modal === "cell") setModal(null);
       setError("");
-      setStatus("属性已更新，源文件需保存");
-      requestAnimationFrame(() =>
-        focusCell(feature.id, direction && nextField ? nextField : oldField),
-      );
+      if (!unchanged) setStatus("属性已更新，源文件需保存");
+      finishCellFocus(feature.id, direction && nextField ? nextField : oldField);
     } catch (reason) {
       setCellDraft((d) => (d ? { ...d, error: errorText(reason) } : null));
     }
   }
-  function renderCellActions(expanded = false) {
+  function renderCellInput() {
     if (!cellDraft) return null;
     return (
-      <>
-        <label className="cell-null">
-          <input
-            type="checkbox"
-            aria-label="设为 NULL"
-            checked={cellDraft.isNull}
-            disabled={busy}
-            onChange={(e) =>
-              setCellDraft((d) =>
-                d ? { ...d, isNull: e.target.checked, error: "" } : null,
-              )
-            }
-          />
-          NULL
-        </label>
-        {!expanded && (
-          <IconButton
-            label="展开单元格编辑"
-            disabled={busy}
-            onClick={() => {
-              setCellDraft((d) => (d ? { ...d, expanded: true } : null));
-              openModal("cell");
-            }}
-          >
-            <Square />
-          </IconButton>
-        )}
-      </>
-    );
-  }
-  function renderCellInput(expanded = false) {
-    if (!cellDraft) return null;
-    const label = `属性 ${cellDraft.field}`;
-    const update = (text: string) =>
-      setCellDraft((d) => (d ? { ...d, text, error: "" } : null));
-    return (
-      <div
-        className={expanded ? "cell-editor" : "cell-editor cell-editor-inline"}
+      <div className="cell-editor cell-editor-inline"
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            cancelCell();
-          } else if (
-            e.key === "Enter" &&
-            (!expanded || e.ctrlKey || e.metaKey)
-          ) {
-            e.preventDefault();
-            commitCell();
-          } else if (e.key === "Tab" && !expanded) {
-            e.preventDefault();
-            commitCell(e.shiftKey ? -1 : 1);
+            e.preventDefault(); e.stopPropagation(); cancelCell();
+          } else if (e.key === "Enter") {
+            e.preventDefault(); commitCell();
+          } else if (e.key === "Tab") {
+            e.preventDefault(); commitCell(e.shiftKey ? -1 : 1);
           }
-        }}
-      >
-        {typeof cellDraft.original === "boolean" ? (
-          <select
-            autoFocus
-            aria-label={label}
-            value={cellDraft.isNull ? "" : cellDraft.text}
-            disabled={busy || cellDraft.isNull}
-            onChange={(e) => update(e.target.value)}
-          >
-            {cellDraft.isNull && <option value="">NULL</option>}
-            <option value="true">true</option>
-            <option value="false">false</option>
-          </select>
-        ) : expanded ? (
-          <textarea
-            autoFocus
-            aria-label={label}
-            value={cellDraft.text}
-            disabled={busy || cellDraft.isNull}
-            onChange={(e) => update(e.target.value)}
-          />
-        ) : (
-          <input
-            autoFocus
-            aria-label={label}
-            aria-invalid={Boolean(cellDraft.error)}
-            value={cellDraft.isNull ? "NULL" : cellDraft.text}
-            disabled={busy || cellDraft.isNull}
-            onChange={(e) => update(e.target.value)}
-          />
-        )}
-        {expanded && renderCellActions(true)}
+        }}>
+        <input autoFocus aria-label={`属性 ${cellDraft.field}`}
+          aria-invalid={Boolean(cellDraft.error)} value={cellDraft.text} disabled={busy}
+          onChange={(e) => setCellDraft((d) => d ? {...d, text: e.target.value, error: ""} : null)}
+          onBlur={(e) => {
+            const target = e.relatedTarget as HTMLElement | null;
+            if (target?.closest(".cell-editor, .cell-confirmation")) return;
+            const cell = target?.closest<HTMLElement>("td[data-field]");
+            if (cell?.dataset.feature)
+              leaveCell({featureId: cell.dataset.feature, field: cell.dataset.field});
+          }} />
       </div>
     );
   }
@@ -3114,6 +3061,7 @@ export default function App() {
                 </div>
                 <IconButton
                   label={editing ? "保存并退出编辑" : "编辑"}
+                  className="edit-toggle"
                   active={editing}
                   disabled={
                     !canEdit ||
@@ -3125,7 +3073,7 @@ export default function App() {
                     editing ? void save(false, true) : beginEditing()
                   }
                 >
-                  {editing ? <Check /> : <Pencil />}
+                  <Pencil />
                 </IconButton>
                 <span className="map-edit-state">
                   {editing ? "结束" : "浏览"}
@@ -3415,100 +3363,18 @@ export default function App() {
                         }}
                       />
                     </div>
-                    <button
-                      className={tableEditing ? "active" : "quiet"}
-                      aria-pressed={tableEditing}
+                    <IconButton
+                      label="编辑属性" active={tableEditing}
+                      className="edit-toggle"
                       disabled={!canEdit || busy || Boolean(cellDraft)}
                       onClick={() => {
-                        if (!editing) {
-                          beginEditing();
-                          return;
-                        }
+                        if (!editing) { beginEditing(); return; }
                         setTableEditing((v) => !v);
                         setTool("select");
                       }}
                     >
                       <Pencil />
-                      编辑属性
-                    </button>
-                    <IconButton
-                      label="新增记录"
-                      disabled={
-                        !editable ||
-                        !tableEditing ||
-                        busy ||
-                        Boolean(cellDraft) ||
-                        Boolean(drawDraft) ||
-                        gestureActive
-                      }
-                      onClick={() => {
-                        if (!active) return;
-                        const feature: GeoFeature = {
-                          id: crypto.randomUUID(),
-                          geometry: null,
-                          properties: Object.fromEntries(
-                            fields
-                              .filter(
-                                (field) =>
-                                  !active.db?.columns.some(
-                                    (c) =>
-                                      c.name === field &&
-                                      (c.generated || c.hasDefault),
-                                  ),
-                              )
-                              .map((field) => [field, ""]),
-                          ),
-                        };
-                        edit([...active.features, feature]);
-                        setSelectedId(feature.id);
-                        setPage(Math.floor(active.features.length / pageSize));
-                      }}
-                    >
-                      <Plus />
                     </IconButton>
-                    <IconButton
-                      label="删除记录"
-                      disabled={
-                        !editable ||
-                        !tableEditing ||
-                        !selected ||
-                        busy ||
-                        Boolean(cellDraft) ||
-                        Boolean(drawDraft) ||
-                        gestureActive
-                      }
-                      onClick={() => openModal("delete")}
-                    >
-                      <Trash2 />
-                    </IconButton>
-                    <IconButton
-                      label="保存属性编辑"
-                      disabled={
-                        !editable ||
-                        !active?.dirty ||
-                        busy ||
-                        Boolean(cellDraft) ||
-                        Boolean(drawDraft) ||
-                        gestureActive
-                      }
-                      onClick={() => void save()}
-                    >
-                      <Save />
-                    </IconButton>
-                    {cellDraft && (
-                      <>
-                        {!cellDraft.expanded && renderCellActions()}
-                        <button
-                          disabled={busy || !editable}
-                          onClick={() => commitCell()}
-                        >
-                          应用
-                        </button>
-                        <button disabled={busy} onClick={cancelCell}>
-                          取消
-                        </button>
-                      </>
-                    )}
                     {tableMaximized && editing && (
                       <>
                         <IconButton
@@ -3541,24 +3407,6 @@ export default function App() {
                         </IconButton>
                       </>
                     )}
-                    <HeaderMenu label="更多">
-                      <span className="field-info">
-                        {selected ? `选中要素：${selected.id}` : "请先选择要素"}
-                      </span>
-                      <button
-                        disabled={!selected || busy || Boolean(cellDraft)}
-                        onClick={() => openModal("json")}
-                      >
-                        <FileJson />
-                        JSON 属性…
-                      </button>
-                      <button
-                        disabled={!selected || busy || Boolean(cellDraft)}
-                        onClick={() => { openModal("wkt"); setFeaturePreview(true); }}
-                      >
-                        WKT几何预览
-                      </button>
-                    </HeaderMenu>
                     <div className="pagination">
                       <IconButton
                         label="上一页"
@@ -3630,7 +3478,7 @@ export default function App() {
                     </button>
                   </div>
                 )}
-              {cellDraft?.error && !cellDraft.expanded && (
+              {cellDraft?.error && (
                 <div className="cell-error" role="alert">
                   {cellDraft.field}：{cellDraft.error}
                 </div>
@@ -3842,7 +3690,9 @@ export default function App() {
                                 ?.dataset.field,
                             );
                           }}
-                          onClick={() => selectFeature(f.id)}
+                          onClick={() => {
+                            if (leaveCell({featureId: f.id})) selectFeature(f.id);
+                          }}
                           onDoubleClick={() => {
                             if (cellDraft || tableEditing) return;
                             selectFeature(f.id);
@@ -3883,6 +3733,10 @@ export default function App() {
                                 tabIndex={
                                   tableEditing && editable ? 0 : undefined
                                 }
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (leaveCell({featureId: f.id, field})) selectFeature(f.id);
+                                }}
                                 onDoubleClick={(e) => {
                                   if (!tableEditing) return;
                                   e.stopPropagation();
@@ -3898,7 +3752,7 @@ export default function App() {
                                   beginCell(f, field);
                                 }}
                               >
-                                {draft && !draft.expanded ? (
+                                {draft ? (
                                   <>
                                     <span
                                       className="cell-size-reference"
@@ -4290,34 +4144,18 @@ export default function App() {
             </div>
           </Modal>
         )}
-        {modal === "cell" && cellDraft && (
-          <Modal
-            title={`编辑属性：${cellDraft.field}`}
-            onClose={cancelCell}
-            showError={false}
-          >
-            <p className="form-note">
-              图层：{active?.displayName ?? active?.name} · 要素：
-              {cellDraft.featureId} ·{" "}
-              {cellDraft.original == null
-                ? "输入 JSON 值"
-                : typeof cellDraft.original === "object"
-                  ? "输入 JSON，类型不变"
-                  : "输入文本"}
-            </p>
-            {renderCellInput(true)}
-            {cellDraft.error && (
-              <p className="inline-error" role="alert">
-                {cellDraft.error}
-              </p>
-            )}
-            <div className="modal-actions">
-              <button onClick={cancelCell}>取消</button>
-              <button disabled={!editable || busy} onClick={() => commitCell()}>
-                应用
-              </button>
-            </div>
-          </Modal>
+        {cellConfirmation && cellDraft && (
+          <div className="cell-confirmation" role="alertdialog" aria-label="单元格修改确认"
+            aria-modal="false" aria-describedby="cell-confirmation-message"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault(); e.stopPropagation(); cancelCell();
+              }
+            }}>
+            <span id="cell-confirmation-message">应用单元格修改？</span>
+            <button disabled={busy || !editable} onClick={() => commitCell()}>应用</button>
+            <button className="quiet" disabled={busy} onClick={cancelCell}>取消</button>
+          </div>
         )}
         {(modal === "json" || modal === "wkt") && selected && (
           <Modal

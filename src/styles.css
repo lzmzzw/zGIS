@@ -706,6 +706,34 @@ tbody tr:hover {
 .cell-size-reference {
   visibility: hidden;
 }
+.edit-toggle {
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+.edit-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--table-selected);
+  border-color: var(--accent);
+}
+.cell-confirmation {
+  position: fixed;
+  z-index: 150;
+  top: clamp(76px, 16vh, 140px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--elevated);
+  color: var(--text);
+  box-shadow: var(--overlay-shadow);
+}
+.cell-confirmation > span { white-space: nowrap; margin-right: 8px; }
+.cell-confirmation > button { min-width: 48px; }
 .cell-editor {
   display: flex;
   gap: 6px;

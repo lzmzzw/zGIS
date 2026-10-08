@@ -104,7 +104,7 @@ async function setName(value) {
   await page
     .getByRole("textbox", { name: "属性 name", exact: true })
     .fill(value);
-  await page.getByRole("button", { name: "应用", exact: true }).click();
+  await page.locator(".cell-editor input").press("Enter");
 }
 async function editCell(field) {
   const edit = page.getByRole("button", { name: "编辑属性", exact: true });
@@ -413,6 +413,37 @@ await page.getByRole("textbox", {name:"属性 城市",exact:true}).press("Escape
 await cityHandle.dblclick();
 await page.getByRole("button", {name:"编辑属性",exact:true}).click();
 assert.equal(await fs.readFile(renamedFixture,"utf8"), renameOriginal);
+const tableEditToggle = page.getByRole("button", {name:"编辑属性",exact:true});
+assert.equal(await tableEditToggle.innerText(), "");
+for (const name of ["新增记录", "删除记录", "保存属性编辑", "展开单元格编辑"])
+  await expect(page.getByRole("button", {name,exact:true})).toHaveCount(0);
+const inactiveColor = await tableEditToggle.evaluate(el => getComputedStyle(el).color);
+await editCell("城市");
+assert.notEqual(await tableEditToggle.evaluate(el => getComputedStyle(el).color), inactiveColor);
+await expect.poll(async () => await tableEditToggle.evaluate(el => getComputedStyle(el).borderColor) === await page.getByRole("button", {name:"保存并退出编辑",exact:true}).evaluate(el => getComputedStyle(el).borderColor)).toBe(true);
+await page.locator('tbody tr.selected td[data-field="资料"]').click();
+await expect(page.getByLabel("属性 城市", {exact:true})).toHaveCount(0);
+await expect(page.getByRole("alertdialog")).toHaveCount(0);
+await editCell("城市");
+await page.getByLabel("属性 城市", {exact:true}).fill("提示栏应用测试");
+await page.locator('tbody tr.selected td[data-field="资料"]').click();
+const cellPrompt = page.getByRole("alertdialog", {name:"单元格修改确认",exact:true});
+await expect(cellPrompt).toBeVisible();
+const promptBox = await cellPrompt.boundingBox();
+assert.ok(promptBox.y + promptBox.height < 300 && promptBox.height < 80 && promptBox.width < 420);
+await page.screenshot({path:"output/desktop/cell-confirmation-verified.png"});
+await cellPrompt.getByRole("button", {name:"应用",exact:true}).click();
+await expect(cellPrompt).toHaveCount(0);
+await expect(page.locator('tbody tr.selected td[data-field="城市"]')).toHaveText("提示栏应用测试");
+await page.getByRole("button", {name:"撤销",exact:true}).click();
+await editCell("城市");
+await page.getByLabel("属性 城市", {exact:true}).fill("提示栏取消测试");
+await page.locator('tbody tr.selected td[data-field="资料"]').click();
+await cellPrompt.getByRole("button", {name:"取消",exact:true}).click();
+await expect(cellPrompt).toHaveCount(0);
+await tableEditToggle.click();
+assert.equal(await fs.readFile(renamedFixture,"utf8"), renameOriginal);
+console.log("PASS: native icon-only shared edit states, unchanged cell exit, upper compact apply/cancel and automatic dismissal");
 console.log("PASS: native column resize/reorder and stable inline editing leave source file unchanged");
 await editCell("城市");
 const discardedInput = page.getByRole("textbox", {name:"属性 城市",exact:true});
@@ -438,25 +469,25 @@ await page.getByRole("button", {name:"编辑属性",exact:true}).click();
 await page.getByRole("button", {name:"添加字段",exact:true}).filter({visible:true}).first().click();
 await page.getByLabel("新字段名", {exact:true}).fill("native_field");
 await page.getByRole("dialog").getByRole("button", {name:"添加字段",exact:true}).click();
-await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
-await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
+await page.getByRole("button", {name:"保存编辑",exact:true}).click();
+await expect(page.getByRole("button", {name:"保存编辑",exact:true})).toBeDisabled();
 await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_field === "")).toBe(true);
-await expect(page.getByRole("button", {name:"新增记录",exact:true})).toBeEnabled();
+await expect(page.getByRole("button", {name:"编辑属性",exact:true})).toBeEnabled();
 await page.locator(".attribute-panel th").filter({hasText:"native_field"}).click({button:"right"});
 await page.getByRole("menuitem",{name:"重命名字段",exact:true}).click();
 await page.getByLabel("新字段名",{exact:true}).fill("native_renamed");
 await page.getByRole("dialog").getByRole("button",{name:"重命名字段",exact:true}).click();
-await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
-await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
+await page.getByRole("button", {name:"保存编辑",exact:true}).click();
+await expect(page.getByRole("button", {name:"保存编辑",exact:true})).toBeDisabled();
 await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_renamed === "" && !Object.hasOwn(f.properties,"native_field"))).toBe(true);
-await expect(page.getByRole("button", {name:"新增记录",exact:true})).toBeEnabled();
+await expect(page.getByRole("button", {name:"编辑属性",exact:true})).toBeEnabled();
 await page.locator(".attribute-panel th").filter({hasText:"native_renamed"}).click({button:"right"});
 await page.getByRole("menuitem",{name:"删除字段",exact:true}).click();
 await page.getByRole("dialog").getByRole("button",{name:"删除字段",exact:true}).click();
-await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
-await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
+await page.getByRole("button", {name:"保存编辑",exact:true}).click();
+await expect(page.getByRole("button", {name:"保存编辑",exact:true})).toBeDisabled();
 await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => !Object.hasOwn(f.properties,"native_renamed"))).toBe(true);
-await expect(page.getByRole("button", {name:"新增记录",exact:true})).toBeEnabled();
+await expect(page.getByRole("button", {name:"编辑属性",exact:true})).toBeEnabled();
 console.log("PASS: native shared attribute field add, rename, delete and source-file save");
 await sidebarDesignSmoke(page);
 await page.locator("tbody tr").first().click();
@@ -464,7 +495,7 @@ await editCell("城市");
 await page
   .getByRole("textbox", { name: "属性 城市", exact: true })
   .fill("跨进程恢复测试");
-await page.getByRole("button", { name: "应用", exact: true }).click();
+await page.locator(".cell-editor input").press("Enter");
 await contextMenuSmoke(page);
 await layerBasemapSmoke(page);
 await layerTreeStyleSmoke(page);

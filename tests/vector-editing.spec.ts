@@ -398,11 +398,9 @@ for (const kind of ["json", "wkt", "cell"] as const) {
       await page.keyboard.press("Shift+F10");
       await page.getByRole("menuitem", {name:"WKT 几何…",exact:true}).click();
     } else {
-      await page
-        .locator(".attribute-panel summary")
-        .filter({ hasText: /^更多$/ })
-        .click();
-      await button(page, kind === "json" ? "JSON 属性…" : "WKT 几何…").click();
+      await page.getByLabel("地理数据地图", {exact:true}).focus();
+      await page.keyboard.press("Shift+F10");
+      await page.getByRole("menuitem", {name:"JSON 属性…",exact:true}).click();
     }
     await page.getByRole("textbox", { name: label, exact: true }).fill(text);
     await page.evaluate(() => window.__ZG_TEST__.requestClose());
@@ -433,14 +431,13 @@ for (const kind of ["json", "wkt", "cell"] as const) {
       restarted.getByRole("textbox", { name: label, exact: true }),
     ).toHaveValue(text);
     await expect(restarted.getByLabel("矢量编辑提示")).toContainText("编辑中");
-    await restarted
-      .getByRole("dialog")
-      .getByRole("button", {
-        name:
-          kind === "json" ? "应用属性" : kind === "wkt" ? "应用几何" : "应用",
-        exact: true,
-      })
-      .click();
+    if (kind === "cell") {
+      await restarted.getByRole("textbox", {name:label,exact:true}).press("Enter");
+    } else {
+      await restarted.getByRole("dialog").getByRole("button", {
+        name: kind === "json" ? "应用属性" : "应用几何", exact:true,
+      }).click();
+    }
     const applied = await recovery(restarted, (value) =>
       kind === "wkt"
         ? JSON.stringify(value.layers[0].features[0].geometry) ===

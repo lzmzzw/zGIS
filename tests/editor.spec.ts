@@ -104,12 +104,12 @@ test("city attributes use explicit apply, independent geometry editor, undo and 
   await page.getByRole("button", { name: "编辑属性", exact: true }).click();
   await editCell(page, "城市");
   await city.fill("取消测试");
-  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await page.locator(".cell-editor input").press("Escape");
   await expect(city).toHaveCount(0);
   await expect(page.locator("tbody tr").first()).toContainText("北京");
   await editCell(page, "城市");
   await city.fill("北京测试");
-  await page.getByRole("button", { name: "应用", exact: true }).click();
+  await page.locator(".cell-editor input").press("Enter");
   await expect(page.locator("tbody tr").first()).toContainText("北京测试");
   await wktEditor(page);
   await page
@@ -274,7 +274,7 @@ test("SHP ZIP is editable and save routes to conversion", async ({ page }) => {
   await expect(
     page.getByRole("textbox", { name: "属性 name", exact: true }),
   ).toHaveValue("北京");
-  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await page.locator(".cell-editor input").press("Escape");
   await expect(
     page.getByRole("button", { name: "编辑属性", exact: true }),
   ).toBeEnabled();
@@ -491,7 +491,7 @@ test("desktop SHP export preserves edits on cancellation, error and success", as
   await page
     .getByRole("textbox", { name: "属性 name", exact: true })
     .fill("新北京");
-  await page.getByRole("button", { name: "应用", exact: true }).click();
+  await page.locator(".cell-editor input").press("Enter");
   await page.keyboard.press("Control+s");
   await expect(page.getByRole("combobox", { name: "输出格式" })).toHaveValue(
     "shp",

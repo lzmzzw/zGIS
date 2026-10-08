@@ -171,7 +171,7 @@ test("editing exit can return to editing; confirmation preserves applied changes
   await page
     .getByRole("textbox", { name: "属性 value", exact: true })
     .fill("2");
-  await page.getByRole("button", { name: "应用", exact: true }).click();
+  await page.locator(".cell-editor input").press("Enter");
   await editValueCell(page);
   await page
     .getByRole("textbox", { name: "属性 value", exact: true })
