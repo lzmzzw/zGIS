@@ -943,10 +943,12 @@ dd {
 .modal:has(.split-dialog) {
   width: 820px;
 }
-.modal:has(.file-export) {
+.modal:has(.file-export),
+.modal:has(.file-import) {
   width: 520px;
 }
-.file-export {
+.file-export,
+.file-import {
   display: grid;
   gap: 16px;
   min-width: 0;
@@ -1342,4 +1344,133 @@ button, summary, select { transition: background-color 120ms ease, border-color 
 }
 .map-surface.move-mode {
   cursor: move;
+}
+
+.import-source > .import-file-list {
+  display: grid;
+  gap: 8px;
+}
+.import-file-list svg {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.import-file-list .export-source-meta {
+  flex-shrink: 0;
+}
+.import-option-name {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+.import-fields .checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-left: 100px;
+}
+.import-fields .checkbox-label input {
+  width: 14px;
+  height: 14px;
+  margin: 3px 0 0;
+  flex-shrink: 0;
+}
+.import-copy-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--font-size-sm);
+}
+.import-preview {
+  padding: 16px 0 0;
+  border-top: 1px solid var(--border);
+}
+.import-preview > header {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  margin-bottom: 12px;
+}
+@media (max-width: 440px) {
+  .import-fields .checkbox-label {
+    margin-left: 0;
+  }
+}
+
+/* 设置类弹窗共用紧凑单栏与字段对齐。 */
+.modal:has(.form-grid),
+.modal:has(.data-load-dialog),
+.modal:has(.layer-details) {
+  width: 520px;
+}
+.modal .form-grid,
+.data-load-dialog {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.modal .form-grid > label {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.modal .form-grid .two-columns {
+  display: contents;
+}
+.modal .form-grid .two-columns > label {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.modal .form-grid input,
+.modal .form-grid select {
+  width: 100%;
+  min-width: 0;
+}
+.modal .form-grid .checkbox-label {
+  display: flex;
+  margin-left: 100px;
+}
+.modal .form-grid .checkbox-label input {
+  width: 14px;
+  flex-shrink: 0;
+}
+.modal .form-grid > .form-note {
+  margin-left: 100px;
+}
+.connection-advanced {
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.connection-advanced > summary {
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+}
+.data-load-summary {
+  padding: 16px 0 0;
+  border-top: 1px solid var(--border);
+}
+.layer-details > details {
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.layer-details > details > summary {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  margin-bottom: 12px;
+}
+.layer-details > details > button {
+  margin-top: 12px;
+  margin-right: 8px;
+}
+@media (max-width: 440px) {
+  .modal .form-grid > label,
+  .modal .form-grid .two-columns > label {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .modal .form-grid .checkbox-label,
+  .modal .form-grid > .form-note {
+    margin-left: 0;
+  }
 }

@@ -58,7 +58,7 @@ test("picker Escape retains import dialog and terminal follows theme without rem
   await expect(terminal).toHaveAttribute("data-test-session", "retained");
   await expect(page.locator(".gis-agent-panel")).toHaveCSS(
     "background-color",
-    "rgb(240, 241, 243)",
+    "rgb(245, 245, 242)",
   );
   await page.getByRole("button", { name: "隐藏助手侧栏" }).click();
   await page.locator("input[type=file]").setInputFiles({
@@ -68,6 +68,10 @@ test("picker Escape retains import dialog and terminal follows theme without rem
       '{"type":"Feature","geometry":{"type":"Point","coordinates":[116,40]},"properties":{}}',
     ),
   });
+  const dialog = page.getByRole("dialog");
+  expect((await dialog.boundingBox())!.width).toBeLessThanOrEqual(562);
+  await expect(dialog.locator(".import-source")).toContainText("theme.geojson");
+  expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
   const source = page.getByLabel("theme.geojson 来源坐标系", { exact: true });
   await source.click();
   await expect(

@@ -20,7 +20,10 @@ export function ImportPanel({
 }) {
   const [fileIndex, setFileIndex] = useState(0);
   const [configurations, setConfigurations] = useState<ImportOptions[]>(() =>
-    files.map((file) => ({ encoding: "utf-8", crs: /\.(geojson|json)$/i.test(file.name) ? undefined : "EPSG:4326" })),
+    files.map((file) => ({
+      encoding: "utf-8",
+      crs: /\.(geojson|json)$/i.test(file.name) ? undefined : "EPSG:4326",
+    })),
   );
   const [preview, setPreview] = useState<CsvPreview>();
   const [loading, setLoading] = useState(true);
@@ -87,14 +90,29 @@ export function ImportPanel({
   const issue = error || previewError || preview?.validationError;
   return (
     <>
-      <div className="split-dialog file-import">
-        <div className="form-grid dialog-config">
-          <label>
-            文件
-            {csvFiles.length > 1 ? (
+      <div className="file-import">
+        <div className="export-fields import-fields">
+          <div className="export-source import-source">
+            <span>来源文件</span>
+            <div className="import-file-list">
+              {files.map((item) => (
+                <div key={item.name}>
+                  <FolderOpen size={16} aria-hidden="true" />
+                  <span className="export-source-name">{item.name}</span>
+                  <span className="export-source-meta">
+                    {(item.bytes.length / 1024).toFixed(1)} KB
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {csvFiles.length > 1 && (
+            <label>
+              预览文件
               <select
                 aria-label="预览文件"
                 value={fileIndex}
+                disabled={busy}
                 onChange={(event) => {
                   setFileIndex(Number(event.target.value));
                   setPreview(undefined);
@@ -106,10 +124,8 @@ export function ImportPanel({
                   </option>
                 ))}
               </select>
-            ) : (
-              <span>{files.map((item) => item.name).join("、")}</span>
-            )}
-          </label>
+            </label>
+          )}
           {file && (
             <>
               <label>
@@ -161,106 +177,137 @@ export function ImportPanel({
               </label>
             </>
           )}
-          {files.map((item, index) => /\.(geojson|json)$/i.test(item.name) && (
-            <div key={index} className="form-grid">
-            <label>
-              {item.name} · 来源坐标系
-              <select aria-label={`${item.name} 来源坐标系`} value={configurations[index]?.crs ?? ""} disabled={busy}
-                onChange={(event) => {
-                  onChange();
-                  setConfigurations(old => old.map((config, i) => i === index ? { ...config, crs: event.target.value || undefined } : config));
-                }}>
-                <option value="">按文件标记；无标记默认 EPSG:4326</option>
-                <option>EPSG:4326</option><option>EPSG:4490</option><option>EPSG:3857</option>
-              </select>
-            </label>
-            <label className="checkbox-label">
-              <input type="checkbox" aria-label={`${item.name} 按二维副本导入`}
-                checked={Boolean(configurations[index]?.geoJsonXYCopy)} disabled={busy}
-                onChange={(event) => {
-                  onChange();
-                  setConfigurations(old => old.map((config, i) => i === index ? { ...config, geoJsonXYCopy: event.target.checked } : config));
-                }} />
-              按二维副本导入（忽略 Z/M，不修改原文件）
-            </label>
-            </div>
-          ))}
+          {files.map(
+            (item, index) =>
+              /\.(geojson|json)$/i.test(item.name) && (
+                <div key={index} className="export-fields import-file-options">
+                  {files.length > 1 && (
+                    <p className="export-source-name import-option-name">
+                      {item.name}
+                    </p>
+                  )}
+                  <label>
+                    来源坐标系
+                    <select
+                      aria-label={`${item.name} 来源坐标系`}
+                      value={configurations[index]?.crs ?? ""}
+                      disabled={busy}
+                      onChange={(event) => {
+                        onChange();
+                        setConfigurations((old) =>
+                          old.map((config, i) =>
+                            i === index
+                              ? {
+                                  ...config,
+                                  crs: event.target.value || undefined,
+                                }
+                              : config,
+                          ),
+                        );
+                      }}
+                    >
+                      <option value="">按文件标记；无标记默认 EPSG:4326</option>
+                      <option>EPSG:4326</option>
+                      <option>EPSG:4490</option>
+                      <option>EPSG:3857</option>
+                    </select>
+                  </label>
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      aria-label={`${item.name} 按二维副本导入`}
+                      checked={Boolean(configurations[index]?.geoJsonXYCopy)}
+                      disabled={busy}
+                      onChange={(event) => {
+                        onChange();
+                        setConfigurations((old) =>
+                          old.map((config, i) =>
+                            i === index
+                              ? {
+                                  ...config,
+                                  geoJsonXYCopy: event.target.checked,
+                                }
+                              : config,
+                          ),
+                        );
+                      }}
+                    />
+                    <span>
+                      按二维副本导入
+                      <span className="import-copy-note">
+                        忽略 Z/M，不修改原文件
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              ),
+          )}
           {issue && (
             <p id="import-validation" role="alert" className="inline-error">
               {issue}
             </p>
           )}
         </div>
-        <aside className="dialog-summary">
-          <header>
-            数据预览{" "}
-            <span className="count">{file ? "前 5 行" : "文件组"}</span>
-          </header>
-          {file ? (
-            <>
-              {loading ? (
-                <p className="form-note">
-                  <LoaderCircle className="spin" />
-                  预览中
-                </p>
-              ) : (
-                <div className="preview-table">
-                  <table>
-                    <thead>
-                      <tr>
-                        {preview?.fields.map((field) => (
-                          <th key={field}>
-                            {field}
-                            {mode === "xy" &&
-                            (options.xColumn ?? preview.options.xColumn) ===
-                              field
-                              ? " · X"
-                              : mode === "xy" &&
-                                  (options.yColumn ??
-                                    preview.options.yColumn) === field
-                                ? " · Y"
-                                : ""}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {preview?.rows.map((row, index) => (
-                        <tr key={index}>
-                          {preview.fields.map((field) => (
-                            <td key={field} title={row[field]}>
-                              {row[field]}
-                            </td>
+        {file && (
+          <aside className="dialog-summary import-preview">
+            <header>
+              数据预览{" "}
+              <span className="count">{file ? "前 5 行" : "文件组"}</span>
+            </header>
+            {file ? (
+              <>
+                {loading ? (
+                  <p className="form-note">
+                    <LoaderCircle className="spin" />
+                    预览中
+                  </p>
+                ) : (
+                  <div className="preview-table">
+                    <table>
+                      <thead>
+                        <tr>
+                          {preview?.fields.map((field) => (
+                            <th key={field}>
+                              {field}
+                              {mode === "xy" &&
+                              (options.xColumn ?? preview.options.xColumn) ===
+                                field
+                                ? " · X"
+                                : mode === "xy" &&
+                                    (options.yColumn ??
+                                      preview.options.yColumn) === field
+                                  ? " · Y"
+                                  : ""}
+                            </th>
                           ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              <dl>
-                <dt>几何类型</dt>
-                <dd>{preview?.geometryTypes.join(" / ") || "—"}</dd>
-                <dt>工作坐标</dt>
-                <dd>WGS84</dd>
-                <dt>预览状态</dt>
-                <dd>{loading ? "校验中" : issue ? "未通过" : "通过"}</dd>
-              </dl>
-            </>
-          ) : (
-            <div className="import-file-list">
-              {files.map((item) => (
-                <div key={item.name}>
-                  <FolderOpen />
-                  <span>{item.name}</span>
-                  <span className="count">
-                    {(item.bytes.length / 1024).toFixed(1)} KB
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </aside>
+                      </thead>
+                      <tbody>
+                        {preview?.rows.map((row, index) => (
+                          <tr key={index}>
+                            {preview.fields.map((field) => (
+                              <td key={field} title={row[field]}>
+                                {row[field]}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <dl>
+                  <dt>几何类型</dt>
+                  <dd>{preview?.geometryTypes.join(" / ") || "—"}</dd>
+                  <dt>工作坐标</dt>
+                  <dd>WGS84</dd>
+                  <dt>预览状态</dt>
+                  <dd>{loading ? "校验中" : issue ? "未通过" : "通过"}</dd>
+                </dl>
+              </>
+            ) : null}
+          </aside>
+        )}
       </div>
       <div className="modal-actions">
         <button disabled={busy} onClick={onClose}>
@@ -275,11 +322,7 @@ export function ImportPanel({
           }
           onClick={() => onImport(configurations)}
         >
-          {busy ? (
-            <LoaderCircle className="spin" />
-          ) : (
-            <Check />
-          )}
+          {busy ? <LoaderCircle className="spin" /> : <Check />}
           {file || !error ? "导入" : "重试导入"}
         </button>
       </div>

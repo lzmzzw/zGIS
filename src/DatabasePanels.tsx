@@ -268,8 +268,8 @@ export function LoadPanel({
         srid > 0));
   return (
     <>
-      <div className="split-dialog">
-        <div className="form-grid dialog-config">
+      <div className="data-load-dialog">
+        <div className="form-grid">
           <label>
             数据表
             <span>
@@ -337,7 +337,7 @@ export function LoadPanel({
             />
           </label>
         </div>
-        <aside className="dialog-summary">
+        <aside className="dialog-summary data-load-summary">
           <header>加载摘要</header>
           <dl>
             <dt>几何来源</dt>
@@ -348,7 +348,8 @@ export function LoadPanel({
             </dd>
             <dt>来源坐标</dt>
             <dd>
-              EPSG:{layer.geometryKind === "geometry" ? layer.srid || 4326 : srid}
+              EPSG:
+              {layer.geometryKind === "geometry" ? layer.srid || 4326 : srid}
             </dd>
             <dt>读取范围</dt>
             <dd>
