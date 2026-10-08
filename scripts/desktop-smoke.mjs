@@ -259,6 +259,7 @@ await page.waitForFunction(
 );
 await page.locator("tbody tr").first().click();
 await setName("北京编辑后");
+await page.getByRole("button", {name:"选择",exact:true}).click();
 await page.getByLabel("地理数据地图", {exact:true}).focus();
 await page.keyboard.press("Shift+F10");
 await page.getByRole("menuitem", {name:"WKT 几何…",exact:true}).click();
