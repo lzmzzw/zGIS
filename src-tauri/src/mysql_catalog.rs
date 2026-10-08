@@ -3,15 +3,15 @@ use mysql_async::{prelude::Queryable, Conn, OptsBuilder, Row, SslOpts, TxOpts};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     time::Duration,
 };
 use tauri::{Manager, State};
-use tokio::sync::Mutex;
+use super::ConnectionRegistry;
 
 #[derive(Default)]
 pub struct MysqlBackend {
-    clients: Mutex<HashMap<String, Conn>>,
+    clients: ConnectionRegistry<Conn>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -118,11 +118,7 @@ pub async fn connect_mysql_database(
         .map_err(|_| "Mysql 连接超时")?
         .map_err(|_| "Mysql 连接失败，请检查参数、权限与受信证书")?;
     let id = uuid::Uuid::new_v4().to_string();
-    let mut clients = state.clients.lock().await;
-    if clients.len() >= 8 {
-        return Err("连接数量已达上限，请断开不用的连接".into());
-    }
-    clients.insert(id.clone(), connection);
+    state.clients.insert(id.clone(), connection).await?;
     Ok(id)
 }
 #[tauri::command]
@@ -130,8 +126,12 @@ pub async fn disconnect_mysql_database(
     state: State<'_, MysqlBackend>,
     connection_id: String,
 ) -> Result<(), String> {
-    if let Some(conn) = state.clients.lock().await.remove(&connection_id) {
-        let _ = tokio::time::timeout(Duration::from_secs(3), conn.disconnect()).await;
+    if let Some(connection) = state.clients.remove(&connection_id).await {
+        // 已排队操作会失效；执行中事务归还独占连接后由 Conn::drop 关闭。
+        let conn = connection.try_lock().ok().and_then(|mut client| client.take());
+        if let Some(conn) = conn {
+            let _ = tokio::time::timeout(Duration::from_secs(3), conn.disconnect()).await;
+        }
     }
     Ok(())
 }
@@ -254,12 +254,13 @@ pub async fn discover_mysql_tables(
     state: State<'_, MysqlBackend>,
     connection_id: String,
 ) -> Result<Catalog, String> {
-    let mut clients = state.clients.lock().await;
-    let conn = clients.get_mut(&connection_id).ok_or("连接已失效")?;
+    let mut connection = state.clients.acquire(&connection_id).await?;
+    let conn = connection.as_mut().ok_or("连接已失效")?;
     match tokio::time::timeout(Duration::from_secs(15), catalog(conn)).await {
         Ok(result) => result,
         Err(_) => {
-            clients.remove(&connection_id);
+            connection.take();
+            state.clients.remove(&connection_id).await;
             Err("读取目录超时，连接已断开".into())
         }
     }
@@ -1069,8 +1070,8 @@ pub async fn commit_mysql_changes(
     {
         return Err("单次提交最多10000条且不超过16 MiB".into());
     }
-    let mut clients = state.clients.lock().await;
-    let conn = clients.get_mut(&connection_id).ok_or("连接已失效")?;
+    let mut connection = state.clients.acquire(&connection_id).await?;
+    let conn = connection.as_mut().ok_or("连接已失效")?;
     let result = tokio::time::timeout(Duration::from_secs(30), async {
         let mut table = selected_table(conn, &layer.schema, &layer.table).await?;
         geometry_expression(&table, &layer)?;
@@ -1367,7 +1368,8 @@ pub async fn commit_mysql_changes(
         Ok(Err(error)) if schema_applied=>Err(format!("字段结构已提交；数据修改未完成或结果待核对。请重新读取图层，禁止直接重试原变更。{error}")),
         Ok(result) => result,
         Err(_) => {
-            clients.remove(&connection_id);
+            connection.take();
+            state.clients.remove(&connection_id).await;
             Err(if schema_changes.is_empty(){"图层提交超时，连接已断开；请重新读取核实结果".into()}else{"字段或数据提交结果待核对，连接已断开；请重新读取来源表，禁止直接重试原变更".into()})
         }
     }
@@ -1383,8 +1385,8 @@ pub async fn preview_mysql_table(
     if ![10, 20].contains(&limit) {
         return Err("预览条数仅支持 10 或 20".into());
     }
-    let mut clients = state.clients.lock().await;
-    let conn = clients.get_mut(&connection_id).ok_or("连接已失效")?;
+    let mut connection = state.clients.acquire(&connection_id).await?;
+    let conn = connection.as_mut().ok_or("连接已失效")?;
     let result = tokio::time::timeout(Duration::from_secs(15), async {
         let selected = selected_table(conn, &schema, &table).await?;
         let records: Vec<Row> = conn
@@ -1423,13 +1425,16 @@ pub async fn preview_mysql_table(
     match result {
         Ok(result) => result,
         Err(_) => {
-            clients.remove(&connection_id);
+            connection.take();
+            state.clients.remove(&connection_id).await;
             Err("表预览超时，连接已断开".into())
         }
     }
 }
 
 #[tauri::command]
+// 保持现有 Tauri IPC 的平铺参数契约。
+#[allow(clippy::too_many_arguments)]
 pub async fn query_mysql_geometry(
     state: State<'_, MysqlBackend>,
     connection_id: String,
@@ -1445,8 +1450,8 @@ pub async fn query_mysql_geometry(
         return Err("加载条数必须为1至10000".into());
     }
     let bbox = super::validate_bbox(bbox)?;
-    let mut clients = state.clients.lock().await;
-    let conn = clients.get_mut(&connection_id).ok_or("连接已失效")?;
+    let mut connection = state.clients.acquire(&connection_id).await?;
+    let conn = connection.as_mut().ok_or("连接已失效")?;
     let result=tokio::time::timeout(Duration::from_secs(30),async {
         let selected=selected_table(conn,&schema,&table).await?;
         let layer=Layer {schema:schema.clone(),table:table.clone(),geometry_column:geometry_column.clone(),geometry_kind:geometry_kind.unwrap_or_else(||"geometry".into()),srid:srid.unwrap_or(0),key_columns:selected.key_columns.clone(),columns:selected.columns.clone()};
@@ -1495,7 +1500,8 @@ pub async fn query_mysql_geometry(
     match result {
         Ok(result) => result,
         Err(_) => {
-            clients.remove(&connection_id);
+            connection.take();
+            state.clients.remove(&connection_id).await;
             Err("空间加载超时，连接已断开".into())
         }
     }

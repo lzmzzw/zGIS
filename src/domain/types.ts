@@ -63,6 +63,6 @@ export interface DocumentLayer {
 }
 export interface InputFile {
   name: string;
-  bytes: number[];
+  bytes: number[] | Uint8Array;
   sourceId?: string;
 }

@@ -10,7 +10,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
 use tauri::Manager;
@@ -31,6 +31,7 @@ struct Inner {
     startup_error: Option<String>,
     results: HashMap<String, Cached>,
     queue: Vec<Value>,
+    queue_bytes: usize,
     audit: VecDeque<Value>,
 }
 struct Cached {
@@ -52,6 +53,7 @@ pub struct McpStatus {
     headers_helper: Option<String>,
 }
 impl GisMcp {
+    #[cfg(test)]
     fn start_generation(&self) -> Option<u64> {
         let i = self.inner.lock().unwrap();
         if i.server.is_some() {
@@ -82,7 +84,7 @@ impl GisMcp {
         i.startup_error = None;
         i.endpoint = Some(endpoint);
         i.token = Some(token);
-        let app = router(self.clone());
+        let app = router(self.clone(), generation);
         i.server = Some(tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         }));
@@ -140,6 +142,7 @@ impl GisMcp {
         i.token = None;
         i.results.clear();
         i.queue.clear();
+        i.queue_bytes = 0;
         i.startup_error = None;
         server
     }
@@ -161,7 +164,7 @@ impl GisMcp {
         status
     }
     fn log(&self, name: &str, ok: bool) {
-        let safe_name = if definitions().iter().any(|d| d["name"] == name)
+        let safe_name = if definition_catalog().iter().any(|d| d["name"] == name)
             || ["http_host_check", "http_auth_check", "http_origin_check"].contains(&name)
         {
             name
@@ -201,16 +204,11 @@ pub fn gis_workspace_sync(
     active_layer_id: Option<String>,
     state: tauri::State<'_, GisMcp>,
 ) -> Result<(), String> {
-    if serde_json::to_vec(&layers)
-        .map_err(|e| e.to_string())?
-        .len()
-        > 100 * 1024 * 1024
-    {
-        return Err("同步图层总大小超过100MB".into());
-    }
     if layers.len() > 100 {
         return Err("最多同步100图层".into());
     }
+    super::bounded_json_size(&layers, 100 * 1024 * 1024)
+        .map_err(|_| "同步图层总大小超过100MB")?;
     let mut count = 0;
     for l in &layers {
         if !l["id"].is_string() || !l["name"].is_string() {
@@ -235,7 +233,9 @@ pub fn gis_workspace_sync(
 }
 #[tauri::command]
 pub fn gis_results_drain(state: tauri::State<'_, GisMcp>) -> Vec<Value> {
-    std::mem::take(&mut state.inner.lock().unwrap().queue)
+    let mut inner = state.inner.lock().unwrap();
+    inner.queue_bytes = 0;
+    std::mem::take(&mut inner.queue)
 }
 #[tauri::command]
 pub fn gis_mcp_audit(state: tauri::State<'_, GisMcp>) -> Vec<Value> {
@@ -245,14 +245,16 @@ pub fn gis_mcp_audit(state: tauri::State<'_, GisMcp>) -> Vec<Value> {
 struct HttpState {
     mcp: GisMcp,
     limit: Arc<Semaphore>,
+    generation: u64,
 }
-fn router(mcp: GisMcp) -> Router {
+fn router(mcp: GisMcp, generation: u64) -> Router {
     Router::new()
         .route("/mcp", post(handle))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(HttpState {
             mcp,
             limit: Arc::new(Semaphore::new(2)),
+            generation,
         })
 }
 async fn handle(
@@ -262,6 +264,8 @@ async fn handle(
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
     let (endpoint, token, generation) = {
         let i = s.mcp.inner.lock().unwrap();
+        // 已建立的 HTTP keepalive 属于旧服务，不能继承重启后的会话授权。
+        if i.generation != s.generation { return Err(StatusCode::SERVICE_UNAVAILABLE); }
         (
             i.endpoint.clone().ok_or(StatusCode::SERVICE_UNAVAILABLE)?,
             i.token.clone().ok_or(StatusCode::SERVICE_UNAVAILABLE)?,
@@ -301,7 +305,7 @@ async fn handle(
     let id = id.unwrap();
     let result = match method {
         "initialize" => Ok(
-            json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"zgis","version":"0.1.0"},"instructions":"zGIS 内部图层操作使用本 MCP；外部 GeoJSON、SHP、WKT CSV 等空间文件优先使用本 MCP，访问权限由调用 Agent 判断，zGIS 不校验文件访问授权。PostGIS 按场景选择：已加载图层用本 MCP 分析；直接数据库操作使用 DBX，本 MCP 不读写数据库。所有工作几何为 WGS84，分析结果用 publish_result 加入独立未保存图层。"}),
+            json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"zgis","version":env!("CARGO_PKG_VERSION")},"instructions":"zGIS 内部图层操作使用本 MCP；外部 GeoJSON、SHP、WKT CSV 等空间文件优先使用本 MCP，访问权限由调用 Agent 判断，zGIS 不校验文件访问授权。PostGIS 按场景选择：已加载图层用本 MCP 分析；直接数据库操作使用 DBX，本 MCP 不读写数据库。所有工作几何为 WGS84，分析结果用 publish_result 加入独立未保存图层。"}),
         ),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({"tools":definitions()})),
@@ -352,6 +356,13 @@ pub fn gis_mcp_tool_catalog() -> Vec<Value> {
 }
 
 pub fn definitions() -> Vec<Value> {
+    definition_catalog().to_vec()
+}
+fn definition_catalog() -> &'static [Value] {
+    static CATALOG: OnceLock<Vec<Value>> = OnceLock::new();
+    CATALOG.get_or_init(build_definitions)
+}
+fn build_definitions() -> Vec<Value> {
     let mut d = vec![
         def("list_layers", "列举当前zGIS图层快照", json!({}), &[]),
         def(
@@ -491,9 +502,21 @@ fn validate(value: &Value, schema: &Value) -> Result<(), String> {
 }
 fn fingerprint(l: &Value) -> String {
     use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(l["features"].to_string().as_bytes()))
+    struct HashWriter(Sha256);
+    impl std::io::Write for HashWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.update(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    // 流式序列化进摘要，避免每次查询临时复制整层 JSON 字符串。
+    let mut writer = HashWriter(Sha256::new());
+    serde_json::to_writer(&mut writer, &l["features"]).expect("JSON value serialization is infallible");
+    format!("{:x}", writer.0.finalize())
 }
-fn source(m: &GisMcp, v: &Value) -> Result<(Vec<Value>, Vec<(String, String)>), String> {
+type SourceSnapshot = (Vec<Value>, Vec<(String, String)>);
+fn source(m: &GisMcp, v: &Value) -> Result<SourceSnapshot, String> {
     let obj = v.as_object().ok_or("source必须为object")?;
     if let Some(id) = v["resultId"].as_str() {
         if obj.len() != 1 {
@@ -542,12 +565,14 @@ fn cache(
     if features.len() > 100_000 {
         return Err("结果超过100000要素".into());
     }
+    let feature_bytes = super::bounded_json_size(&features, 100 * 1024 * 1024)
+        .map_err(|_| "结果缓存超过100MB")?;
+    let bytes = feature_bytes + super::bounded_json_size(&summary, 100 * 1024 * 1024 - feature_bytes)
+        .map_err(|_| "结果缓存超过100MB")?;
     let mut i = m.inner.lock().unwrap();
     if i.generation != generation {
         return Err("会话已停止或授权已撤销，请重新执行".into());
     }
-    let bytes =
-        features.iter().map(|f| f.to_string().len()).sum::<usize>() + summary.to_string().len();
     i.results
         .retain(|_, r| r.created.elapsed() < Duration::from_secs(1800));
     if i.results.len() >= 20
@@ -581,8 +606,8 @@ fn call_expected(m: &GisMcp, name: &str, args: &Value, generation: u64) -> Resul
     if m.inner.lock().unwrap().generation != generation {
         return Err("会话授权已改变".into());
     }
-    let d = definitions()
-        .into_iter()
+    let d = definition_catalog()
+        .iter()
         .find(|d| d["name"] == name)
         .ok_or("未知工具")?;
     validate(args, &d["inputSchema"])?;
@@ -678,11 +703,16 @@ fn call_expected(m: &GisMcp, name: &str, args: &Value, generation: u64) -> Resul
             if i.queue.len() >= 20 {
                 return Err("待导入结果已满".into());
             }
+            let layer_bytes = r.bytes + args["name"].as_str().unwrap().len() + 1024;
+            if i.queue_bytes.saturating_add(layer_bytes) > 100 * 1024 * 1024 {
+                return Err("待导入结果超过100MB，请先导入已有结果".into());
+            }
             if !r.features.is_empty() {
                 super::spatial::analyze("layer_summary", &json!({}), &r.features, None)?;
             }
             let layer = json!({"id":id,"name":args["name"],"features":r.features});
             i.queue.push(layer);
+            i.queue_bytes += layer_bytes;
             i.results.get_mut(id).unwrap().published = true;
             Ok(json!({"published":true,"resultId":id}))
         }
@@ -717,21 +747,29 @@ fn bounded_sample(features: &[Value]) -> Vec<Value> {
         .iter()
         .take(100)
         .take_while(|f| {
-            bytes += f.to_string().len();
-            bytes <= 512 * 1024
+            if let Ok(size) = super::bounded_json_size(f, 512 * 1024 - bytes) {
+                bytes += size;
+                true
+            } else { false }
         })
         .cloned()
         .collect()
 }
 fn compact_summary(summary: &Value) -> Value {
-    let mut v = summary.clone();
-    if let Some(issues) = v["issues"].as_array() {
+    let Some(object) = summary.as_object() else { return summary.clone(); };
+    // issues 只复制预览，避免先克隆整份报告再截取样本。
+    let mut v: serde_json::Map<String, Value> = object.iter()
+        .filter(|(key, _)| key.as_str() != "issues")
+        .map(|(key, value)| (key.clone(), value.clone())).collect();
+    if let Some(issues) = summary["issues"].as_array() {
         let count = issues.len();
         let sample = bounded_sample(issues);
-        v["issueCount"] = json!(count);
-        v["issues"] = json!(sample);
+        v.insert("issueCount".into(), json!(count));
+        v.insert("issues".into(), json!(sample));
+    } else if let Some(issues) = object.get("issues") {
+        v.insert("issues".into(), issues.clone());
     }
-    v
+    Value::Object(v)
 }
 fn page(f: &[Value], args: &Value, mut extra: Value) -> Value {
     let offset = args["offset"].as_u64().unwrap_or(0) as usize;
@@ -750,6 +788,46 @@ fn page(f: &[Value], args: &Value, mut extra: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn streaming_fingerprint_preserves_existing_versions() {
+        use sha2::{Digest, Sha256};
+        let layer = json!({"features":[{"type":"Feature","geometry":null,"properties":{"名称":"中文 🎯","n":1.2345678901234567}}]});
+        let original = format!("{:x}", Sha256::digest(layer["features"].to_string().as_bytes()));
+        assert_eq!(fingerprint(&layer), original);
+    }
+    #[tokio::test]
+    async fn old_http_transport_cannot_inherit_restarted_session() {
+        let mcp = GisMcp::default();
+        {
+            let mut inner = mcp.inner.lock().unwrap();
+            inner.endpoint = Some("http://127.0.0.1:9420/mcp".into());
+            inner.token = Some("test-only".into());
+        }
+        let old = HttpState { mcp: mcp.clone(), limit: Arc::new(Semaphore::new(2)), generation: 0 };
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "127.0.0.1:9420".parse().unwrap());
+        headers.insert("authorization", "Bearer test-only".parse().unwrap());
+        let body = Bytes::from_static(br#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#);
+        let (_, Json(response)) = handle(State(old.clone()), headers.clone(), body.clone()).await.unwrap();
+        assert_eq!(response["result"]["serverInfo"]["version"], env!("CARGO_PKG_VERSION"));
+        // 固定外部令牌与端口保持不变，唯有服务代次可以隔离旧 keepalive。
+        mcp.inner.lock().unwrap().generation = 1;
+        assert_eq!(handle(State(old), headers.clone(), body.clone()).await.unwrap_err(), StatusCode::SERVICE_UNAVAILABLE);
+        let current = HttpState { mcp, limit: Arc::new(Semaphore::new(2)), generation: 1 };
+        assert!(handle(State(current), headers, body).await.is_ok());
+    }
+    #[test]
+    fn publication_queue_has_independent_byte_budget() {
+        let mcp = GisMcp::default();
+        let feature = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{}});
+        let result = cache(&mcp, vec![feature], json!({}), vec![], 0, true).unwrap();
+        // 已发布的结果过期释放缓存后，待导入队列仍占有独立内存预算。
+        mcp.inner.lock().unwrap().queue_bytes = 100 * 1024 * 1024;
+        assert!(call(&mcp, "publish_result", &json!({"resultId":result["resultId"],"name":"result"})).is_err());
+        assert!(mcp.inner.lock().unwrap().queue.is_empty());
+        mcp.shutdown();
+        assert_eq!(mcp.inner.lock().unwrap().queue_bytes, 0);
+    }
     #[test]
     fn new_algorithms_share_bounded_schema_cache_and_publication() {
         let m = GisMcp::default();
@@ -913,7 +991,7 @@ mod tests {
             i.endpoint = Some(format!("http://{address}/mcp"));
             i.token = Some("test-secret".into());
         }
-        let h = tokio::spawn(async move { axum::serve(l, router(m)).await.unwrap() });
+        let h = tokio::spawn(async move { axum::serve(l, router(m, 0)).await.unwrap() });
         async fn request(address: std::net::SocketAddr, headers: &str) -> String {
             use tokio::io::{AsyncReadExt, AsyncWriteExt};
             let body = r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#;

@@ -2,7 +2,7 @@
 
 GitHub Actions 的检查、构建和发布流程见 [发布说明](docs/release.md)。
 
-Windows 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLayers 与 Rust。当前版本为 0.1.0，不包含 Python/GDAL 运行时。
+Windows 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLayers 与 Rust。当前源码版本为 0.2.0，不包含 Python/GDAL 运行时。变更见 [0.2.0 说明](docs/releases/0.2.0.md)，模块职责与维护边界见 [代码结构](docs/architecture.md)。
 
 ## 功能
 
@@ -17,7 +17,7 @@ Windows 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLaye
 
 ## 运行与安装
 
-当前交付安装包在 `F:\Workspace\Deliverables\zGIS\zGIS_0.1.0_xyz-analysis-release_x64-setup.exe`。当前用户安装默认目录为 `%LOCALAPPDATA%\zGIS`，启动文件为 `zgis.exe`；可从开始菜单启动。卸载使用 Windows 应用管理或安装目录的 `uninstall.exe`。
+0.2.0 安装包名称为 `zGIS_0.2.0_x64-setup.exe`，本地构建位于 `src-tauri/target/release/bundle/nsis/`；正式发布入口为 [GitHub Releases](https://github.com/lzmzzw/zGIS/releases)。当前用户安装默认目录为 `%LOCALAPPDATA%\zGIS`，启动文件为 `zgis.exe`；可从开始菜单启动。卸载使用 Windows 应用管理或安装目录的 `uninstall.exe`。
 
 MCP 默认随应用启动，固定本机地址与令牌；外部文件直接按路径读取，访问权限由调用 Agent 判断。Codex 接入方法见 [空间分析说明](docs/spatial-mcp.md)。
 
@@ -61,6 +61,7 @@ PostGIS 与 MySQL 的表从管理页添加到地图，geometry 或文本 WKT 为
 - 超安全范围整数及高精度小数属性转为字符串，GeoJSON 再导出保持文本类型；普通安全数值保留数值类型。JSON 属性编辑采用无损解析后同一规则，不能承诺原始格式完全保真。
 - CSV 属性默认文本，不提供完整字段 schema 设计器或 NULL 规则配置；CSV 空字符串与 NULL 不保真。改变输出几何模式会移除已识别的旧几何列，避免留下过时数据。
 - 属性表为本地分页和搜索；PostGIS 读取最多 10 万条，geometry 可选当前地图范围，尚无数据库游标分页。界面标记读取上限，不能把当前结果当全表。
+- PostGIS 逐行处理查询结果，包含完整提交基线的响应最多 100 MiB；超限整体拒绝，不返回缺少基线的部分记录。单行的驱动解码与服务端缓冲峰值不由该输出预算保护。MySQL 原有 16 MiB 限制保持。两引擎各最多 8 个连接，连接间请求隔离，同连接排队最多等待 35 秒；断开立即移除连接注册，排队请求失效，执行中的事务仍按原有超时边界结束。
 - PostGIS 文本 WKT 来源可选 EPSG:4326（默认）、4490、3857，读取转换至工作坐标，几何提交转换回来源坐标。geometry 中 SRID=0 的记录按 4326 解释，已有非零 SRID 保留；不自动批量改写库内 SRID。
 - PostGIS 新表采用 `id bigint identity + properties jsonb + geom geometry(Geometry,4326)`，不展开字段，不覆盖已有表；不支持 geography、数据库结构管理或任意 SQL。
 - 本地检查几何结构，不执行完整拓扑修复；数据库提交使用 ST_IsValid。数据库连接、TLS、真实约束和并发集成仍需用户提供指定测试环境后验证。

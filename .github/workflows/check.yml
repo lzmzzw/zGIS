@@ -67,6 +67,12 @@ jobs:
           . scripts/msvc-environment.ps1
           cargo test --manifest-path src-tauri/Cargo.toml --lib --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Rust 静态检查
+        shell: pwsh
+        run: |
+          . scripts/msvc-environment.ps1
+          cargo clippy --manifest-path src-tauri/Cargo.toml --lib --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: 构建前端
         run: pnpm build
       - name: 页面回归

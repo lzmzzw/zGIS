@@ -1,6 +1,7 @@
 param(
   [string]$Installer,
   [switch]$Smoke,
+  [switch]$FullSmoke,
   [switch]$Launch,
   [switch]$Worker,
   [string]$Request
@@ -42,7 +43,8 @@ if ($Worker) {
     })
     if ($job.smoke) {
       $report.smokeLog = $job.log
-      & (Join-Path $PSScriptRoot 'installed-smoke.ps1') -Executable $executable -InstallationOnly *>&1 | Tee-Object -FilePath $job.log | Out-Null
+      $smokeOptions = @{ Executable = $executable; InstallationOnly = (-not $job.fullSmoke) }
+      & (Join-Path $PSScriptRoot 'installed-smoke.ps1') @smokeOptions *>&1 | Tee-Object -FilePath $job.log | Out-Null
       $report.smoke = 'passed'
     }
     if ($job.launch) {
@@ -68,7 +70,8 @@ if ($Worker) {
   exit 0
 }
 
-if (-not $Installer) { $Installer = Join-Path $repository 'src-tauri/target/release/bundle/nsis/zGIS_0.1.0_x64-setup.exe' }
+$configuration = Get-Content -LiteralPath (Join-Path $repository 'src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json
+if (-not $Installer) { $Installer = Join-Path $repository "src-tauri/target/release/bundle/nsis/zGIS_$($configuration.version)_x64-setup.exe" }
 $Installer = (Resolve-Path -LiteralPath $Installer).Path
 $release = (Resolve-Path -LiteralPath (Join-Path $repository 'src-tauri/target/release/zgis.exe')).Path
 $id = [Guid]::NewGuid().ToString('N')
@@ -76,7 +79,7 @@ $directory = Join-Path $repository 'output/install'
 New-Item -ItemType Directory -Path $directory -Force | Out-Null
 $requestPath = Join-Path $directory "$id-request.json"
 $reportPath = Join-Path $directory "$id-report.json"
-@{installer=$Installer; release=$release; smoke=[bool]$Smoke; launch=[bool]$Launch; report=$reportPath; log=(Join-Path $directory "$id-smoke.log")} | ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding utf8
+@{installer=$Installer; release=$release; smoke=[bool]($Smoke -or $FullSmoke); fullSmoke=[bool]$FullSmoke; launch=[bool]$Launch; report=$reportPath; log=(Join-Path $directory "$id-smoke.log")} | ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding utf8
 
 # Task Scheduler starts an interactive-user process outside Codex's MSIX identity.
 # No elevation, persistent trigger, credential or background automation is created.

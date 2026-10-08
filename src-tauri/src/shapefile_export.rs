@@ -187,7 +187,16 @@ pub fn build_components_crs(features: &[Value], crs: &str) -> Result<Vec<(&'stat
                 Value::String(s) if !s.is_empty() && !s.starts_with(' ') && !s.ends_with(' ') && !s.contains('\0') && s.len() <= 254 => {
                     Field::Text(s.len().max(1) as u8)
                 }
-                Value::Number(n) => Field::Number(decimal(n.as_f64().ok_or("无效数值")?)?),
+                Value::Number(n) => {
+                    // arbitrary_precision 的十进制值不能先降为 f64 再声称无损。
+                    let text = n.to_string();
+                    let digits: String = text.split(['e', 'E']).next().unwrap_or("")
+                        .chars().filter(|c| c.is_ascii_digit()).collect();
+                    if digits.trim_start_matches('0').trim_end_matches('0').len() > 15 {
+                        return Err(format!("字段 {name}：数值不能超过 15 位有效数字，请转换为文本"));
+                    }
+                    Field::Number(decimal(n.as_f64().ok_or("无效数值")?)?)
+                }
                 Value::Bool(_) => Field::Bool,
                 _ => return Err(format!(
                     "字段 {name}：不支持 null、缺失值、对象/数组、空文本、首尾空格、NUL 或超过 254 UTF-8 字节的文本"
@@ -228,24 +237,23 @@ pub fn build_components_crs(features: &[Value], crs: &str) -> Result<Vec<(&'stat
     if fields.is_empty() {
         builder = builder.add_numeric_field("ZG_ROW".try_into().map_err(error)?, 12, 0);
     }
-    let shapes = features
-        .iter()
-        .map(|f| geometry(&f["geometry"], crs))
-        .collect::<Result<Vec<_>, _>>()?;
     let family = |g: &Geometry| match g {
         Geometry::Single(_) => 0,
         Geometry::Points(_) => 3,
         Geometry::Lines(_) => 1,
         Geometry::Areas(_) => 2,
     };
-    if shapes.iter().any(|g| family(g) != family(&shapes[0])) {
-        return Err("SHP 不支持混合 Point/MultiPoint/线/面，请分图层导出".into());
-    }
     let (mut shp, mut shx, mut dbf) = (Vec::new(), Vec::new(), Vec::new());
     {
         let sw = ShapeWriter::with_shx(Cursor::new(&mut shp), Cursor::new(&mut shx));
         let mut writer = Writer::new(sw, builder.build_with_dest(Cursor::new(&mut dbf)));
-        for (i, (f, g)) in features.iter().zip(shapes.iter()).enumerate() {
+        let mut first_family = None;
+        for (i, f) in features.iter().enumerate() {
+            let g = geometry(&f["geometry"], crs)?;
+            if first_family.is_some_and(|first| first != family(&g)) {
+                return Err("SHP 不支持混合 Point/MultiPoint/线/面，请分图层导出".into());
+            }
+            first_family = Some(family(&g));
             let mut r = dbase::Record::default();
             if fields.is_empty() {
                 r.insert(
@@ -266,7 +274,7 @@ pub fn build_components_crs(features: &[Value], crs: &str) -> Result<Vec<(&'stat
                     },
                 );
             }
-            match g {
+            match &g {
                 Geometry::Single(s) => writer.write_shape_and_record(s, &r),
                 Geometry::Points(s) => writer.write_shape_and_record(s, &r),
                 Geometry::Lines(s) => writer.write_shape_and_record(s, &r),
@@ -383,6 +391,18 @@ mod tests {
             "x"
         )
         .is_err());
+        for text in ["0.10000000000000000001", "1.234567890123456789"] {
+            let value: Value = serde_json::from_str(text).unwrap();
+            assert!(build_zip(
+                &[feature(
+                    json!({"type":"Point","coordinates":[0,0]}),
+                    json!({"value":value})
+                )],
+                "x"
+            )
+            .unwrap_err()
+            .contains("有效数字"));
+        }
     }
     #[test]
     fn lines_and_mixed() {

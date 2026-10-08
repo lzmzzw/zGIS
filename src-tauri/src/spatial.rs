@@ -100,6 +100,10 @@ fn decode(features: &[Value], allow_invalid: bool) -> Result<Vec<Geometry<f64>>,
                 .ok_or_else(|| format!("要素 {i} 缺少 geometry"))?;
             validate_coordinates(value.get("coordinates").unwrap_or(&Value::Null))?;
             validate_rings(value)?;
+            vertices += coordinate_count(&value["coordinates"]);
+            if vertices > MAX_VERTICES {
+                return Err("顶点总数超过 1000000".into());
+            }
             let parsed: geojson::Geometry =
                 serde_json::from_value(value.clone()).map_err(|e| format!("要素 {i}: {e}"))?;
             let geometry: Geometry<f64> =
@@ -107,16 +111,13 @@ fn decode(features: &[Value], allow_invalid: bool) -> Result<Vec<Geometry<f64>>,
             if matches!(geometry, Geometry::GeometryCollection(_)) {
                 return Err("不支持 GeometryCollection".into());
             }
-            let coords: Vec<_> = geometry.coords_iter().collect();
-            vertices += coords.len();
-            if vertices > MAX_VERTICES {
-                return Err("顶点总数超过 1000000".into());
-            }
-            if coords.is_empty() {
+            let mut coords = geometry.coords_iter();
+            let Some(first) = coords.next() else {
                 return Err(format!("要素 {i} 为空几何"));
-            }
-            let min = coords.iter().map(|c| c.x).fold(f64::INFINITY, f64::min);
-            let max = coords.iter().map(|c| c.x).fold(f64::NEG_INFINITY, f64::max);
+            };
+            let (min, max) = coords.fold((first.x, first.x), |(min, max), c| {
+                (min.min(c.x), max.max(c.x))
+            });
             if max - min > 180.0 {
                 return Err("不支持跨日期变更线或跨度超过 180 度的几何".into());
             }
@@ -377,6 +378,29 @@ fn relation(a: &Geometry<f64>, b: &Geometry<f64>, p: &str) -> bool {
         "disjoint" => r.is_disjoint(),
         _ => r.is_intersects(),
     }
+}
+fn bounds_overlap(a: Option<geo::Rect<f64>>, b: Option<geo::Rect<f64>>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            a.min().x <= b.max().x
+                && a.max().x >= b.min().x
+                && a.min().y <= b.max().y
+                && a.max().y >= b.min().y
+        }
+        _ => false,
+    }
+}
+fn bounded_relation(
+    a: &Geometry<f64>,
+    b: &Geometry<f64>,
+    p: &str,
+    ab: Option<geo::Rect<f64>>,
+    bb: Option<geo::Rect<f64>>,
+) -> bool {
+    if !bounds_overlap(ab, bb) {
+        return p == "disjoint";
+    }
+    relation(a, b, p)
 }
 fn properties(f: &Value, key: &str, value: Value) -> Value {
     let mut p = f
@@ -945,6 +969,8 @@ fn analyze_inner(
     if s.len().saturating_mul(t.len()) > MAX_PAIRS {
         return Err("候选对超过 1000000，请缩小输入范围".into());
     }
+    let source_bounds: Vec<_> = s.iter().map(BoundingRect::bounding_rect).collect();
+    let target_bounds: Vec<_> = t.iter().map(BoundingRect::bounding_rect).collect();
     let mut out = Vec::new();
     let mut output_budget = OutputBudget::new(output_limit);
     if name == "count_points" {
@@ -963,7 +989,13 @@ fn analyze_inner(
             polygon(g)?;
             let count = points
                 .iter()
-                .filter(|p| relation(g, &Geometry::Point(**p), "intersects"))
+                .filter(|p| {
+                    bounded_relation(
+                        g, &Geometry::Point(**p), "intersects",
+                        source_bounds[i],
+                        Some(p.bounding_rect()),
+                    )
+                })
                 .count();
             push_bounded(
                 &mut out,
@@ -983,6 +1015,9 @@ fn analyze_inner(
         if name == "intersection" {
             for (i, a) in sp.iter().enumerate() {
                 for (j, b) in tp.iter().enumerate() {
+                    if !bounds_overlap(source_bounds[i], target_bounds[j]) {
+                        continue;
+                    }
                     let result = a.intersection(b);
                     if result.0.is_empty() {
                         continue;
@@ -1045,8 +1080,7 @@ fn analyze_inner(
         return Ok(collection(out, false));
     }
     if name == "nearest" {
-        let all: Vec<_> = s.iter().chain(t.iter()).cloned().collect();
-        let projection = Projection::new(&all)?;
+        let projection = Projection::from_geometries(s.iter().chain(t.iter()))?;
         use geo::{Distance, Euclidean};
         let projected: Vec<_> = t.iter().map(|g| projection.map(g, false)).collect();
         for (i, g) in s.iter().enumerate() {
@@ -1098,21 +1132,26 @@ fn analyze_inner(
         return Ok(collection(out, false));
     }
     for (i, g) in s.iter().enumerate() {
-        let matches: Vec<_> = t
-            .iter()
-            .enumerate()
-            .filter(|(_, b)| relation(g, b, predicate))
-            .map(|(j, _)| j)
-            .collect();
         if name == "spatial_query" {
+            let mut matches = t.iter().enumerate().map(|(j, b)| {
+                bounded_relation(g, b, predicate, source_bounds[i], target_bounds[j])
+            });
             if if predicate == "disjoint" {
-                matches.len() == t.len()
+                matches.all(|matched| matched)
             } else {
-                !matches.is_empty()
+                matches.any(|matched| matched)
             } {
                 push_bounded(&mut out, &mut output_budget, source[i].clone())?;
             }
         } else {
+            let matches: Vec<_> = t
+                .iter()
+                .enumerate()
+                .filter(|(j, b)| {
+                    bounded_relation(g, b, predicate, source_bounds[i], target_bounds[*j])
+                })
+                .map(|(j, _)| j)
+                .collect();
             push_bounded(
                 &mut out,
                 &mut output_budget,
@@ -1138,14 +1177,19 @@ struct Projection {
 }
 impl Projection {
     fn new(gs: &[Geometry<f64>]) -> Result<Self, String> {
-        let coords: Vec<_> = gs.iter().flat_map(CoordsIter::coords_iter).collect();
-        if coords.is_empty() {
+        Self::from_geometries(gs.iter())
+    }
+    fn from_geometries<'a>(gs: impl Iterator<Item = &'a Geometry<f64>>) -> Result<Self, String> {
+        let mut coords = gs.flat_map(CoordsIter::coords_iter);
+        let Some(first) = coords.next() else {
             return Err("没有可计算坐标".into());
-        }
-        let xmin = coords.iter().map(|c| c.x).fold(f64::INFINITY, f64::min);
-        let xmax = coords.iter().map(|c| c.x).fold(f64::NEG_INFINITY, f64::max);
-        let ymin = coords.iter().map(|c| c.y).fold(f64::INFINITY, f64::min);
-        let ymax = coords.iter().map(|c| c.y).fold(f64::NEG_INFINITY, f64::max);
+        };
+        let (xmin, xmax, ymin, ymax) = coords.fold(
+            (first.x, first.x, first.y, first.y),
+            |(xmin, xmax, ymin, ymax), c| {
+                (xmin.min(c.x), xmax.max(c.x), ymin.min(c.y), ymax.max(c.y))
+            },
+        );
         if ymin.abs() > 75.0 || ymax.abs() > 75.0 || xmax - xmin > 5.0 || ymax - ymin > 5.0 {
             return Err("米制近似仅支持纬度 ±75° 内、经纬跨度不超过 5° 的局部数据".into());
         }
@@ -1200,11 +1244,18 @@ fn topology(source: &[Value]) -> Result<Value, String> {
             }
         }
     }
+    let bounds: Vec<_> = geometries
+        .iter()
+        .map(|g| g.as_ref().and_then(BoundingRect::bounding_rect))
+        .collect();
     for i in 0..source.len() {
         for j in i + 1..source.len() {
             if source[i]["geometry"] == source[j]["geometry"] {
                 issues.push(json!({"kind":"duplicate_geometry","featureIndices":[i,j]}));
             } else if let (Some(a), Some(b)) = (&geometries[i], &geometries[j]) {
+                if !bounds_overlap(bounds[i], bounds[j]) {
+                    continue;
+                }
                 if let (Ok(a), Ok(b)) = (polygon(a), polygon(b)) {
                     use geo::Area;
                     if a.intersection(&b).unsigned_area() > 0.0 {
@@ -1893,6 +1944,97 @@ mod tests {
         )
         .unwrap();
         assert_eq!(join["features"][0]["properties"]["_zgis_join_"]["count"], 1);
+    }
+    #[test]
+    fn envelope_prefilter_matches_exact_predicates_including_boundary() {
+        let sources = decode(
+            &[
+                point(0., 0.),
+                point(1., 0.5),
+                point(3., 3.),
+                square(0., 0., 1.),
+            ],
+            false,
+        )
+        .unwrap();
+        let targets = decode(
+            &[
+                point(0., 0.),
+                square(0., 0., 1.),
+                square(1., 0., 1.),
+                square(10., 10., 1.),
+            ],
+            false,
+        )
+        .unwrap();
+        for a in &sources {
+            for b in &targets {
+                for predicate in ["intersects", "within", "contains", "touches", "disjoint"] {
+                    assert_eq!(
+                        bounded_relation(a, b, predicate, a.bounding_rect(), b.bounding_rect()),
+                        relation(a, b, predicate)
+                    );
+                }
+            }
+        }
+        let distant = analyze(
+            "intersection",
+            &json!({}),
+            &[square(0., 0., 1.)],
+            Some(&[square(10., 10., 1.)]),
+        )
+        .unwrap();
+        assert!(distant["features"].as_array().unwrap().is_empty());
+        let report = analyze(
+            "topology_check",
+            &json!({}),
+            &[square(0., 0., 1.), square(10., 10., 1.)],
+            None,
+        )
+        .unwrap();
+        assert_eq!(report["valid"], true);
+    }
+    #[test]
+    fn sparse_polygon_prefilter_keeps_results_and_reports_candidate_reduction() {
+        let source: Vec<_> = (0..50)
+            .map(|i| square(i as f64 * 0.02, 0., 0.001))
+            .collect();
+        let mut target: Vec<_> = (0..50)
+            .map(|i| square(i as f64 * 0.02, 1., 0.001))
+            .collect();
+        target[0] = square(0.001, 0., 0.001); // 一个恰好接触边界的候选。
+        let source = decode(&source, false).unwrap();
+        let target = decode(&target, false).unwrap();
+        let start = std::time::Instant::now();
+        let mut exact = Vec::new();
+        for (i, a) in source.iter().enumerate() {
+            for (j, b) in target.iter().enumerate() {
+                if relation(a, b, "intersects") {
+                    exact.push((i, j));
+                }
+            }
+        }
+        let baseline = start.elapsed();
+        let start = std::time::Instant::now();
+        let sb: Vec<_> = source.iter().map(BoundingRect::bounding_rect).collect();
+        let tb: Vec<_> = target.iter().map(BoundingRect::bounding_rect).collect();
+        let mut candidates = 0;
+        let mut filtered = Vec::new();
+        for (i, a) in source.iter().enumerate() {
+            for (j, b) in target.iter().enumerate() {
+                if bounds_overlap(sb[i], tb[j]) {
+                    candidates += 1;
+                }
+                if bounded_relation(a, b, "intersects", sb[i], tb[j]) {
+                    filtered.push((i, j));
+                }
+            }
+        }
+        let optimized = start.elapsed();
+        assert_eq!(filtered, exact);
+        assert_eq!(filtered, vec![(0, 0)]);
+        assert_eq!(candidates, 1);
+        eprintln!("稀疏面 fixture: 2500 对，完整关系计算候选 {candidates}；baseline={baseline:?}, prefiltered={optimized:?}");
     }
     fn point(x: f64, y: f64) -> Value {
         json!({"type":"Feature","geometry":{"type":"Point","coordinates":[x,y]},"properties":{"name":"keep","_zgis_join":"original"}})

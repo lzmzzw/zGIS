@@ -42,6 +42,8 @@
 
 TLS `require` 和 `prefer` 均验证系统受信证书并要求加密；prefer 不自动回退明文，明文仅在用户明确选择 disable 时启用。查询限制 100000 条并返回 truncated，有主键时稳定排序；bbox 为 WGS84 `[west,south,east,north]`，geometry 使用源 CRS 包围盒过滤，WKT 文本忽略 bbox，首版无分页。导出最多 100000 条，提交最多 10000 条。无真实数据库验证证据时，不声明连接和事务已实测。
 
+PostGIS 通过 `query_raw` 逐行构造要素，查询与遍历共用 30 秒期限；完整响应（含 geometry、properties、dbKey、baseline）最多 100 MiB，超限报错且不返回部分记录。单行网络解码和服务端缓冲峰值不受该预算保护。连接握手及会话初始化分别最多 10 秒。PostGIS/MySQL 各最多 8 连接，耗时请求只锁对应连接，同连接队列等待最多 35 秒；断开移除注册项并使排队请求失效，已经执行的操作允许按原有事务和超时边界结束。
+
 文件单个读写上限 100 MB；打开在阻塞任务线程执行，选择单个 SHP 自动带同目录同名 DBF/SHX/PRJ/CPG。路径只在后端句柄表管理，仅 csv/json/geojson 可保存和覆盖。覆盖前比较 SHA-256 指纹；同目录临时写入、sync、内容核验后调用 Windows ReplaceFileW。恢复数据保存在应用私有目录 recovery.json，首版只存最近一次快照。
 
 `export_shapefile` 将 WGS84 二维工作要素转换并写成 SHP/SHX/DBF/PRJ/CPG ZIP。`crs` 可选 EPSG:4326（省略时默认）、EPSG:4490、EPSG:3857，其他值拒绝；PRJ 与输出坐标一致，3857 拒绝超出有效纬度的输入。4490 采用近似经纬度转换，不含测绘级基准改正。输出前检查单一几何类别、字段命名、类型、长度与数值精度；不静默截断或填充缺失属性。原生对话框选择 ZIP，拒绝已存在目标，临时写入与核验后以不覆盖方式提交单个 ZIP；不提供原 SHP 文件组覆盖接口。返回身份仅表示导出文件，不绑定到编辑图层的覆盖句柄。字段和几何限制见根 README 的“SHP 编辑与另存”。
@@ -51,6 +53,7 @@ TLS `require` 和 `prefer` 均验证系统受信证书并要求加密；prefer �
 - `gis_mcp_status` / `gis_mcp_set_enabled {enabled}`：返回 `{enabled,endpoint?,token?,startupError?,headersHelper?}`；应用启动自动启用，地址固定为 `http://127.0.0.1:9420/mcp`。token 首次生成后保存到当前用户 Windows 凭据管理器并复用，停止和重启不轮换；不写配置或日志。headersHelper 为安装目录中的认证助手命令；startupError 展示启动失败原因。
 - `gis_workspace_sync {layers,activeLayerId}`：layers 为 `{id,name,features}`，只接受标准 GeoJSON Feature 快照。
 - `gis_results_drain`：消费待导入的 `{id,name,features}` 结果；前端暂存队列避免退出或繁忙期间丢失。
+- MCP 缓存与待导入结果各有独立 100 MiB 大小预算，队列最多 20 个结果；缓存预算检查采用流式计数。HTTP 连接绑定启动代次，服务停止重启后旧连接不能继承新服务。初始化版本取自 Cargo 包版本。
 - `gis_mcp_audit`：有界工具审计摘要。
 - `agent_open` / `agent_current`：`{sessionId,running}`；current 无会话时 null。
 - `agent_read {sessionId}`：`{data,sequence}`；`agent_write {sessionId,data}`、`agent_resize {sessionId,cols,rows}`、`agent_close {sessionId}`。

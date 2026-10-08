@@ -9,6 +9,10 @@ const cargoPackage = read("src-tauri/Cargo.toml")
   .split("[package]")[1]
   ?.split(/^\[/m)[0];
 const cargoVersion = cargoPackage?.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+const lockedVersion = read("src-tauri/Cargo.lock")
+  .split("[[package]]")
+  .find((entry) => /^name\s*=\s*"zgis"$/m.test(entry))
+  ?.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
 const semver =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const parsed =
@@ -20,10 +24,11 @@ if (
   !parsed ||
   !validPrerelease ||
   packageVersion !== tauriVersion ||
-  packageVersion !== cargoVersion
+  packageVersion !== cargoVersion ||
+  packageVersion !== lockedVersion
 )
   throw new Error(
-    "package.json、Cargo.toml 和 tauri.conf.json 版本必须一致且符合 SemVer。",
+    "package.json、Cargo.toml、Cargo.lock 和 tauri.conf.json 版本必须一致且符合 SemVer。",
   );
 const tag = process.argv[2] ?? "";
 if (tag && tag !== `v${packageVersion}`)

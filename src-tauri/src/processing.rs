@@ -4,6 +4,29 @@ use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Semaphore;
 
+// 大小校验直接计数，避免为每个要素及完整结果再分配一份 JSON。
+fn json_size(value: &impl serde::Serialize, limit: usize) -> Result<usize, String> {
+    struct Counter {
+        bytes: usize,
+        limit: usize,
+    }
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > self.limit.saturating_sub(self.bytes) {
+                return Err(std::io::Error::other("分析数据超过大小上限"));
+            }
+            self.bytes += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut counter = Counter { bytes: 0, limit };
+    serde_json::to_writer(&mut counter, value).map_err(|_| "分析数据超过大小上限")?;
+    Ok(counter.bytes)
+}
+
 pub struct ProcessingState {
     slots: Arc<Semaphore>,
 }
@@ -29,9 +52,8 @@ fn execute(
         return Err("输入图层没有要素".into());
     }
     let limit = 100 * 1024 * 1024;
-    let mut bytes = serde_json::to_vec(parameters)
-        .map_err(|_| "无法编码分析参数")?
-        .len();
+    let mut bytes = json_size(parameters, limit)
+        .map_err(|_| "分析输入超过 100 MB，请缩小范围")?;
     for input in [Some(source), target].into_iter().flatten() {
         if input.len() > 10_000 {
             return Err("图层超过 10000 个要素，请先缩小范围".into());
@@ -53,12 +75,8 @@ fn execute(
             {
                 return Err("分析要素属性必须是对象或 null".into());
             }
-            bytes += serde_json::to_vec(feature)
-                .map_err(|_| "无法编码分析要素")?
-                .len();
-            if bytes > limit {
-                return Err("分析输入超过 100 MB，请缩小范围".into());
-            }
+            bytes += json_size(feature, limit.saturating_sub(bytes))
+                .map_err(|_| "分析输入超过 100 MB，请缩小范围")?;
         }
     }
     let result = crate::spatial::analyze(
@@ -67,13 +85,8 @@ fn execute(
         source,
         target,
     )?;
-    if serde_json::to_vec(&result)
-        .map_err(|_| "无法编码分析结果")?
-        .len()
-        > limit
-    {
-        return Err("分析结果超过 100 MB，请缩小范围".into());
-    }
+    json_size(&result, limit)
+        .map_err(|_| "分析结果超过 100 MB，请缩小范围")?;
     Ok(result)
 }
 
@@ -137,5 +150,12 @@ mod tests {
         let mut feature = point();
         feature["type"] = json!("Point");
         assert!(execute("layer_summary", &json!({}), &[feature], None).is_err());
+    }
+    #[test]
+    fn size_budget_counts_utf8_and_json_escaping_without_truncation() {
+        let value = json!({"text":"中文\n\"\\", "nested":[1,null,true]});
+        let bytes = serde_json::to_vec(&value).unwrap().len();
+        assert_eq!(json_size(&value, bytes).unwrap(), bytes);
+        assert!(json_size(&value, bytes - 1).is_err());
     }
 }

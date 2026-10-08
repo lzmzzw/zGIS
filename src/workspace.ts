@@ -287,33 +287,35 @@ function safeSession(
   return result;
 }
 
-// Recovery stores document content and visual settings, never source handles or database state.
+// 恢复只保存文档与显示配置，排除来源句柄和数据库身份。
+function snapshotLayerData(layers: DocumentLayer[]) {
+  return layers.map((layer) => ({
+    id: layer.id,
+    name: layer.name,
+    displayName: layer.displayName,
+    features: layer.features.map(
+      ({ id, geometry, properties, sourceFeatureId }) => ({
+        id,
+        geometry,
+        properties,
+        sourceFeatureId,
+      }),
+    ),
+    visible: layer.visible,
+    color: layer.color,
+    opacity: layer.opacity,
+    strokeWidth: layer.strokeWidth,
+    sourceKind: "geojson",
+    restoredFrom: layer.restoredFrom ?? layer.sourceKind,
+    crs: "EPSG:4326",
+    dirty: layer.dirty,
+    geometryType: layer.geometryType,
+    fieldNames: layer.fieldNames,
+  }));
+}
+
 export function snapshotLayers(layers: DocumentLayer[]): string {
-  return JSON.stringify(
-    layers.map((layer) => ({
-      id: layer.id,
-      name: layer.name,
-      displayName: layer.displayName,
-      features: layer.features.map(
-        ({ id, geometry, properties, sourceFeatureId }) => ({
-          id,
-          geometry,
-          properties,
-          sourceFeatureId,
-        }),
-      ),
-      visible: layer.visible,
-      color: layer.color,
-      opacity: layer.opacity,
-      strokeWidth: layer.strokeWidth,
-      sourceKind: "geojson",
-      restoredFrom: layer.restoredFrom ?? layer.sourceKind,
-      crs: "EPSG:4326",
-      dirty: layer.dirty,
-      geometryType: layer.geometryType,
-      fieldNames: layer.fieldNames,
-    })),
-  );
+  return JSON.stringify(snapshotLayerData(layers));
 }
 
 export function restoreLayers(raw: string): DocumentLayer[] {
@@ -399,7 +401,7 @@ export function snapshotWorkspace(
   const data = {
     version: 3,
     recoveryRevision: ++recoveryRevision,
-    layers: JSON.parse(snapshotLayers(layers)),
+    layers: snapshotLayerData(layers),
     tree: safeTree,
     ...(session
       ? {
@@ -419,6 +421,8 @@ export function snapshotWorkspace(
   // Keep room below the native 100 MB limit for the live document and draft.
   if (
     data.session?.history &&
+    // UTF-8 每个 UTF-16 码元最多占 3 字节，普通快照无需分配额外编码缓冲区。
+    content.length > (95 * 1024 * 1024) / 3 &&
     new TextEncoder().encode(content).length > 95 * 1024 * 1024
   ) {
     data.session.history = undefined;

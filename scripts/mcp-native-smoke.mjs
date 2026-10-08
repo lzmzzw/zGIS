@@ -48,14 +48,15 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   await call('topology_check',{source:{layerId}});
   const buffered = await call('buffer',{source:{resultId:selected.resultId},distanceMeters:100});
   await call('publish_result',{resultId:buffered.resultId,name:'原生 MCP 缓冲'});
-  await page.waitForFunction(() => document.querySelectorAll('.layer-row').length===2);
+  // 设置页隐藏地图；结果暂存到返回地图后导入，不在隐藏页等待图层 DOM。
+  await page.getByRole('button',{name:'返回地图',exact:true}).click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-node-kind="layer"]').length===2);
   assert.deepEqual(await call('read_features',{layerId}),original);
   const path = resolve('output/smoke/fixtures/cities.zip');
   assert.equal(await page.getByRole('button',{name:'选择可读文件…',exact:true}).count(),0);
   const loaded = await call('load_vector_file',{path,crs:'EPSG:4326'});
   assert.equal(loaded.featureCount,2);
   assert.match(JSON.stringify(await call('read_result',{resultId:loaded.resultId})),/北京/);
-  await page.getByRole('button',{name:'返回地图',exact:true}).click();
   await page.getByRole('button',{name:'Codex Agent',exact:true}).click();
   await page.getByRole('button',{name:'连接 Codex',exact:true}).click();
   await page.getByRole('button',{name:'停止会话',exact:true}).waitFor({state:'visible'});
@@ -87,9 +88,9 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   await page.getByTitle('隐藏侧栏，保留会话').click();
   await fileAction('移除图层');
   await page.getByRole('button',{name:'放弃并移除',exact:true}).click();
-  await page.waitForFunction(() => document.querySelectorAll('.layer-row').length===1);
-  await page.locator('.layer-row').first().click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-node-kind="layer"]').length===1);
+  await page.locator('[data-node-kind="layer"]').first().click();
   await fileAction('移除图层');
-  await page.waitForFunction(() => document.querySelectorAll('.layer-row').length===0);
+  await page.waitForFunction(() => document.querySelectorAll('[data-node-kind="layer"]').length===0);
   console.log('PASS: native authenticated MCP, 28 tools, chained buffer/publication, source preservation, direct external-file loading/Chinese SHP ZIP, live Codex PTY and shutdown');
 }

@@ -25,10 +25,12 @@ import type { EventsKey } from "ol/events";
 import type { GeometryFunction } from "ol/interaction/Draw";
 import { Fill, Stroke, Circle, Style } from "ol/style";
 import { fromLonLat, toLonLat, transformExtent } from "ol/proj";
+import { isEmpty as isEmptyExtent } from "ol/extent";
 import { defaults as defaultControls } from "ol/control";
 import type Feature from "ol/Feature";
 import type Geometry from "ol/geom/Geometry";
 import type { DocumentLayer, GeoFeature } from "./domain/types";
+import { syncMapFeatures } from "./mapLayerSync";
 import { validateXyzUrl, type BasemapService } from "./basemaps";
 import {
   canFinishDraft,
@@ -75,6 +77,18 @@ interface Props {
   }) => void;
 }
 const format = new GeoJSON();
+function fitExtent(map: Map | null, extent: number[] | null | undefined) {
+  if (
+    extent?.length === 4 &&
+    extent.every(Number.isFinite) &&
+    !isEmptyExtent(extent)
+  )
+    map?.getView().fit(extent, {
+      padding: [60, 60, 60, 60],
+      maxZoom: 16,
+      duration: 200,
+    });
+}
 function style(color: string, selected = false, accent = "#3e73d8", width = 2) {
   return new Style({
     stroke: new Stroke({
@@ -185,9 +199,16 @@ export default function MapView(props: Props) {
       element.current?.focus({ preventScroll: true });
     };
     map.getViewport().addEventListener("pointerdown", pointerDown, true);
-    map.on("pointermove", (event) =>
-      current.current.onPosition(toLonLat(event.coordinate)),
-    );
+    let positionFrame = 0;
+    let pointerCoordinate: number[];
+    map.on("pointermove", (event) => {
+      pointerCoordinate = event.coordinate;
+      if (!positionFrame)
+        positionFrame = requestAnimationFrame(() => {
+          positionFrame = 0;
+          current.current.onPosition(toLonLat(pointerCoordinate));
+        });
+    });
     map.on("dblclick", (event) => {
       const active = vectorRefs.current.get(current.current.activeId ?? "");
       const feature = map.forEachFeatureAtPixel(
@@ -202,11 +223,7 @@ export default function MapView(props: Props) {
         current.current.tool === "select"
       ) {
         current.current.onSelect(feature?.getId()?.toString());
-        map.getView().fit(geometry.getExtent(), {
-          padding: [60, 60, 60, 60],
-          maxZoom: 16,
-          duration: 200,
-        });
+        fitExtent(map, geometry.getExtent());
         event.preventDefault();
         return false;
       }
@@ -228,6 +245,7 @@ export default function MapView(props: Props) {
     resize.observe(element.current!);
     return () => {
       resize.disconnect();
+      cancelAnimationFrame(positionFrame);
       map.getViewport().removeEventListener("pointerdown", pointerDown, true);
       map.setTarget(undefined);
       map.dispose();
@@ -263,8 +281,9 @@ export default function MapView(props: Props) {
   }, [props.basemapVisible, props.basemap, props.services]);
   useEffect(() => {
     const map = mapRef.current!;
+    const layerIds = new Set(props.layers.map((item) => item.id));
     for (const [id, layer] of vectorRefs.current)
-      if (!props.layers.some((item) => item.id === id)) {
+      if (!layerIds.has(id)) {
         map.removeLayer(layer);
         vectorRefs.current.delete(id);
       }
@@ -278,79 +297,27 @@ export default function MapView(props: Props) {
       layer.setVisible(item.visible);
       layer.setOpacity(item.opacity ?? 1);
       layer.setZIndex(props.layers.length - index + 10);
-      layer.setStyle(() =>
-        style(
-          item.color,
-          false,
-          props.theme === "dark" ? "#78a8ff" : "#3e73d8",
-          item.strokeWidth ?? 2,
-        ),
-      );
+      const styleKey = `${item.color}:${item.strokeWidth ?? 2}`;
+      if (layer.get("styleKey") !== styleKey) {
+        layer.setStyle(style(item.color, false, undefined, item.strokeWidth ?? 2));
+        layer.set("styleKey", styleKey);
+      }
       const source = layer.getSource()!;
-      const existing = source.getFeatures();
-      if (
-        existing.length !== item.features.length ||
-        layer.get("dataRef") !== item.features
-      ) {
-        const ids = new Set(item.features.map((feature) => feature.id));
-        for (const feature of existing)
-          if (!ids.has(String(feature.getId()))) source.removeFeature(feature);
-        for (const data of item.features) {
-          const feature = source.getFeatureById(data.id);
-          if (feature) {
-            if (
-              !gestureRef.current &&
-              geometryRefs.current.get(feature) !== data.geometry
-            ) {
-              feature.setGeometry(
-                data.geometry
-                  ? format.readGeometry(data.geometry, {
-                      dataProjection: "EPSG:4326",
-                      featureProjection: "EPSG:3857",
-                    })
-                  : undefined,
-              );
-              geometryRefs.current.set(feature, data.geometry);
-            }
-            for (const key of feature.getKeys())
-              if (
-                key !== feature.getGeometryName() &&
-                !(key in data.properties)
-              )
-                feature.unset(key, true);
-            feature.setProperties(data.properties, true);
-          } else {
-            const added = format.readFeatures(
-              {
-                type: "FeatureCollection",
-                features: [
-                  {
-                    type: "Feature",
-                    id: data.id,
-                    geometry: data.geometry,
-                    properties: data.properties,
-                  },
-                ],
-              },
-              { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" },
-            )[0];
-            geometryRefs.current.set(added, data.geometry);
-            source.addFeature(added);
-          }
-        }
+      if (layer.get("dataRef") !== item.features) {
+        syncMapFeatures(source, item.features, geometryRefs.current, gestureRef.current);
         layer.set("dataRef", item.features);
       }
-      layer.changed();
     });
     syncSelection(current.current.selectedId);
-  }, [props.layers, props.selectedId, props.activeId, props.theme]);
+  }, [props.layers]);
+  useEffect(() => {
+    syncSelection(current.current.selectedId);
+  }, [props.selectedId, props.activeId, props.theme]);
   useEffect(() => {
     const source = vectorRefs.current.get(props.activeId ?? "")?.getSource();
     const extent = source?.getExtent();
     if (source && !source.isEmpty() && extent)
-      mapRef
-        .current!.getView()
-        .fit(extent, { padding: [60, 60, 60, 60], maxZoom: 16, duration: 200 });
+      fitExtent(mapRef.current, extent);
   }, [props.fitNonce]);
   useEffect(() => {
     if (!props.featureFitNonce) return;
@@ -359,12 +326,7 @@ export default function MapView(props: Props) {
       ?.getSource()
       ?.getFeatureById(props.selectedId ?? "");
     const geometry = feature?.getGeometry();
-    if (geometry)
-      mapRef.current?.getView().fit(geometry.getExtent(), {
-        padding: [60, 60, 60, 60],
-        maxZoom: 16,
-        duration: 200,
-      });
+    if (geometry) fitExtent(mapRef.current, geometry.getExtent());
   }, [props.featureFitNonce]);
   useEffect(() => {
     if (props.finishNonce) finishDrawingRef.current?.();
@@ -416,14 +378,14 @@ export default function MapView(props: Props) {
       }),
     );
     const edited = (feature: Feature<Geometry>, insert: boolean) => {
+      const active = current.current.layers.find(
+        (item) => item.id === current.current.activeId,
+      );
       const raw = format.writeFeatureObject(feature, {
         featureProjection: "EPSG:3857",
         dataProjection: "EPSG:4326",
       });
       if (insert && raw.geometry) {
-        const active = current.current.layers.find(
-          (item) => item.id === current.current.activeId,
-        );
         raw.geometry = prepareDrawnGeometry(
           raw.geometry,
           active?.features.map((feature) => feature.geometry) ?? [],
@@ -433,7 +395,9 @@ export default function MapView(props: Props) {
         {
           id: insert ? crypto.randomUUID() : String(feature.getId()),
           geometry: raw.geometry ?? null,
-          properties: raw.properties ?? {},
+          properties: insert
+            ? (raw.properties ?? {})
+            : (active?.features.find((item) => item.id === String(feature.getId()))?.properties ?? {}),
         },
         insert,
       );

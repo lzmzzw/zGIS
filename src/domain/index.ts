@@ -469,7 +469,7 @@ export async function importFiles(
       const imported = await importFiles(
         Object.entries(entries).map(([name, data]) => ({
           name,
-          bytes: Array.from(data),
+          bytes: data,
         })),
         options,
       );

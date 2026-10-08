@@ -66,16 +66,20 @@ fn preserve_property_numbers(v: &mut Value) {
     if v["type"] == "FeatureCollection" {
         if let Some(a) = v["features"].as_array_mut() {
             for f in a {
-                walk(&mut f["properties"]);
-                if f.get("id").is_some() {
-                    walk(&mut f["id"]);
+                if let Some(properties) = f.get_mut("properties") {
+                    walk(properties);
+                }
+                if let Some(id) = f.get_mut("id") {
+                    walk(id);
                 }
             }
         }
     } else if v["type"] == "Feature" {
-        walk(&mut v["properties"]);
-        if v.get("id").is_some() {
-            walk(&mut v["id"]);
+        if let Some(properties) = v.get_mut("properties") {
+            walk(properties);
+        }
+        if let Some(id) = v.get_mut("id") {
+            walk(id);
         }
     }
 }
@@ -165,21 +169,42 @@ pub fn load(path: &str, args: &Value) -> Result<Vec<Value>, String> {
                 if explicit != declared { return Err("指定坐标系与GeoJSON crs标记冲突".into()); }
             }
             let crs = args["crs"].as_str().or(declared).unwrap_or("EPSG:4326");
+            let crs = crs.to_owned();
             let mut out = match v["type"].as_str() {
-                Some("FeatureCollection") => v["features"].as_array().ok_or("缺少features")?.clone(),
-                Some("Feature") => vec![v.clone()],
+                Some("FeatureCollection") => {
+                    let features = v["features"].as_array().ok_or("缺少features")?;
+                    if features.len() > 100_000 {
+                        return Err("最多100000要素".into());
+                    }
+                    match v["features"].take() {
+                        Value::Array(features) => features,
+                        _ => unreachable!(),
+                    }
+                }
+                Some("Feature") => vec![v],
                 _ => return Err("需要Feature或FeatureCollection".into()),
             };
-            transform(&mut out, crs)?;
+            transform(&mut out, &crs)?;
             out
         }
         "csv" => csv_features(&bytes, args)?,
         "shp" => {
             let mut parts = HashMap::new();
+            let mut total = 0;
+            let mut source = Some(bytes);
             for ext in ["shp", "shx", "dbf", "prj", "cpg"] {
                 let q = p.with_extension(ext);
                 if q.exists() {
-                    parts.insert(ext.into(), read(&q)?);
+                    let part = if ext == "shp" {
+                        source.take().ok_or("缺少SHP")?
+                    } else {
+                        read(&q)?
+                    };
+                    total += part.len() as u64;
+                    if total > MAX_BYTES {
+                        return Err("SHP文件组大小超过100MB".into());
+                    }
+                    parts.insert(ext.into(), part);
                 }
             }
             shp_features(parts, args)?
@@ -208,7 +233,7 @@ pub fn load(path: &str, args: &Value) -> Result<Vec<Value>, String> {
                     } else {
                         stem = Some(key)
                     }
-                    total += f.size();
+                    total = total.checked_add(f.size()).ok_or("解压大小超过100MB")?;
                     if total > MAX_BYTES {
                         return Err("解压大小超过100MB".into());
                     }
@@ -235,6 +260,15 @@ pub fn load(path: &str, args: &Value) -> Result<Vec<Value>, String> {
     for f in &mut features {
         if f["type"] != "Feature" {
             return Err("无效Feature".into());
+        }
+        if f.get("geometry").is_none() {
+            return Err("Feature缺少geometry".into());
+        }
+        if !f
+            .get("properties")
+            .is_some_and(|p| p.is_null() || p.is_object())
+        {
+            return Err("Feature属性必须为对象或null".into());
         }
         validate_geometry(&f["geometry"])?;
     }
@@ -442,25 +476,38 @@ fn transform(features: &mut [Value], crs: &str) -> Result<(), String> {
         return Err("仅支持EPSG:4326/4490/3857".into());
     }
     if crs == "EPSG:3857" {
-        fn walk(v: &mut Value) {
-            if let Some(a) = v.as_array_mut() {
-                if a.len() >= 2 && a[0].is_number() {
-                    let x = a[0].as_f64().unwrap();
-                    let y = a[1].as_f64().unwrap();
-                    a[0] = json!(x / 6378137.0 * 180.0 / std::f64::consts::PI);
-                    a[1] = json!(
-                        (2.0 * (y / 6378137.0).exp().atan() - std::f64::consts::FRAC_PI_2) * 180.0
-                            / std::f64::consts::PI
-                    );
-                } else {
-                    for child in a {
-                        walk(child)
-                    }
+        fn walk(v: &mut Value) -> Result<(), String> {
+            let a = v.as_array_mut().ok_or("坐标必须为数组")?;
+            if a.first().is_some_and(Value::is_number) {
+                if ![2, 3].contains(&a.len()) {
+                    return Err("仅支持二维或带高程XYZ坐标，不支持M/ZM".into());
+                }
+                if a.iter().any(|v| !v.as_f64().is_some_and(f64::is_finite)) {
+                    return Err("坐标分量必须为有限数值".into());
+                }
+                let x = a[0].as_f64().ok_or("无效X")?;
+                let y = a[1].as_f64().ok_or("无效Y")?;
+                a[0] = json!(x / 6378137.0 * 180.0 / std::f64::consts::PI);
+                a[1] = json!(
+                    (2.0 * (y / 6378137.0).exp().atan() - std::f64::consts::FRAC_PI_2) * 180.0
+                        / std::f64::consts::PI
+                );
+            } else {
+                for child in a {
+                    walk(child)?;
                 }
             }
+            Ok(())
         }
         for f in features {
-            walk(&mut f["geometry"]["coordinates"]);
+            let geometry = f.get_mut("geometry").ok_or("Feature缺少geometry")?;
+            if !geometry.is_null() {
+                walk(
+                    geometry
+                        .get_mut("coordinates")
+                        .ok_or("几何缺少coordinates")?,
+                )?;
+            }
         }
     }
     Ok(())
@@ -539,6 +586,56 @@ mod tests {
         }
         fs::write(&path, r#"{"type":"FeatureCollection","features":[],"crs":{"type":"name","properties":{"name":"EPSG:9999"}}}"#).unwrap();
         assert!(load(path.to_str().unwrap(), &json!({})).is_err());
+    }
+    #[test]
+    fn projected_geojson_rejects_malformed_coordinates_without_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("projected.geojson");
+        for coordinates in [
+            json!([1, "invalid"]),
+            json!([1]),
+            json!([1, 2, null]),
+            json!([1, 2, 3, 4]),
+            serde_json::from_str("[1,1e999]").unwrap(),
+        ] {
+            let feature = json!({"type":"Feature","geometry":{"type":"Point","coordinates":coordinates},"properties":{}});
+            fs::write(&path, feature.to_string()).unwrap();
+            assert!(load(path.to_str().unwrap(), &json!({"crs":"EPSG:3857"})).is_err());
+        }
+        let feature = json!({"type":"Feature","geometry":null,"properties":{}});
+        fs::write(&path, feature.to_string()).unwrap();
+        assert_eq!(
+            load(path.to_str().unwrap(), &json!({"crs":"EPSG:3857"})).unwrap(),
+            vec![feature]
+        );
+        for document in [
+            json!({"type":"FeatureCollection","features":[1]}),
+            json!({"type":"Feature","geometry":"invalid","properties":{}}),
+            json!({"type":"Feature","properties":{}}),
+            json!({"type":"Feature","geometry":null,"properties":1}),
+        ] {
+            fs::write(&path, document.to_string()).unwrap();
+            for crs in ["EPSG:4326", "EPSG:3857"] {
+                assert!(load(path.to_str().unwrap(), &json!({"crs":crs})).is_err());
+            }
+        }
+    }
+    #[test]
+    fn rejects_combined_oversized_shapefile_group() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("large.shp");
+        fs::File::create(&path)
+            .unwrap()
+            .set_len(MAX_BYTES / 2 + 1)
+            .unwrap();
+        fs::File::create(path.with_extension("shx"))
+            .unwrap()
+            .set_len(MAX_BYTES / 2)
+            .unwrap();
+        assert_eq!(
+            load(path.to_str().unwrap(), &json!({})).unwrap_err(),
+            "SHP文件组大小超过100MB"
+        );
     }
     #[test]
     fn three_crs_shapefile_roundtrip() {

@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use reqwest::{header, redirect::Policy, Url};
-use std::time::Duration;
+use std::{sync::OnceLock, time::Duration};
 
 const MAX_URL: usize = 8192;
 const MAX_BODY: usize = 2 * 1024 * 1024;
@@ -36,6 +36,35 @@ fn image_mime(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
+fn tile_client() -> Result<&'static reqwest::Client, String> {
+    // 复用连接池与 TLS 初始化；请求仍各自拥有覆盖响应体的超时。
+    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .tls_backend_native()
+                .user_agent(concat!(
+                    "zGIS/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (basemap preview)"
+                ))
+                .connect_timeout(REQUEST_TIMEOUT)
+                .pool_max_idle_per_host(4)
+                .referer(false)
+                .redirect(Policy::custom(|attempt| {
+                    if attempt.previous().len() > 3 || !valid_url(attempt.url()) {
+                        attempt.error("瓦片重定向无效")
+                    } else {
+                        attempt.follow()
+                    }
+                }))
+                .build()
+                .map_err(|_| "瓦片请求不可用".to_string())
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
 async fn fetch_tile(raw_url: &str, timeout: Duration) -> Result<String, String> {
     if raw_url.len() > MAX_URL {
         return Err("瓦片地址过长".into());
@@ -44,23 +73,9 @@ async fn fetch_tile(raw_url: &str, timeout: Duration) -> Result<String, String> 
     if !valid_url(&url) {
         return Err("瓦片地址仅支持无账号密码的 HTTP(S) 地址".into());
     }
-    let client = reqwest::Client::builder()
-        .tls_backend_native()
-        .user_agent("zGIS/0.1.0 (basemap preview)")
-        .timeout(timeout)
-        .connect_timeout(timeout)
-        .referer(false)
-        .redirect(Policy::custom(|attempt| {
-            if attempt.previous().len() > 3 || !valid_url(attempt.url()) {
-                attempt.error("瓦片重定向无效")
-            } else {
-                attempt.follow()
-            }
-        }))
-        .build()
-        .map_err(|_| "瓦片请求不可用")?;
-    let mut response = client
+    let mut response = tile_client()?
         .get(url)
+        .timeout(timeout)
         .header(header::ACCEPT, "image/png,image/jpeg,image/webp,image/gif")
         .send()
         .await
@@ -171,7 +186,7 @@ mod tests {
                     .unwrap();
                 let png = STANDARD.decode(PNG).unwrap();
                 let data = match path {
-                    "/user-agent" if text.lines().any(|line| line.eq_ignore_ascii_case("user-agent: zGIS/0.1.0 (basemap preview)")) => response("200 OK", "Content-Type: image/png\r\n", &png),
+                    "/user-agent" if text.lines().any(|line| line.eq_ignore_ascii_case(concat!("user-agent: zGIS/", env!("CARGO_PKG_VERSION"), " (basemap preview)"))) => response("200 OK", "Content-Type: image/png\r\n", &png),
                     "/tile" => response("200 OK", "Content-Type: image/png; charset=binary\r\n", &png),
                     "/jpeg" => response("200 OK", "Content-Type: image/jpeg\r\n", b"\xff\xd8\xff\xe0\xff\xd9"),
                     "/webp" => response("200 OK", "Content-Type: image/webp\r\n", b"RIFF\x04\0\0\0WEBP"),

@@ -32,7 +32,6 @@ import {
   X,
   Check,
   LoaderCircle,
-  FileJson,
   Search,
   ChevronLeft,
   ChevronRight,
@@ -567,26 +566,31 @@ export default function App() {
           : undefined,
       }
     : undefined;
-  const active = layers.find((layer) => layer.id === activeId);
+  const active = useMemo(() => layers.find((layer) => layer.id === activeId), [layers, activeId]);
   const mcpSyncQueue = useRef<Promise<unknown>>(Promise.resolve());
   useEffect(() => {
     if (!desktop || !recoveryReady) return;
-    const snapshot = layers.map((layer) => ({
-      id: layer.id,
-      name: layer.displayName ?? layer.name,
-      features: layer.features.map((feature) => ({
-        type: "Feature",
-        id: feature.id,
-        geometry: feature.geometry,
-        properties: feature.properties,
-      })),
-    }));
+    let disposed = false;
     mcpSyncQueue.current = mcpSyncQueue.current
       .catch(() => {})
-      .then(() => api.mcpSync(snapshot, activeId))
-      .catch((reason) =>
-        setError(`空间分析图层同步失败：${errorText(reason)}`),
-      );
+      .then(() => {
+        // IPC 进行中只保留最新待同步状态，避免积压大图层副本。
+        if (disposed) return;
+        return api.mcpSync(layers.map((layer) => ({
+          id: layer.id,
+          name: layer.displayName ?? layer.name,
+          features: layer.features.map((feature) => ({
+            type: "Feature",
+            id: feature.id,
+            geometry: feature.geometry,
+            properties: feature.properties,
+          })),
+        })), activeId);
+      })
+      .catch((reason) => {
+        if (!disposed) setError(`空间分析图层同步失败：${errorText(reason)}`);
+      });
+    return () => { disposed = true; };
   }, [layers, activeId, recoveryReady]);
   const pendingAnalysis = useRef<AnalysisLayer[]>([]);
   const analysisInFlight = useRef<Promise<void> | null>(null);
@@ -647,8 +651,9 @@ export default function App() {
       window.clearInterval(timer);
     };
   }, []);
-  const selected = active?.features.find(
-    (feature) => feature.id === selectedId,
+  const selected = useMemo(
+    () => active?.features.find((feature) => feature.id === selectedId),
+    [active?.features, selectedId],
   );
   const [connection, setConnection] = useState<DbConnection>({
     host: "localhost",
@@ -810,6 +815,7 @@ export default function App() {
         setBasemapVisible(value.visible);
       })
       .catch(() => {
+        if (disposed) return;
         configBlocked.current = true;
         setError("底图配置加载失败，已保留原配置。");
       })
@@ -865,6 +871,9 @@ export default function App() {
     } catch {
       /* Native copy remains authoritative when browser quota is exceeded. */
     }
+    return persistSnapshot(content);
+  }
+  function persistSnapshot(content: string) {
     const next = snapshotQueue.current
       .catch(() => {})
       .then(() => api.backup(content))
@@ -1004,7 +1013,8 @@ export default function App() {
     }
     const timer = setTimeout(() => {
       if (exitPending.current || busyRef.current) return;
-      void writeSnapshot(currentLayers.current).catch(() =>
+      // 已写入的浏览器日志与原生备份使用同一版本，避免再次序列化整个工作区。
+      void persistSnapshot(content).catch(() =>
         setStatus("恢复副本保存失败"),
       );
     }, 150);
@@ -1078,7 +1088,7 @@ export default function App() {
           ...draft,
           layerId: layer.id,
           original,
-          isNull: false,
+          isNull: draft.isNull,
           error: "",
         });
         setTableOpen(true);
@@ -1475,6 +1485,7 @@ export default function App() {
       const value = unchanged ? cellDraft.original : parseCellValue(
         cellDraft.text,
         cellDraft.original == null ? "" : cellDraft.original,
+        cellDraft.isNull,
       );
       const feature = active.features.find((f) => f.id === cellDraft.featureId);
       if (!feature) throw new Error("要素已不存在，请取消编辑后重新选择");
@@ -1519,8 +1530,8 @@ export default function App() {
           }
         }}>
         <input autoFocus aria-label={`属性 ${cellDraft.field}`}
-          aria-invalid={Boolean(cellDraft.error)} value={cellDraft.text} disabled={busy}
-          onChange={(e) => setCellDraft((d) => d ? {...d, text: e.target.value, error: ""} : null)}
+          aria-invalid={Boolean(cellDraft.error)} value={cellDraft.isNull ? "NULL" : cellDraft.text} disabled={busy}
+          onChange={(e) => setCellDraft((d) => d ? {...d, text: e.target.value, isNull: false, error: ""} : null)}
           onBlur={(e) => {
             const target = e.relatedTarget as HTMLElement | null;
             if (target?.closest(".cell-editor, .cell-confirmation")) return;
@@ -2034,12 +2045,12 @@ export default function App() {
       setModal(null);
     });
   }
-  const fields = [
-    ...new Set([
-      ...(active?.fieldNames ?? []),
-      ...(active?.features.flatMap((f) => Object.keys(f.properties)) ?? []),
-    ]),
-  ];
+  const fields = useMemo(() => {
+    const names = new Set(active?.fieldNames ?? []);
+    for (const feature of active?.features ?? [])
+      for (const name of Object.keys(feature.properties)) names.add(name);
+    return [...names];
+  }, [active?.features, active?.fieldNames]);
   const savedOrder = columnOrders[activeId ?? ""] ?? [];
   const displayFields = [
     ...savedOrder.filter((field) => fields.includes(field)),
@@ -2104,14 +2115,13 @@ export default function App() {
       />
     );
   }
-  const filtered =
-    active?.features.filter(
-      (f) =>
-        !search ||
-        Object.values(f.properties).some((v) =>
-          stringify(v).toLowerCase().includes(search.toLowerCase()),
-        ),
-    ) ?? [];
+  const filtered = useMemo(() => {
+    const features = active?.features ?? [];
+    if (!search) return features;
+    const query = search.toLowerCase();
+    return features.filter((feature) => Object.values(feature.properties)
+      .some((value) => stringify(value).toLowerCase().includes(query)));
+  }, [active?.features, search]);
   const pageSize = 100;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const effectivePage = Math.min(page, totalPages - 1);
@@ -2209,31 +2219,28 @@ export default function App() {
       draftError = errorText(reason);
     }
   }
-  function fieldSummary(field: string) {
-    const values =
-      active?.features.map((feature) => feature.properties[field]) ?? [];
-    const types = [
-      ...new Set(
-        values
-          .filter((value) => value != null)
-          .map((value) =>
-            Array.isArray(value)
-              ? "数组"
-              : typeof value === "object"
-                ? "对象"
-                : typeof value === "number"
-                  ? "数值"
-                  : typeof value === "boolean"
-                    ? "布尔"
-                    : "文本",
-          ),
-      ),
-    ];
-    const empty = values.filter(
-      (value) => value == null || value === "",
-    ).length;
-    return `${types.join(" / ") || "空值"} · ${values.length} 条 · ${empty} 空值`;
-  }
+  const fieldSummary = useMemo(() => {
+    const summaries = new Map<string, string>();
+    return (field: string) => {
+      const cached = summaries.get(field);
+      if (cached !== undefined) return cached;
+      const types = new Set<string>();
+      let empty = 0;
+      const features = active?.features ?? [];
+      for (const feature of features) {
+        const value = feature.properties[field];
+        if (value == null || value === "") empty++;
+        if (value != null)
+          types.add(Array.isArray(value) ? "数组"
+            : typeof value === "object" ? "对象"
+            : typeof value === "number" ? "数值"
+            : typeof value === "boolean" ? "布尔" : "文本");
+      }
+      const summary = `${[...types].join(" / ") || "空值"} · ${features.length} 条 · ${empty} 空值`;
+      summaries.set(field, summary);
+      return summary;
+    };
+  }, [active?.features]);
   useEffect(() => setContext(undefined), [activeId, modal, busy]);
 
   function copyText(text: string) {

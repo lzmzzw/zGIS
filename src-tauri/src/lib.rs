@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use futures_util::TryStreamExt;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
@@ -131,7 +132,37 @@ const MAX_FILE: u64 = 100 * 1024 * 1024;
 #[derive(Default)]
 pub struct Backend {
     files: Arc<Mutex<HashMap<String, FileHandle>>>,
-    databases: AsyncMutex<HashMap<String, Client>>,
+    databases: ConnectionRegistry<Client>,
+}
+// 目录锁只保护注册表；同一连接顺序执行，独立连接互不阻塞。
+pub(crate) struct ConnectionRegistry<T> {
+    entries: AsyncMutex<HashMap<String, Arc<AsyncMutex<Option<T>>>>>,
+}
+impl<T> Default for ConnectionRegistry<T> {
+    fn default() -> Self { Self { entries: AsyncMutex::new(HashMap::new()) } }
+}
+impl<T> ConnectionRegistry<T> {
+    async fn insert(&self, id: String, client: T) -> Result<(), String> {
+        let mut entries = self.entries.lock().await;
+        if entries.len() >= 8 {
+            return Err("连接数量已达上限，请断开不用的连接".into());
+        }
+        entries.insert(id, Arc::new(AsyncMutex::new(Some(client))));
+        Ok(())
+    }
+    async fn acquire(&self, id: &str) -> Result<tokio::sync::OwnedMutexGuard<Option<T>>, String> {
+        let connection = self.entries.lock().await.get(id).cloned().ok_or("连接已失效")?;
+        let client = tokio::time::timeout(Duration::from_secs(35), connection.clone().lock_owned())
+            .await.map_err(|_| "连接忙，请等待当前操作完成后重试")?;
+        // 断开会先移除注册表项，已排队请求不得在断开后继续使用旧连接。
+        if !self.entries.lock().await.get(id).is_some_and(|current| Arc::ptr_eq(current, &connection)) {
+            return Err("连接已失效".into());
+        }
+        Ok(client)
+    }
+    async fn remove(&self, id: &str) -> Option<Arc<AsyncMutex<Option<T>>>> {
+        self.entries.lock().await.remove(id)
+    }
 }
 struct FileHandle {
     path: PathBuf,
@@ -151,6 +182,33 @@ fn table_sql(schema: &str, table: &str) -> Result<String, String> {
 }
 fn io_error(e: impl std::fmt::Display) -> String {
     e.to_string()
+}
+fn bounded_json_size(value: &impl Serialize, limit: usize) -> Result<usize, String> {
+    struct Counter { bytes: usize, limit: usize }
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > self.limit.saturating_sub(self.bytes) {
+                return Err(std::io::Error::other("空间数据超过100 MiB，请减少加载条数"));
+            }
+            self.bytes += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    let mut counter = Counter { bytes: 0, limit };
+    serde_json::to_writer(&mut counter, value).map_err(|_| "空间数据超过100 MiB，请减少加载条数")?;
+    Ok(counter.bytes)
+}
+fn append_database_feature(features: &mut Vec<Value>, feature: Value, bytes: &mut usize) -> Result<(), String> {
+    const MAX: usize = 100 * 1024 * 1024;
+    let separator = usize::from(!features.is_empty());
+    let size = bounded_json_size(&feature, MAX.saturating_sub(*bytes).saturating_sub(separator))?;
+    if size + separator > MAX.saturating_sub(*bytes) {
+        return Err("空间数据超过100 MiB，请减少加载条数".into());
+    }
+    *bytes += size + separator;
+    features.push(feature);
+    Ok(())
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -584,7 +642,8 @@ async fn connect_database(
         .user(&config.user)
         .password(&config.password)
         .connect_timeout(Duration::from_secs(10));
-    let client = match config.ssl_mode.as_str() {
+    let client = tokio::time::timeout(Duration::from_secs(10), async {
+        Ok::<_, String>(match config.ssl_mode.as_str() {
         "disable" => {
             let (c, connection) = cfg
                 .connect(NoTls)
@@ -610,17 +669,14 @@ async fn connect_database(
             c
         }
         _ => return Err("sslMode 必须为 disable、require 或 prefer".into()),
-    };
-    client
-        .batch_execute("SET statement_timeout='30s'; SET lock_timeout='5s'")
-        .await
-        .map_err(io_error)?;
+        })
+    }).await.map_err(|_| "数据库连接超时")??;
+    tokio::time::timeout(Duration::from_secs(10),
+        client.batch_execute("SET statement_timeout='30s'; SET lock_timeout='5s'"))
+        .await.map_err(|_| "数据库会话初始化超时")?
+        .map_err(|_| "数据库会话初始化失败")?;
     let id = uuid::Uuid::new_v4().to_string();
-    let mut databases = state.databases.lock().await;
-    if databases.len() >= 8 {
-        return Err("连接数量已达上限，请断开不用的连接".into());
-    }
-    databases.insert(id.clone(), client);
+    state.databases.insert(id.clone(), client).await?;
     Ok(id)
 }
 #[tauri::command]
@@ -628,7 +684,8 @@ async fn disconnect_database(
     state: State<'_, Backend>,
     connection_id: String,
 ) -> Result<(), String> {
-    state.databases.lock().await.remove(&connection_id);
+    // 执行中事务允许完成；最后一个操作归还连接时自动释放，不阻塞窗口断开。
+    state.databases.remove(&connection_id).await;
     Ok(())
 }
 #[derive(Serialize, Deserialize, Clone)]
@@ -729,8 +786,8 @@ async fn discover_layers(
     state: State<'_, Backend>,
     connection_id: String,
 ) -> Result<Vec<Layer>, String> {
-    let db = state.databases.lock().await;
-    discover(db.get(&connection_id).ok_or("连接已失效")?).await
+    let mut connection = state.databases.acquire(&connection_id).await?;
+    discover(connection.as_mut().ok_or("连接已失效")?).await
 }
 async fn validated(client: &Client, requested: &Layer) -> Result<Layer, String> {
     let mut layer = discover(client)
@@ -781,6 +838,8 @@ fn record_expr(layer: &Layer) -> Result<String, String> {
     ))
 }
 #[tauri::command]
+// Tauri IPC 参数保持与前端一致，不能为 lint 改成嵌套请求。
+#[allow(clippy::too_many_arguments)]
 async fn query_layer(
     state: State<'_, Backend>,
     connection_id: String,
@@ -792,8 +851,8 @@ async fn query_layer(
     limit: i64,
     bbox: Option<Vec<f64>>,
 ) -> Result<Value, String> {
-    let db = state.databases.lock().await;
-    let client = db.get(&connection_id).ok_or("连接已失效")?;
+    let mut connection = state.databases.acquire(&connection_id).await?;
+    let client = connection.as_mut().ok_or("连接已失效")?;
     let layer = validated(
         client,
         &Layer {
@@ -834,32 +893,32 @@ async fn query_layer(
             }
         }
     }
-    let rows = tokio::time::timeout(Duration::from_secs(30), client.query(&sql, &params))
-        .await
-        .map_err(|_| "查询超时，请缩小数据范围")?
-        .map_err(|_| "读取失败，请检查 WKT、SRID 和几何类型".to_string())?;
-    let truncated = rows.len() > count as usize;
-    let mut features = Vec::new();
-    for (index, row) in rows.into_iter().take(count as usize).enumerate() {
-        let baseline: Value = row.get(0);
-        let mut properties = baseline.clone();
-        properties
-            .as_object_mut()
-            .unwrap()
-            .remove(&layer.geometry_column);
-        let key: serde_json::Map<String, Value> = layer
-            .key_columns
-            .iter()
-            .map(|k| (k.clone(), baseline[k].clone()))
-            .collect();
-        let id = if key.is_empty() {
-            index.to_string()
-        } else {
-            Value::Object(key.clone()).to_string()
-        };
-        features.push(json!({"id":id,"geometry":row.get::<_,Option<Value>>(1),"properties":properties,"dbKey":key,"baseline":baseline}));
-    }
-    Ok(json!({"features":features,"srid":effective_srid(&layer),"truncated":truncated}))
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let rows = client.query_raw(&sql, params.iter().copied()).await
+            .map_err(|_| "读取失败，请检查 WKT、SRID 和几何类型")?;
+        tokio::pin!(rows);
+        let mut features = Vec::new();
+        let mut truncated = false;
+        let mut bytes = bounded_json_size(&json!({"features":[],"srid":effective_srid(&layer),"truncated":false}), 100 * 1024 * 1024)?;
+        while let Some(row) = rows.try_next().await.map_err(|_| "空间数据读取失败")? {
+            if features.len() >= count as usize {
+                truncated = true;
+                break;
+            }
+            let baseline: Value = row.try_get(0).map_err(|_| "属性数据读取失败")?;
+            let mut properties = baseline.as_object().ok_or("属性记录必须为对象")?.clone();
+            properties.remove(&layer.geometry_column);
+            let key: serde_json::Map<String, Value> = layer.key_columns.iter()
+                .map(|k| (k.clone(), baseline[k].clone())).collect();
+            let id = if key.is_empty() { features.len().to_string() }
+                else { Value::Object(key.clone()).to_string() };
+            let geometry: Option<Value> = row.try_get(1).map_err(|_| "几何数据读取失败")?;
+            let feature = json!({"id":id,"geometry":geometry,"properties":properties,"dbKey":key,"baseline":baseline});
+            append_database_feature(&mut features, feature, &mut bytes)?;
+        }
+        Ok(json!({"features":features,"srid":effective_srid(&layer),"truncated":truncated}))
+    }).await.map_err(|_| "查询超时，请缩小数据范围")?
+
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1051,8 +1110,8 @@ async fn commit_changes(
     if changes.len() > 10000 {
         return Err("单次提交最多 10000 条".into());
     }
-    let mut db = state.databases.lock().await;
-    let client = db.get_mut(&connection_id).ok_or("连接已失效")?;
+    let mut connection = state.databases.acquire(&connection_id).await?;
+    let client = connection.as_mut().ok_or("连接已失效")?;
     let original_layer = validated(client, &layer).await?;
     let schema_changes = schema_changes.unwrap_or_default();
     let geometry_columns = if schema_changes.is_empty() { vec![] } else { discover(client).await?.into_iter().filter(|other| other.schema == original_layer.schema && other.table == original_layer.table && other.geometry_kind == "geometry").map(|other| other.geometry_column).collect() };
@@ -1251,8 +1310,8 @@ async fn export_database(
         return Err("单次导入最多 100000 条".into());
     }
     let target = table_sql(&schema, &table)?;
-    let mut db = state.databases.lock().await;
-    let client = db.get_mut(&connection_id).ok_or("连接已失效")?;
+    let mut connection = state.databases.acquire(&connection_id).await?;
+    let client = connection.as_mut().ok_or("连接已失效")?;
     let tx = client.transaction().await.map_err(io_error)?;
     tx.batch_execute("SET LOCAL statement_timeout='30s'; SET LOCAL lock_timeout='5s'")
         .await
@@ -1371,6 +1430,76 @@ pub fn run() {
 }
 #[cfg(test)]
 mod tests {
+    use super::{ConnectionRegistry, Duration, bounded_json_size, append_database_feature};
+    use std::future::Future;
+    #[test]
+    fn database_output_budget_counts_complete_baseline_utf8_and_json_escaping() {
+        let baseline = serde_json::json!({"id":1,"名称":"中文 🎯\n\"","nested":{"items":["full","text"]}});
+        let feature = serde_json::json!({"id":"1","geometry":null,"properties":baseline,"dbKey":{"id":1},"baseline":baseline});
+        let base = serde_json::json!({"features":[],"srid":4326,"truncated":false});
+        let mut bytes = bounded_json_size(&base, 100 * 1024 * 1024).unwrap();
+        let mut features = vec![];
+        append_database_feature(&mut features, feature.clone(), &mut bytes).unwrap();
+        append_database_feature(&mut features, feature.clone(), &mut bytes).unwrap();
+        let result = serde_json::json!({"features":features,"srid":4326,"truncated":false});
+        assert_eq!(bytes, serde_json::to_vec(&result).unwrap().len());
+        assert_eq!(result["features"][0]["baseline"], baseline);
+        let actual = serde_json::to_vec(&feature).unwrap().len();
+        assert_eq!(bounded_json_size(&feature, actual).unwrap(), actual);
+        assert!(bounded_json_size(&feature, actual - 1).is_err());
+    }
+    #[test]
+    fn oversized_database_feature_is_rejected_without_partial_append() {
+        let feature = serde_json::json!({"baseline":{"required":"完整记录"}});
+        let size = bounded_json_size(&feature, usize::MAX).unwrap();
+        let mut bytes = 100 * 1024 * 1024 - size;
+        let mut features = vec![];
+        append_database_feature(&mut features, feature.clone(), &mut bytes).unwrap();
+        assert_eq!(bytes, 100 * 1024 * 1024);
+        assert!(append_database_feature(&mut features, feature.clone(), &mut bytes).is_err());
+        assert_eq!(features, vec![feature]);
+        assert_eq!(bytes, 100 * 1024 * 1024);
+    }
+    #[tokio::test]
+    async fn busy_connection_does_not_block_other_connections_or_registration() {
+        let registry = ConnectionRegistry::default();
+        registry.insert("busy".into(), 1).await.unwrap();
+        registry.insert("other".into(), 2).await.unwrap();
+        let _busy = registry.acquire("busy").await.unwrap();
+        let independent = async {
+            assert_eq!(*registry.acquire("other").await.unwrap(), Some(2));
+            registry.insert("new".into(), 3).await.unwrap();
+            assert!(registry.remove("new").await.is_some());
+        };
+        tokio::time::timeout(Duration::from_secs(1), independent).await.unwrap();
+    }
+    #[tokio::test]
+    async fn queued_operation_cannot_reuse_disconnected_connection() {
+        let registry = ConnectionRegistry::default();
+        registry.insert("connection".into(), 1).await.unwrap();
+        let held = registry.acquire("connection").await.unwrap();
+        let pending = registry.acquire("connection");
+        tokio::pin!(pending);
+        assert!(std::future::poll_fn(|cx| match pending.as_mut().poll(cx) {
+            std::task::Poll::Pending => std::task::Poll::Ready(true),
+            std::task::Poll::Ready(_) => std::task::Poll::Ready(false),
+        }).await);
+        registry.remove("connection").await.unwrap();
+        drop(held);
+        assert!(pending.await.is_err());
+    }
+    #[tokio::test]
+    async fn connection_limit_and_timeout_invalidation_are_preserved() {
+        let registry = ConnectionRegistry::default();
+        for index in 0..8 { registry.insert(index.to_string(), index).await.unwrap(); }
+        assert!(registry.insert("extra".into(), 8).await.is_err());
+        let mut timed_out = registry.acquire("0").await.unwrap();
+        timed_out.take();
+        registry.remove("0").await;
+        drop(timed_out);
+        assert!(registry.acquire("0").await.is_err());
+        registry.insert("extra".into(), 8).await.unwrap();
+    }
     fn schema_test_layer() -> super::Layer {
         super::Layer { schema: "public".into(), table: "records".into(), geometry_column: "geom".into(), geometry_kind: "geometry".into(), srid: 4326, key_columns: vec!["id".into()], columns: [
             ("id", "bigint", true), ("geom", "USER-DEFINED", false), ("name", "text", false), ("amount", "numeric", false)

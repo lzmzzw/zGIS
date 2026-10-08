@@ -202,8 +202,8 @@ pub async fn discover_database_tables(
     state: State<'_, Backend>,
     connection_id: String,
 ) -> Result<Catalog, String> {
-    let databases = state.databases.lock().await;
-    let client = databases.get(&connection_id).ok_or("连接已失效")?;
+    let mut connection = state.databases.acquire(&connection_id).await?;
+    let client = connection.as_mut().ok_or("连接已失效")?;
     tokio::time::timeout(Duration::from_secs(15), catalog(client))
         .await
         .map_err(|_| "读取目录超时")?
@@ -299,8 +299,8 @@ pub async fn preview_database_table(
     if ![10, 20].contains(&limit) {
         return Err("预览条数仅支持 10 或 20".into());
     }
-    let databases = state.databases.lock().await;
-    let client = databases.get(&connection_id).ok_or("连接已失效")?;
+    let mut connection = state.databases.acquire(&connection_id).await?;
+    let client = connection.as_mut().ok_or("连接已失效")?;
     tokio::time::timeout(Duration::from_secs(15), async {
         let selected = catalog(client)
             .await?
