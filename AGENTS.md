@@ -12,3 +12,5 @@
 - 打包：pnpm tauri build；Windows 安装及桌面运行必须实际验证。
 - 覆盖安装只使用 `pwsh -File scripts/install.ps1 -Smoke`：通过包外当前用户进程执行安装并核验物理路径、release 内容、快捷方式和启动进程。禁止在 Codex MSIX 环境直接运行安装器 `/S` 后以包内 `%LOCALAPPDATA%` 文件核对宣称成功；该路径可能重定向到 Codex LocalCache。完整原生 smoke 只在包外运行。
 - 仅提交源码、配置、锁文件与文档；output、target、dist、node_modules 不提交。
+
+- 用户已授权本机覆盖安装时关闭正在运行的 zGIS，无需再次确认；仅关闭本项目应用进程。原生安装测试允许覆盖或先删除仓库 `output/` 下本次测试生成的同名导出文件，默认在打开保存对话框前删除目标，避免替换确认阻塞。不得据此覆盖真实业务文件或绕过产品的同名文件组保护。

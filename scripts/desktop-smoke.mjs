@@ -228,6 +228,7 @@ assert.match(await page.getByRole("alert").innerText(), /外部修改/);
 await page.getByRole("button", { name: "关闭错误" }).click();
 await page.getByRole("button", { name: "撤销", exact: true }).click();
 await page.screenshot({ path: "output/desktop/installed-zgis.png" });
+rmSync("output/desktop/resolved-conflict.geojson", { force: true });
 const resolvedSave = nativeDialog("output/desktop/resolved-conflict.geojson");
 await fileAction("另存为");
 await resolvedSave;
