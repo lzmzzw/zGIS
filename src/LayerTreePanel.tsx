@@ -19,6 +19,7 @@ interface Props {
   onProperties(id: string): void;
   onOpenTable?(id: string): void;
   onRemoveLayer?(id: string): void;
+  removalBusy?: boolean;
   onStyle(id: string): void;
   onRenameLayer(id: string, name: string): void;
   onAliasLayer(id: string, name: string): void;
@@ -459,8 +460,8 @@ export default function LayerTree(props: Props) {
         ? dialogTarget?.kind === "layer" && layerById.has(dialogTarget.id)
         : dialogTarget?.kind === "group";
   const groupId = node?.kind === "group" ? node.id : undefined;
-  const act = (action: () => void) => {
-    if (props.busy) return;
+  const act = (action: () => void, blocked = props.busy) => {
+    if (blocked) return;
     setMenu(undefined);
     action();
   };
@@ -473,11 +474,12 @@ export default function LayerTree(props: Props) {
     shortcut?: string,
     danger?: boolean,
   ) => {
+    const blocked = id === "remove-layer" ? (props.removalBusy ?? props.busy) : props.busy;
     items.push({
       id,
       label,
-      onSelect: () => act(action),
-      disabled: props.busy || disabled,
+      onSelect: () => act(action, blocked),
+      disabled: blocked || disabled,
       shortcut,
       danger,
     });

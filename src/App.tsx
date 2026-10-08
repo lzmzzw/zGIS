@@ -438,6 +438,7 @@ export default function App() {
     strokeWidth: number;
   } | null>(null);
   const [tableEditing, setTableEditing] = useState(false);
+  const [closingLayerId, setClosingLayerId] = useState<string>();
   const [tableMaximized, setTableMaximized] = useState(false);
   const [columnWidths, setColumnWidths] = useState<Record<string, Record<string, number>>>({});
   const [columnOrders, setColumnOrders] = useState<Record<string, string[]>>({});
@@ -2060,24 +2061,27 @@ export default function App() {
     return updated;
   }
   async function closeLayer(targetId = active?.id) {
-    if (targetId === editingLayerId) {
-      setError("请先保存并退出当前图层编辑，再移除图层");
-      return;
-    }
-    if (cellDraft) {
-      setError("请先应用或取消当前单元格编辑");
-      return;
-    }
     if (!targetId || !layers.some((layer) => layer.id === targetId)) return;
     await task(async () => {
       const next = layers.filter((l) => l.id !== targetId);
       if (desktop) await writeSnapshot(next);
+      if (targetId === editingLayerId) {
+        finishEditing(targetId);
+        editingBaseline.current = undefined;
+        setGestureActive(false);
+      }
+      if (cellDraft?.layerId === targetId) setCellDraft(null);
       setLayers(next);
       currentLayers.current = next;
       histories.current.delete(targetId);
       dbBaselines.current.delete(targetId);
       dbBounds.current.delete(targetId);
-      setActiveId(next[0]?.id);
+      dbReadLimits.current.delete(targetId);
+      if (activeId === targetId) {
+        setSelectedId(undefined);
+        setActiveId(next[0]?.id);
+      }
+      setClosingLayerId(undefined);
       setModal(null);
     });
   }
@@ -3031,12 +3035,16 @@ export default function App() {
                 setTableOpen(true);
                 setTableMaximized(false);
               }}
+              removalBusy={busy}
               onRemoveLayer={(id) => {
-                if (busy || cellDraft) return;
+                if (busy) return;
                 const layer = layers.find((item) => item.id === id);
                 if (!layer) return;
-                if (!activateLayer(id)) return;
-                if (layer.dirty) openModal("close");
+                setError("");
+                if (layer.dirty || editingLayerId === id || cellDraft?.layerId === id) {
+                  setClosingLayerId(id);
+                  setModal("close");
+                }
                 else void closeLayer(id);
               }}
               onDissolveGroup={(id) => {
@@ -4695,10 +4703,10 @@ export default function App() {
         )}
         {modal === "close" && (
           <Modal title="移除未保存图层" onClose={() => setModal(null)}>
-            <p>“{active?.displayName ?? active?.name}” 存在未保存修改。</p>
+            <p>将移除“{layers.find((layer) => layer.id === closingLayerId)?.displayName ?? layers.find((layer) => layer.id === closingLayerId)?.name}”，并丢弃该图层的全部未保存修改及未完成编辑。源文件或数据库不会写入这些修改。</p>
             <div className="modal-actions">
-              <button onClick={() => setModal(null)}>取消</button>
-              <button className="danger" onClick={() => void closeLayer()}>
+              <button disabled={busy} onClick={() => setModal(null)}>取消</button>
+              <button className="danger" disabled={busy} onClick={() => void closeLayer(closingLayerId)}>
                 放弃并移除
               </button>
             </div>

@@ -172,10 +172,13 @@ test("tree menus open tables, preserve drafts and confirm dirty layer removal", 
   await page.keyboard.press("Escape");
   await expect(draft).toHaveValue("未应用");
   await row(page, "points.geojson").click({ button: "right" });
-  for (const item of await page.getByRole("menuitem").all())
-    await expect(item).toBeDisabled();
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(page.getByRole("menuitem", {name:"移除",exact:true})).toBeEnabled();
+  await page.getByRole("menuitem", {name:"移除",exact:true}).click();
+  await page.getByRole("dialog").getByRole("button", {name:"取消",exact:true}).click();
+  await expect(draft).toHaveValue("未应用");
+  await page.getByRole("button", {name:"应用",exact:true}).click();
+  await page.locator('.attribute-panel tbody tr.selected td[data-field="name"]').dblclick();
+  await draft.fill("第二份未应用草稿");
   await row(page, "points.geojson").click({ button: "right" });
   await page.getByRole("menuitem", { name: "移除", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -184,6 +187,19 @@ test("tree menus open tables, preserve drafts and confirm dirty layer removal", 
     .getByRole("button", { name: "取消", exact: true })
     .click();
   await expect(row(page, "points.geojson")).toBeVisible();
+  await expect(draft).toHaveValue("第二份未应用草稿");
+  await row(page, "points.geojson").click({button:"right"});
+  await page.getByRole("menuitem", {name:"移除",exact:true}).click();
+  await page.getByRole("dialog").getByRole("button", {name:"放弃并移除",exact:true}).click();
+  await expect(row(page, "points.geojson")).toHaveCount(0);
+  await expect(draft).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => {
+    const snapshot = JSON.parse(window.__ZG_TEST__.snapshot!);
+    return {layers:snapshot.layers.length, session:snapshot.session ?? null};
+  })).toEqual({layers:0, session:null});
+  expect(await page.evaluate(() => window.__ZG_TEST__.calls.filter((call) =>
+    ["save_source_file", "commit_changes", "commit_mysql_changes"].includes(call.command),
+  ))).toEqual([]);
 });
 
 test("deleting a group confirms recursive removal while cancel preserves the tree", async ({
