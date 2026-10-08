@@ -37,9 +37,11 @@
 }
 .processing-browser {
   flex-shrink: 0;
-  padding: 12px 14px 10px;
+  margin: 12px 12px 0;
+  padding: 10px;
   background: var(--chrome);
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
 }
 .processing-search {
   display: flex;
@@ -57,7 +59,7 @@
   font-size: var(--font-size-sm);
 }
 .processing-tool-list {
-  max-height: clamp(112px, 23vh, 200px);
+  height: 200px;
   overflow: auto;
   margin-top: 8px;
   overscroll-behavior: contain;

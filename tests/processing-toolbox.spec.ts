@@ -57,10 +57,8 @@ async function tool(page: Page, label: string) {
     );
     await group.locator(".processing-group-toggle").click();
   }
-  await toolbox(page)
-    .locator(".processing-tool-option")
-    .getByText(label, { exact: true })
-    .click();
+  if ((await option.locator("..").getAttribute("aria-pressed")) !== "true")
+    await option.click();
 }
 const calls = (page: Page) =>
   page.evaluate(() =>
@@ -68,6 +66,46 @@ const calls = (page: Page) =>
       (item) => item.command === "gis_run_analysis",
     ),
   );
+
+test("fixed tree and subtle boundary remain stable while selection toggles configuration and help", async ({
+  page,
+}) => {
+  await start(page);
+  await expect(toolbox(page).locator(".processing-form")).toHaveCount(0);
+  await expect(toolbox(page).locator(".processing-help")).toHaveCount(0);
+  const tree = toolbox(page).locator(".processing-tool-list");
+  expect((await tree.boundingBox())!.height).toBe(200);
+  const border = await toolbox(page)
+    .locator(".processing-browser")
+    .evaluate((element) => getComputedStyle(element).borderTopWidth);
+  expect(border).toBe("1px");
+  await tool(page, "缓冲区");
+  expect((await tree.boundingBox())!.height).toBe(200);
+  await toolbox(page).getByLabel("缓冲距离（米）").fill("350");
+  await toolbox(page).getByLabel("结果图层名称").fill("保留草稿");
+  const selected = toolbox(page).getByRole("button", {
+    name: "缓冲区",
+    exact: true,
+  });
+  await selected.click();
+  await expect(selected).toHaveAttribute("aria-pressed", "false");
+  await expect(toolbox(page).locator(".processing-form")).toHaveCount(0);
+  await expect(toolbox(page).locator(".processing-help")).toHaveCount(0);
+  await expect(run(page)).toHaveCount(0);
+  expect(await calls(page)).toHaveLength(0);
+  await selected.focus();
+  await page.keyboard.press("Enter");
+  await expect(toolbox(page).getByLabel("缓冲距离（米）")).toHaveValue("350");
+  await expect(toolbox(page).getByLabel("结果图层名称")).toHaveValue(
+    "保留草稿",
+  );
+  await toolbox(page)
+    .getByRole("button", { name: "叠加分析", exact: true })
+    .click();
+  expect((await tree.boundingBox())!.height).toBe(200);
+  await expect(toolbox(page).locator(".processing-form")).toBeVisible();
+  await page.screenshot({ path: "output/tools-fixed-tree.png" });
+});
 
 test("collapsed categories, search, keyboard and hiding preserve parameters without removed controls", async ({
   page,
@@ -206,6 +244,7 @@ test("failure preserves parameters, retry works, and duplicate runs or close are
   page,
 }) => {
   await start(page);
+  await tool(page, "缓冲区");
   await toolbox(page).getByLabel("缓冲距离（米）").fill("250");
   await toolbox(page).getByLabel("结果图层名称").fill("250米缓冲");
   await page.evaluate(() => {
@@ -242,6 +281,7 @@ test("selected input sends only the chosen feature, and invalid distance stays l
   page,
 }) => {
   await start(page);
+  await tool(page, "缓冲区");
   await page.getByRole("button", { name: "展开属性表", exact: true }).click();
   await page.locator("tbody tr").first().click();
   await toolbox(page)
@@ -276,6 +316,7 @@ test("editing and elevated geometry give explicit guidance and cannot run", asyn
   page,
 }) => {
   await start(page);
+  await tool(page, "缓冲区");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(run(page)).toBeDisabled();
   await expect(toolbox(page)).toContainText("保存并退出编辑");
@@ -294,6 +335,7 @@ test("editing and elevated geometry give explicit guidance and cannot run", asyn
   await installDesktopMock(next, JSON.stringify(elevated));
   await next.goto("/");
   await next.getByRole("button", { name: "工具", exact: true }).click();
+  await tool(next, "缓冲区");
   await expect(run(next)).toBeDisabled();
   await expect(toolbox(next)).toContainText("含高程");
 });
@@ -324,6 +366,12 @@ test("toolbox stays inside 960px dark and light windows with keyboard controls",
       )
       .toBe(true);
     await toolbox(page).getByLabel("搜索分析工具").fill("centroid");
+    if (
+      (await toolbox(page)
+        .locator(".processing-tool-option")
+        .getAttribute("aria-pressed")) === "true"
+    )
+      await toolbox(page).locator(".processing-tool-option").click();
     await toolbox(page).locator(".processing-tool-option").focus();
     await page.keyboard.press("Enter");
     await expect(toolbox(page).locator(".processing-tool-title")).toContainText(
@@ -336,6 +384,7 @@ test("toolbox stays inside 960px dark and light windows with keyboard controls",
 test("browser version explains the desktop requirement", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "工具", exact: true }).click();
+  await tool(page, "缓冲区");
   await expect(toolbox(page)).toContainText("空间分析需要桌面版");
   await expect(run(page)).toBeDisabled();
 });

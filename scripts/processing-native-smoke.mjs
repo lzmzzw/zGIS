@@ -148,8 +148,30 @@ try {
         )
         .locator(".processing-group-toggle")
         .click();
-    await option.click();
+    if ((await option.locator("..").getAttribute("aria-pressed")) !== "true")
+      await option.click();
   };
+  await expect(toolbox.locator(".processing-form")).toHaveCount(0);
+  await expect(toolbox.locator(".processing-help")).toHaveCount(0);
+  assert.ok(
+    Math.abs(
+      (await toolbox.locator(".processing-tool-list").boundingBox()).height -
+        200,
+    ) < 0.1,
+  );
+  await selectTool("缓冲区");
+  await toolbox.getByLabel("缓冲距离（米）").fill("125");
+  await toolbox.getByRole("button", { name: "缓冲区", exact: true }).click();
+  await expect(toolbox.locator(".processing-form")).toHaveCount(0);
+  await expect(toolbox.locator(".processing-help")).toHaveCount(0);
+  await selectTool("缓冲区");
+  await expect(toolbox.getByLabel("缓冲距离（米）")).toHaveValue("125");
+  assert.ok(
+    Math.abs(
+      (await toolbox.locator(".processing-tool-list").boundingBox()).height -
+        200,
+    ) < 0.1,
+  );
   const snapshot = () =>
     page.evaluate(async () =>
       JSON.parse(await window.__TAURI_INTERNALS__.invoke("load_recovery")),
@@ -237,6 +259,7 @@ try {
           "source preservation",
           "28 tool native catalog",
           "normal snapshot exit",
+          "fixed tree and tool deselection hide configuration and help, retain drafts",
           "docked agent and toolbox do not cover map or attribute table",
           "independent sidebar widths, native pointer drag and keyboard resize",
         ],

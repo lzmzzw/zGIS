@@ -17,7 +17,7 @@ Windows 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLaye
 
 ## 运行与安装
 
-当前交付安装包在 `F:\Workspace\Deliverables\zGIS\zGIS_0.1.0_tools-workbench-release_x64-setup.exe`。当前用户安装默认目录为 `%LOCALAPPDATA%\zGIS`，启动文件为 `zgis.exe`；可从开始菜单启动。卸载使用 Windows 应用管理或安装目录的 `uninstall.exe`。
+当前交付安装包在 `F:\Workspace\Deliverables\zGIS\zGIS_0.1.0_tools-selection-release_x64-setup.exe`。当前用户安装默认目录为 `%LOCALAPPDATA%\zGIS`，启动文件为 `zgis.exe`；可从开始菜单启动。卸载使用 Windows 应用管理或安装目录的 `uninstall.exe`。
 
 MCP 默认随应用启动，固定本机地址与令牌；外部文件直接按路径读取，访问权限由调用 Agent 判断。Codex 接入方法见 [空间分析说明](docs/spatial-mcp.md)。
 
