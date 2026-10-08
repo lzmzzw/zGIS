@@ -393,7 +393,7 @@ assert.equal(await fs.access("output/smoke/fixtures/editing.geojson").then(()=>t
 console.log("PASS: native registered source rename updates the on-disk filename");
 await page.getByRole("button", {name:"编辑属性",exact:true}).click();
 await page.getByRole("button", {name:"添加字段",exact:true}).filter({visible:true}).first().click();
-await page.getByLabel("字段名", {exact:true}).fill("native_field");
+await page.getByLabel("新字段名", {exact:true}).fill("native_field");
 await page.getByRole("dialog").getByRole("button", {name:"添加字段",exact:true}).click();
 await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
 await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
