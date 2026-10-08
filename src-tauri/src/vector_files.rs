@@ -79,7 +79,7 @@ fn preserve_property_numbers(v: &mut Value) {
         }
     }
 }
-fn identify_prj(prj: &str) -> Result<&'static str, String> {
+pub(crate) fn identify_prj(prj: &str) -> Result<&'static str, String> {
     let p = prj
         .chars()
         .filter(|c| !c.is_whitespace())

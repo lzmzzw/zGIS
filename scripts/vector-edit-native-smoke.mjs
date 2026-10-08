@@ -82,7 +82,7 @@ async function newLayer(kind) {
     .locator(".app-header summary")
     .filter({ hasText: /^文件$/ })
     .click();
-  await button("新建矢量图层…").click();
+  await button("新建矢量图层").click();
   await page.getByLabel("矢量图层名称", { exact: true }).fill(`native-${kind}`);
   await page.getByLabel("矢量几何类型", { exact: true }).selectOption(kind);
   await page.getByLabel("矢量属性字段", { exact: true }).fill("name");

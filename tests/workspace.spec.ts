@@ -26,7 +26,7 @@ test("empty header can drag while menus and window buttons remain interactive", 
   await expect(
     page
       .locator(".header-menus")
-      .getByRole("button", { name: "打开文件…", exact: true }),
+      .getByRole("button", { name: "打开文件", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "最小化", exact: true }).click();
   expect(
@@ -69,11 +69,7 @@ const snapshot = JSON.stringify(
   })),
 );
 async function exit(page: Page) {
-  await page
-    .locator(".app-header summary")
-    .filter({ hasText: /^文件$/ })
-    .click();
-  await page.getByRole("button", { name: "退出", exact: true }).click();
+  await page.getByRole("button", { name: "关闭窗口", exact: true }).click();
 }
 
 test("native open continues into worker import after dialog busy state", async ({
@@ -87,7 +83,7 @@ test("native open continues into worker import after dialog busy state", async (
     .click();
   await page
     .locator(".app-header")
-    .getByRole("button", { name: "打开文件…", exact: true })
+    .getByRole("button", { name: "打开文件", exact: true })
     .filter({ visible: true })
     .click();
   await page.getByRole("button", { name: "导入", exact: true }).click();
@@ -109,7 +105,7 @@ test("restored CSV saves as GeoJSON from the main file menu", async ({
     .click();
   await page
     .locator(".app-header")
-    .getByRole("button", { name: "保存", exact: true })
+    .getByRole("button", { name: "另存为", exact: true })
     .click();
   await expect(page.locator(".operation-status")).toContainText("保存完成");
   const save = await page.evaluate(() =>

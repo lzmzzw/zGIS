@@ -18,7 +18,7 @@ for (const theme of ["dark", "light"]) {
       .filter({ hasText: /^文件$/ })
       .click();
     await page
-      .getByRole("button", { name: "导出 / 转换", exact: true })
+      .getByRole("button", { name: "导出为", exact: true })
       .click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.locator(".export-source")).toContainText(

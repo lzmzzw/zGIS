@@ -7,7 +7,10 @@ export interface InputFile {
   bytes: number[];
   sourceId?: string;
 }
-export interface DroppedFiles { files: InputFile[]; error: string | null; }
+export interface DroppedFiles {
+  files: InputFile[];
+  error: string | null;
+}
 export const onFilesDropped = (handler: (payload: DroppedFiles) => void) =>
   listen<DroppedFiles>("gis-files-dropped", (event) => handler(event.payload));
 export interface DbLayer {
@@ -38,17 +41,28 @@ export const api = {
     source: GeoFeature[],
     target?: GeoFeature[],
   ) => {
-    const features = (input: GeoFeature[]) => input.map(({ id, geometry, properties }) => ({
-      type: "Feature", id, geometry, properties,
-    }));
+    const features = (input: GeoFeature[]) =>
+      input.map(({ id, geometry, properties }) => ({
+        type: "Feature",
+        id,
+        geometry,
+        properties,
+      }));
     return invoke<unknown>("gis_run_analysis", {
-      operation, parameters, source: features(source), target: target ? features(target) : null,
+      operation,
+      parameters,
+      source: features(source),
+      target: target ? features(target) : null,
     });
   },
   mcpStatus: () => invoke<McpStatus>("gis_mcp_status"),
-  mcpEnable: (enabled: boolean) => invoke<McpStatus>("gis_mcp_set_enabled", { enabled }),
+  mcpEnable: (enabled: boolean) =>
+    invoke<McpStatus>("gis_mcp_set_enabled", { enabled }),
   mcpSync: (layers: unknown[], activeLayerId?: string) =>
-    invoke("gis_workspace_sync", { layers, activeLayerId: activeLayerId ?? null }),
+    invoke("gis_workspace_sync", {
+      layers,
+      activeLayerId: activeLayerId ?? null,
+    }),
   mcpResults: () => invoke<AnalysisLayer[]>("gis_results_drain"),
   open: () => invoke<InputFile[]>("open_files"),
   save: (
@@ -56,12 +70,17 @@ export const api = {
     suggestedName: string,
     sourceId?: string,
     overwrite = false,
+    preserveExtension?: string,
   ) =>
     invoke<{ sourceId: string; name: string; path: string } | null>(
       "save_file",
-      { content, suggestedName, sourceId, overwrite },
+      { content, suggestedName, sourceId, overwrite, preserveExtension },
     ),
-  exportShapefile: (features: GeoFeature[], suggestedName: string, crs = "EPSG:4326") =>
+  exportShapefile: (
+    features: GeoFeature[],
+    suggestedName: string,
+    crs = "EPSG:4326",
+  ) =>
     invoke<{ sourceId: string; name: string; path: string } | null>(
       "export_shapefile",
       {
@@ -74,9 +93,27 @@ export const api = {
         crs,
       },
     ),
+  saveShapefileFolder: (
+    features: GeoFeature[],
+    suggestedName: string,
+    crs = "EPSG:4326",
+  ) =>
+    invoke<{ sourceId: string; name: string; path: string } | null>(
+      "save_shapefile_folder",
+      {
+        features: features.map(({ geometry, properties }) => ({
+          type: "Feature",
+          geometry,
+          properties,
+        })),
+        suggestedName,
+        crs,
+      },
+    ),
   preferences: () => invoke<string | null>("load_preferences"),
   savePreferences: (content: string) => invoke("save_preferences", { content }),
-  fetchBasemapTile: (url: string) => invoke<string>("fetch_basemap_tile", { url }),
+  fetchBasemapTile: (url: string) =>
+    invoke<string>("fetch_basemap_tile", { url }),
   recover: () => invoke<string | null>("load_recovery"),
   backup: (content: string) => invoke("save_recovery", { content }),
   connect: (config: DbConnection) =>

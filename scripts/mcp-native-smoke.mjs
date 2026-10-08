@@ -14,7 +14,7 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
     throw new Error(`Timed out waiting for ${command}: ${diagnostic}`);
   }
   const opening = nativeDialog('output/smoke/fixtures/native.geojson');
-  await fileAction('打开文件…'); await opening;
+  await fileAction('打开文件'); await opening;
   await page.getByRole('button', {name:'导入',exact:true}).click();
   await page.waitForFunction(() => document.querySelectorAll('tbody tr').length === 1);
   await page.getByRole('button', {name:'设置',exact:true}).click();

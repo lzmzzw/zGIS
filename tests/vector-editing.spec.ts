@@ -46,7 +46,7 @@ async function newLayer(page: Page, kind: Kind) {
     .click();
   await page
     .locator(".header-menus")
-    .getByRole("button", { name: "新建矢量图层…", exact: true })
+    .getByRole("button", { name: "新建矢量图层", exact: true })
     .click();
   await page.getByLabel("矢量图层名称", { exact: true }).fill(`手绘${kind}`);
   await page.getByLabel("矢量几何类型", { exact: true }).selectOption(kind);

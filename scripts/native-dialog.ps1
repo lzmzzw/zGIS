@@ -66,13 +66,13 @@ if ($Cancel) {
   Write-Output 'Cancelled native file dialog'
   exit
 }
-$edit = $nodes | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit -and ($_.Current.AutomationId -eq '1001' -or $_.Current.Name -match '文件名|File name') } | Select-Object -Last 1
+$edit = $nodes | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit -and ($_.Current.AutomationId -eq '1001' -or $_.Current.Name -match '文件名|File name|文件夹|Folder') } | Select-Object -Last 1
 if (-not $edit) {
   $nodes | ForEach-Object { "$($_.Current.ControlType.ProgrammaticName) | $($_.Current.AutomationId) | $($_.Current.Name)" }
   throw 'Filename control not found'
 }
 $edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($FilePath)
-$button = $nodes | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $_.Current.Name -match '^(打开|保存|Open|Save)' } | Select-Object -First 1
+$button = $nodes | Where-Object { $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $_.Current.Name -match '^(打开|保存|Open|Save|选择文件夹|Select Folder)' } | Select-Object -First 1
 if (-not $button) { throw 'Open/save button not found' }
 $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 Write-Output 'Accepted native file dialog'

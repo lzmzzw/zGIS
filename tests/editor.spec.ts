@@ -21,7 +21,7 @@ test("GeoJSON XYZ import automatically preserves elevation", async ({
   await expect(copy).not.toBeChecked();
   await page.getByRole("button", { name: "导入", exact: true }).click();
   await expect(page.locator(".layer-text")).toContainText("height.geojson");
-  await fileAction(page, "导出 / 转换");
+  await fileAction(page, "导出为");
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出", exact: true }).click();
   const saved = await download;
@@ -43,7 +43,7 @@ test("GeoJSON metadata import, default 4326 export and explicit projected export
   });
   await page.getByRole("button", { name: "导入", exact: true }).click();
   await expect(page.locator(".layer-text")).toContainText("mercator.geojson");
-  await fileAction(page, "导出 / 转换");
+  await fileAction(page, "导出为");
   await expect(page.getByLabel("目标坐标系")).toHaveValue("EPSG:4326");
   await page.getByLabel("目标坐标系").selectOption("EPSG:3857");
   await expect(page.getByRole("dialog")).toContainText("传统 GeoJSON");
@@ -136,7 +136,7 @@ test("city attributes use explicit apply, independent geometry editor, undo and 
     .first()
     .click();
   await page.getByRole("button", { name: "重做", exact: true }).click();
-  await fileAction(page, "导出 / 转换");
+  await fileAction(page, "导出为");
   const promise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出", exact: true }).click();
   await (await promise).saveAs("output/smoke/export.geojson");
@@ -178,7 +178,7 @@ test("CSV worker import, text codes, invalid geometry retained inside editor", a
     .getByRole("button", { name: "关闭", exact: true })
     .first()
     .click();
-  await fileAction(page, "导出 / 转换");
+  await fileAction(page, "导出为");
   await page.getByLabel("输出格式").selectOption("wkt");
   const promise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出", exact: true }).click();
@@ -250,7 +250,7 @@ test("file parse errors remain in original window and export rejects non-point X
   });
   await page.getByRole("button", { name: "导入", exact: true }).click();
   await expect(page.locator(".layer-text")).toContainText("道路.geojson");
-  await fileAction(page, "导出 / 转换");
+  await fileAction(page, "导出为");
   await page.getByLabel("输出格式").selectOption("xy");
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
     "仅支持点",
@@ -297,7 +297,7 @@ test("SHP ZIP is editable and save routes to conversion", async ({ page }) => {
     .getByRole("button", { name: "关闭", exact: true })
     .first()
     .click();
-  await fileAction(page, "保存");
+  await page.keyboard.press("Control+s");
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.screenshot({ path: "output/smoke/shp-conversion.png" });
 });
@@ -493,7 +493,7 @@ test("desktop SHP export preserves edits on cancellation, error and success", as
     .getByRole("textbox", { name: "属性 name", exact: true })
     .fill("新北京");
   await page.getByRole("button", { name: "应用", exact: true }).click();
-  await fileAction(page, "保存");
+  await page.keyboard.press("Control+s");
   await expect(page.getByRole("combobox", { name: "输出格式" })).toHaveValue(
     "shp",
   );

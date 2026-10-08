@@ -208,7 +208,7 @@ export async function installDesktopMock(
               state.snapshot = String(args.content);
               return null;
             }
-            if (command === "save_file" || command === "export_shapefile") {
+            if (command === "save_file" || command === "export_shapefile" || command === "save_shapefile_folder") {
               if (state.saveError) throw Error(state.saveError);
               if (state.saveCancelled) return null;
               return {

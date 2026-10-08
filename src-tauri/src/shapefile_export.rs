@@ -146,7 +146,7 @@ fn decimal(n: f64) -> Result<u8, String> {
 pub fn build_zip(features: &[Value], stem: &str) -> Result<Vec<u8>, String> {
     build_zip_crs(features, stem, "EPSG:4326")
 }
-pub fn build_zip_crs(features: &[Value], stem: &str, crs: &str) -> Result<Vec<u8>, String> {
+pub fn build_components_crs(features: &[Value], crs: &str) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
     let prj = match crs {
         "EPSG:4326" => PRJ,
         "EPSG:4490" => r#"GEOGCS["China Geodetic Coordinate System 2000",DATUM["China_2000",SPHEROID["CGCS2000",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4490"]]"#,
@@ -275,24 +275,25 @@ pub fn build_zip_crs(features: &[Value], stem: &str, crs: &str) -> Result<Vec<u8
             .map_err(error)?;
         }
     }
+    let components = vec![
+        ("shp", shp), ("shx", shx), ("dbf", dbf),
+        ("prj", prj.as_bytes().to_vec()), ("cpg", b"UTF-8".to_vec()),
+    ];
+    if components.iter().map(|(_, bytes)| bytes.len() as u64).sum::<u64>() > super::MAX_FILE {
+        return Err("输出超过 100 MB".into());
+    }
+    Ok(components)
+}
+
+pub fn build_zip_crs(features: &[Value], stem: &str, crs: &str) -> Result<Vec<u8>, String> {
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    let opts =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    for (ext, data) in [
-        ("shp", shp),
-        ("shx", shx),
-        ("dbf", dbf),
-        ("prj", prj.as_bytes().to_vec()),
-        ("cpg", b"UTF-8".to_vec()),
-    ] {
-        zip.start_file(format!("{stem}.{ext}"), opts)
-            .map_err(error)?;
+    let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    for (ext, data) in build_components_crs(features, crs)? {
+        zip.start_file(format!("{stem}.{ext}"), opts).map_err(error)?;
         zip.write_all(&data).map_err(error)?;
     }
     let bytes = zip.finish().map_err(error)?.into_inner();
-    if bytes.len() as u64 > super::MAX_FILE {
-        return Err("输出超过 100 MB".into());
-    }
+    if bytes.len() as u64 > super::MAX_FILE { return Err("输出超过 100 MB".into()); }
     Ok(bytes)
 }
 

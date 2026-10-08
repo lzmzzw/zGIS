@@ -2,7 +2,7 @@
 
 个人 Windows 轻量 GIS 编辑器，产品范围与验证入口以 README.md 为准。
 
-- SHP 工作副本可编辑，桌面版只另存新 SHP ZIP，不覆盖原 SHP 文件组；不支持 GDB。字段转换不能静默丢失，特殊几何不能静默降维。
+- SHP 工作副本可编辑，桌面版另存为在所选文件夹输出新的 SHP 文件组，导出支持 SHP ZIP；均不覆盖原 SHP 文件组；不支持 GDB。字段转换不能静默丢失，特殊几何不能静默降维。
 - 文件解析在 Worker 执行；几何工作坐标统一 WGS84，来源 CRS 独立保存。
 - zGIS 内部图层的 Agent 操作统一使用 zGIS MCP，具体操作以工具清单和 schema 为准。GeoJSON、SHP、含 WKT 的 CSV 等外部文件优先交由 zGIS MCP 加载和分析；调用 Agent 负责按自身权限规则判断文件是否可访问，zGIS 不校验外部文件访问授权。
 - PostGIS 按实际场景选择 zGIS MCP 分析已加载图层快照，或由 DBX 直接操作数据库；不得要求 zGIS MCP 直连数据库。MCP 不暴露任意 shell 或源文件覆盖；分析结果作为独立未保存图层，由用户保存。Agent 只连接本次 zGIS MCP，关闭服务或应用时终止所属进程树。

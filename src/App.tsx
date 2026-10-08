@@ -1614,6 +1614,39 @@ export default function App() {
       openModal("submit");
       return;
     }
+    if (active.sourceKind === "shp" && asNew) {
+      await task(async () => {
+        const result = await api.saveShapefileFolder(
+          active.features,
+          active.name.replace(/\.[^.]+$/, "") + ".shp",
+          active.originalCrs ?? "EPSG:4326",
+        );
+        if (!result) {
+          setStatus("已取消另存，工作区仍保留");
+          return;
+        }
+        const updated = {
+          ...active,
+          sourceId: result.sourceId,
+          name: result.name,
+          dirty: false,
+          restored: false,
+        };
+        setLayers((old) =>
+          old.map((layer) => (layer.id === active.id ? updated : layer)),
+        );
+        currentLayers.current = currentLayers.current.map((layer) =>
+          layer.id === active.id ? updated : layer,
+        );
+        if (editing) {
+          if (stopEditing) finishEditing(active.id);
+          else markEditingSaved(active.id);
+        }
+        setStatus("另存完成：SHP 文件组");
+        if (desktop) await writeSnapshot(currentLayers.current);
+      });
+      return;
+    }
     if (active.sourceKind === "shp") {
       exportSaveLayerId.current = editing ? active.id : undefined;
       if (desktop) {
@@ -1683,7 +1716,7 @@ export default function App() {
             mode: doc.csvConfig?.wktColumn ? "wkt" : "xy",
             crs: doc.originalCrs,
           })
-        : exportGeoJSON(doc.features);
+        : exportGeoJSON(doc.features, asNew ? doc.originalCrs : undefined);
     let updated = { ...doc, dirty: false, restored: false };
     const filename =
       doc.sourceKind === "csv"
@@ -1699,6 +1732,7 @@ export default function App() {
         filename,
         asNew ? undefined : doc.sourceId,
         !asNew && Boolean(doc.sourceId),
+        asNew ? filename.split(".").pop()?.toLowerCase() : undefined,
       );
       if (!result) throw new Error("已取消保存，工作区仍保留");
       updated = { ...updated, sourceId: result.sourceId, name: result.name };
@@ -2428,51 +2462,26 @@ export default function App() {
             <HeaderMenu label="文件">
               <button onClick={requestNewLayer} disabled={busy}>
                 <Plus />
-                新建矢量图层…
+                新建矢量图层
               </button>
               <button onClick={openFiles} disabled={busy}>
                 <FolderOpen />
-                打开文件…
-              </button>
-              <button
-                onClick={() => void save()}
-                disabled={
-                  !active ||
-                  busy ||
-                  (active.sourceKind === "postgis" && !canEdit)
-                }
-              >
-                <Save />
-                {active?.sourceKind === "postgis" ? "提交修改" : "保存"}
+                打开文件
               </button>
               <button
                 onClick={() => void save(true)}
                 disabled={!active || busy || active.sourceKind === "postgis"}
               >
                 <Save />
-                另存为…
+                另存为
               </button>
+              <hr />
               <button
                 disabled={!active || busy}
                 onClick={() => openModal("export")}
               >
                 <Download />
-                导出 / 转换
-              </button>
-              <hr />
-              <button
-                disabled={!active || busy}
-                onClick={() =>
-                  active?.dirty ? openModal("close") : void closeLayer()
-                }
-              >
-                <X />
-                移除图层
-              </button>
-              <hr />
-              <button disabled={busy || !recoveryReady} onClick={requestExit}>
-                <X />
-                退出
+                导出为
               </button>
             </HeaderMenu>
             <HeaderMenu label="数据">
@@ -3660,7 +3669,7 @@ export default function App() {
         )}
         {modal === "export" && active && (
           <Modal
-            title="导出 / 转换"
+            title="导出为"
             showError={false}
             onClose={() => {
               if (!busy) openModal(null);

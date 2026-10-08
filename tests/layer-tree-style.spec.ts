@@ -181,7 +181,7 @@ test("renaming changes display only, keeps save filenames and survives work-copy
     .locator(".app-header summary")
     .filter({ hasText: /^文件$/ })
     .click();
-  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.getByRole("button", { name: "另存为", exact: true }).click();
   const save = await page.evaluate(() =>
     window.__ZG_TEST__.calls.filter((c) => c.command === "save_file").at(-1),
   );
@@ -190,7 +190,7 @@ test("renaming changes display only, keeps save filenames and survives work-copy
     .locator(".app-header summary")
     .filter({ hasText: /^文件$/ })
     .click();
-  await page.getByRole("button", { name: "导出 / 转换", exact: true }).click();
+  await page.getByRole("button", { name: "导出为", exact: true }).click();
   await expect(page.getByLabel("文件名", { exact: true })).toHaveValue(
     "points.geojson",
   );

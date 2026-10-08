@@ -81,6 +81,49 @@ async fn export_shapefile(
     .map_err(io_error)?
 }
 
+#[tauri::command]
+async fn save_shapefile_folder(
+    state: State<'_, Backend>,
+    features: Vec<Value>,
+    suggested_name: String,
+    crs: Option<String>,
+) -> Result<Option<SavedFile>, String> {
+    let files = state.files.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let stem = Path::new(&suggested_name).file_stem().unwrap_or_default().to_string_lossy().into_owned();
+        if stem.is_empty() || stem == "." || stem == ".." || stem.contains(['/', '\\', ':']) {
+            return Err("无效 SHP 文件名".into());
+        }
+        let source_crs = crs.as_deref().unwrap_or("EPSG:4326");
+        let code = if source_crs.starts_with("EPSG:") { source_crs } else { vector_files::identify_prj(source_crs)? };
+        let components = shapefile_export::build_components_crs(&features, code)?;
+        let Some(directory) = rfd::FileDialog::new().set_title("另存 SHP：选择目标文件夹").pick_folder() else {
+            return Ok(None);
+        };
+        let mut handles = files.lock().map_err(io_error)?;
+        let path = write_shapefile_group(&directory, &stem, &components)?;
+        let id = uuid::Uuid::new_v4().to_string();
+        handles.insert(id.clone(), FileHandle { path: path.clone(), hash: fingerprint(&path)? });
+        Ok(Some(SavedFile { source_id: id, name: format!("{stem}.shp"), path: path.to_string_lossy().into_owned() }))
+    }).await.map_err(io_error)?
+}
+
+fn write_shapefile_group(directory: &Path, stem: &str, components: &[(&str, Vec<u8>)]) -> Result<PathBuf, String> {
+    let targets: Vec<_> = components.iter().map(|(ext, _)| directory.join(format!("{stem}.{ext}"))).collect();
+    if targets.iter().any(|path| path.try_exists().unwrap_or(true)) {
+        return Err("目标文件夹中已有同名 SHP 文件组，请选择其他文件夹；不会覆盖已有文件".into());
+    }
+    let mut written = Vec::new();
+    for (path, (_, bytes)) in targets.iter().zip(components) {
+        if let Err(error) = atomic_write_new(path, bytes) {
+            for owned_path in written { let _ = fs::remove_file(owned_path); }
+            return Err(error);
+        }
+        written.push(path);
+    }
+    Ok(directory.join(format!("{stem}.shp")))
+}
+
 const MAX_FILE: u64 = 100 * 1024 * 1024;
 #[derive(Default)]
 pub struct Backend {
@@ -340,6 +383,7 @@ fn save_file(
     suggested_name: String,
     content: String,
     overwrite: bool,
+    preserve_extension: Option<String>,
 ) -> Result<Option<SavedFile>, String> {
     if content.len() as u64 > MAX_FILE {
         return Err("输出超过 100 MB".into());
@@ -375,7 +419,14 @@ fn save_file(
     if !["csv", "geojson", "json"].contains(&extension.as_str()) {
         return Err("只允许保存 CSV、GeoJSON 或 JSON；SHP 文件组只读".into());
     }
-    atomic_write(&path, content.as_bytes())?;
+    if let Some(expected) = preserve_extension {
+        if overwrite || !["csv", "geojson", "json"].contains(&expected.as_str()) || extension != expected {
+            return Err("另存为必须保留原文件扩展名，请通过导出为转换格式".into());
+        }
+        atomic_write_new(&path, content.as_bytes())?;
+    } else {
+        atomic_write(&path, content.as_bytes())?;
+    }
     let id = source_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     handles.insert(
         id.clone(),
@@ -1083,6 +1134,7 @@ pub fn run() {
             codex_agent::agent_resize,
             codex_agent::agent_close,
             export_shapefile,
+            save_shapefile_folder,
             open_files,
             save_file,
             save_recovery,
@@ -1212,6 +1264,35 @@ mod tests {
         atomic_write(&path, b"new").unwrap();
         assert_ne!(first, fingerprint(&path).unwrap());
         assert_eq!(fs::read(path).unwrap(), b"new");
+    }
+    #[test]
+    fn shp_folder_roundtrip_has_five_files_without_zip() {
+        let dir = tempfile::tempdir().unwrap();
+        let features = vec![json!({"type":"Feature", "geometry":{"type":"Point", "coordinates":[116.4,39.9]}, "properties":{"name":"北京"}})];
+        let parts = shapefile_export::build_components_crs(&features, "EPSG:3857").unwrap();
+        let path = write_shapefile_group(dir.path(), "points", &parts).unwrap();
+        assert_eq!(path, dir.path().join("points.shp"));
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 5);
+        let mut reader = shapefile::Reader::from_path(path).unwrap();
+        let records = reader.read().unwrap();
+        assert_eq!(records.len(), 1);
+        assert!(matches!(&records[0].0, shapefile::Shape::Point(p) if (p.x - 12957588.728).abs() < 1.0));
+        assert!(fs::read_to_string(dir.path().join("points.prj")).unwrap().contains("3857"));
+        assert_eq!(fs::read_to_string(dir.path().join("points.cpg")).unwrap(), "UTF-8");
+    }
+    #[test]
+    fn shp_folder_conflict_preserves_existing_group_and_rolls_back_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let existing = dir.path().join("points.dbf");
+        fs::write(&existing, b"original").unwrap();
+        let parts = vec![("shp", b"new".to_vec()), ("dbf", b"new".to_vec())];
+        assert!(write_shapefile_group(dir.path(), "points", &parts).is_err());
+        assert_eq!(fs::read(&existing).unwrap(), b"original");
+        assert!(!dir.path().join("points.shp").exists());
+        let broken = vec![("shp", b"new".to_vec()), ("missing/dbf", b"new".to_vec())];
+        assert!(write_shapefile_group(dir.path(), "other", &broken).is_err());
+        assert!(!dir.path().join("other.shp").exists());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
     #[test]
     fn new_export_never_replaces_existing_file() {

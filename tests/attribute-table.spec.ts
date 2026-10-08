@@ -76,7 +76,7 @@ test("cell validation, keyboard commit, cancellation and NULL retain correct typ
     .locator(".app-header summary")
     .filter({ hasText: /^文件$/ })
     .click();
-  await page.getByRole("button", { name: "导出 / 转换", exact: true }).click();
+  await page.getByRole("button", { name: "导出为", exact: true }).click();
   const pending = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出", exact: true }).click();
   const { readFileSync } = await import("node:fs");

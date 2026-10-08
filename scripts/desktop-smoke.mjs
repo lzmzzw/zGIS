@@ -1,6 +1,6 @@
 import { chromium } from "@playwright/test";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
 import shp from "shpjs";
@@ -41,12 +41,8 @@ if (process.argv.includes("--recovery-only")) {
   await layerBasemapSmoke(page, true);
   await layerTreeStyleSmoke(page, true);
   await page.screenshot({ path: "output/desktop/installed-recovered.png" });
-  await page
-    .locator(".app-header summary")
-    .filter({ hasText: /^文件$/ })
-    .click();
   const closed = page.waitForEvent("close");
-  await page.getByRole("button", { name: "退出", exact: true }).click();
+  await page.getByRole("button", { name: "关闭窗口", exact: true }).click();
   await page.getByRole("button", { name: "退出并保留工作区", exact: true }).click();
   await closed;
   console.log(
@@ -86,6 +82,13 @@ assert.equal(
   true,
 );
 async function fileAction(name) {
+  if (name === "保存") { await page.keyboard.press("Control+s"); return; }
+  if (name === "退出") { await page.getByRole("button", { name: "关闭窗口", exact: true }).click(); return; }
+  if (name === "移除图层") {
+    await page.locator('.tree-row.selected .layer-text').click({ button: "right" });
+    await page.getByRole("menuitem", { name: "移除图层…", exact: true }).click();
+    return;
+  }
   await page
     .locator(".app-header summary")
     .filter({ hasText: /^文件$/ })
@@ -132,7 +135,7 @@ await page.getByRole("button", { name: "返回地图", exact: true }).click();
 console.log("PASS: native MCP catalog lists every registered tool while service is stopped");
 await settingsInfoSmoke(page);
 const opening = nativeDialog("output/smoke/fixtures/native.geojson");
-await fileAction("打开文件…");
+await fileAction("打开文件");
 await opening;
 await page.getByRole("button", { name: "导入", exact: true }).click();
 assert.equal(await page.locator(".attribute-title").innerText(), "属性表");
@@ -189,7 +192,7 @@ assert.equal(source.features[0].id, "native-1");
 assert.equal(await page.getByRole("button", { name: "编辑", exact: true }).isVisible(), true);
 assert.equal(await page.getByRole("button", { name: "新增点", exact: true }).count(), 0);
 console.log("PASS: native coordinate overlay, hand mode, explicit edit and successful save exit");
-await fileAction("导出 / 转换");
+await fileAction("导出为");
 assert.equal(await page.locator(".file-export .export-source").count(), 1);
 assert.equal(await page.locator(".file-export .dialog-summary").count(), 0);
 assert.equal((await page.getByRole("dialog").boundingBox()).width <= 562, true);
@@ -226,7 +229,7 @@ await page.getByRole("button", { name: "关闭错误" }).click();
 await page.getByRole("button", { name: "撤销", exact: true }).click();
 await page.screenshot({ path: "output/desktop/installed-zgis.png" });
 const resolvedSave = nativeDialog("output/desktop/resolved-conflict.geojson");
-await fileAction("另存为…");
+await fileAction("另存为");
 await resolvedSave;
 await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
 await page.getByRole("button", { name: "编辑", exact: true }).waitFor();
@@ -247,7 +250,7 @@ const originalGroup = Object.fromEntries(
   ]),
 );
 const shpOpening = nativeDialog("output/smoke/fixtures/cities.shp");
-await fileAction("打开文件…");
+await fileAction("打开文件");
 await shpOpening;
 await page.waitForFunction(
   () => document.querySelectorAll("tbody tr").length === 2,
@@ -300,6 +303,27 @@ for (const [ext, bytes] of Object.entries(originalGroup))
   assert.deepEqual(readFileSync(`output/smoke/fixtures/cities.${ext}`), bytes);
 assert.equal(await page.getByRole("button", { name: "编辑", exact: true }).isVisible(), true);
 await page.screenshot({ path: "output/desktop/shp-edited-export.png" });
+const folderCopyPath = `output/desktop/shp-copy-${Date.now()}`;
+mkdirSync(folderCopyPath);
+const folderCopy = nativeDialog(folderCopyPath);
+await fileAction("另存为");
+await folderCopy;
+await page.waitForFunction(() => document.querySelector(".operation-status")?.textContent?.includes("另存完成：SHP 文件组"));
+assert.deepEqual(readdirSync(folderCopyPath).sort(), ["cities.cpg", "cities.dbf", "cities.prj", "cities.shp", "cities.shx"]);
+const folderRoundtrip = await shp({
+  shp: readFileSync(`${folderCopyPath}/cities.shp`),
+  dbf: readFileSync(`${folderCopyPath}/cities.dbf`),
+  prj: readFileSync(`${folderCopyPath}/cities.prj`, "utf8"),
+  cpg: "UTF-8",
+});
+assert.equal(folderRoundtrip.features[0].properties.name, "北京编辑后");
+assert.deepEqual(folderRoundtrip.features[0].geometry.coordinates, [117, 40]);
+const folderCancel = nativeDialog("", true);
+await fileAction("另存为");
+await folderCancel;
+await page.waitForFunction(() => document.querySelector(".operation-status")?.textContent?.includes("已取消另存"));
+console.log("PASS: native SHP folder save keeps all five files, coordinates and cancellation without ZIP");
+
 await fileAction("移除图层");
 await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 0);
 console.log(
@@ -319,7 +343,7 @@ await page.locator(".app-header summary").filter({ hasText: /^数据$/ }).click(
 assert.deepEqual(await page.locator(".app-header .header-menu[open] button").allTextContents(), ["新建矢量图层…", "导入数据…", "PostGIS 数据源…"]);
 await page.keyboard.press("Escape");
 const editingOpening = nativeDialog("output/smoke/fixtures/editing.geojson");
-await fileAction("打开文件…");
+await fileAction("打开文件");
 await editingOpening;
 await page.getByRole("button", { name: "导入", exact: true }).click();
 await page.waitForFunction(() => document.querySelectorAll(".attribute-panel tbody tr").length === 4);
