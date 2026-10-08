@@ -115,6 +115,7 @@ export default function PostgisManager({
   onClose,
   onLoad,
   onActive,
+  onSourcesChange,
   inUseConnectionIds,
   engine = "postgis",
 }: {
@@ -123,6 +124,7 @@ export default function PostgisManager({
   onClose(): void;
   onLoad(connectionId: string, config: DbConnection, layer: DbLayer): void;
   onActive(connectionId: string, config: DbConnection): void;
+  onSourcesChange?(count: number): void;
   inUseConnectionIds: string[];
 }) {
   const mysql = engine === "mysql";
@@ -200,6 +202,7 @@ export default function PostgisManager({
         const result = desktop ? await engineApi.sources() : [];
         if (!disposed) {
           setSources(result);
+          onSourcesChange?.(result.length);
           setSourceId(result[0]?.id ?? "");
           setReady(true);
         }
@@ -335,6 +338,7 @@ export default function PostgisManager({
         await engineApi.disconnect(session.connectionId);
       const connectionId = id;
       setSources(next);
+      onSourcesChange?.(next.length);
       setSessions((old) => ({ ...old, [saved.id]: { connectionId, catalog } }));
       setSourceId(saved.id);
       setSchema(catalog.schemas[0] ?? "");
@@ -375,6 +379,7 @@ export default function PostgisManager({
       }
       if (session) await engineApi.disconnect(session.connectionId);
       setSources(next);
+      onSourcesChange?.(next.length);
       setSessions((old) => {
         const copy = { ...old };
         delete copy[sourceId];

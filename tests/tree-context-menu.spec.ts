@@ -84,6 +84,9 @@ test("root, group and layer menus contain exactly the requested actions without 
     "添加Mysql表图层",
     "添加PostGIS表图层",
   ]);
+  await expect(page.getByRole("menuitem", { name: "添加Mysql表图层", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "添加PostGIS表图层", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "添加文件图层", exact: true })).toBeEnabled();
   await page.keyboard.press("Escape");
   await row(page, "父组").click({ button: "right" });
   await expect(page.getByRole("menuitem")).toHaveText([

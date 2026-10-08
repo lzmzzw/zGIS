@@ -421,6 +421,8 @@ export default function App() {
   const currentTree = useRef(tree);
   currentTree.current = tree;
   const insertionGroup = useRef<string | undefined>(undefined);
+  const [mysqlSourceCount, setMysqlSourceCount] = useState(0);
+  const [postgisSourceCount, setPostgisSourceCount] = useState(0);
   useEffect(() => {
     setTree((old) =>
       reconcileTree(
@@ -2921,6 +2923,8 @@ export default function App() {
                 insertionGroup.current = group;
                 requestSources("mysql");
               }}
+              hasMysqlSources={mysqlSourceCount > 0}
+              hasPostgisSources={postgisSourceCount > 0}
               onAddPostgis={(group) => {
                 insertionGroup.current = group;
                 requestSources();
@@ -3927,6 +3931,7 @@ export default function App() {
         )}
         <PostgisManager
           open={modal === "postgis-manager"}
+          onSourcesChange={setPostgisSourceCount}
           onClose={() => openModal(null)}
           inUseConnectionIds={layers.flatMap((l) =>
             l.db ? [l.db.connectionId] : [],
@@ -3952,6 +3957,7 @@ export default function App() {
         />
         <PostgisManager
           engine="mysql"
+          onSourcesChange={setMysqlSourceCount}
           open={modal === "mysql-manager"}
           onClose={() => openModal(null)}
           inUseConnectionIds={layers.flatMap((l) =>

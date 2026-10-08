@@ -30,6 +30,8 @@ interface Props {
   onMove(id: string, targetId: string | null, position: DropPosition): void;
   onAddFiles(groupId?: string): void;
   onAddMysql(groupId?: string): void;
+  hasMysqlSources: boolean;
+  hasPostgisSources: boolean;
   onAddPostgis(groupId?: string): void;
   desktop: boolean;
   onNewGroup(name: string, parentId?: string): void;
@@ -501,13 +503,13 @@ export default function LayerTree(props: Props) {
       "add-mysql",
       "添加Mysql表图层",
       () => props.onAddMysql(groupId),
-      !props.desktop,
+      !props.desktop || !props.hasMysqlSources,
     );
     addItem(
       "add-postgis",
       "添加PostGIS表图层",
       () => props.onAddPostgis(groupId),
-      !props.desktop,
+      !props.desktop || !props.hasPostgisSources,
     );
     if (node?.kind === "group") {
       separator("remove");
