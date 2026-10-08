@@ -29,6 +29,7 @@ interface Props {
   onCollapseGroup(id: string): void;
   onMove(id: string, targetId: string | null, position: DropPosition): void;
   onAddFiles(groupId?: string): void;
+  onAddMysql(groupId?: string): void;
   onAddPostgis(groupId?: string): void;
   desktop: boolean;
   onNewGroup(name: string, parentId?: string): void;
@@ -495,10 +496,16 @@ export default function LayerTree(props: Props) {
     }
     addItem("new-file", "新建文件", () => props.onNewFile(groupId));
     separator("add");
-    addItem("add-files", "添加文件", () => props.onAddFiles(groupId));
+    addItem("add-files", "添加文件图层", () => props.onAddFiles(groupId));
+    addItem(
+      "add-mysql",
+      "添加Mysql表图层",
+      () => props.onAddMysql(groupId),
+      !props.desktop,
+    );
     addItem(
       "add-postgis",
-      "添加PostGIS",
+      "添加PostGIS表图层",
       () => props.onAddPostgis(groupId),
       !props.desktop,
     );

@@ -773,12 +773,12 @@ export default function App() {
     insertionGroup.current = undefined;
     requestSources();
   }
-  function requestSources() {
-    if (editingLayerId) {
+  function requestSources(engine: "postgis" | "mysql" = "postgis") {
+    if (editingLayerId || cellDraft) {
       setError("请先保存并退出当前图层编辑，再加载数据源");
       return;
     }
-    openModal("postgis-manager");
+    openModal(engine === "mysql" ? "mysql-manager" : "postgis-manager");
   }
   function configureDatabase(index: number) {
     setDbIndex(index);
@@ -2577,7 +2577,7 @@ export default function App() {
               <button
                 onClick={() => {
                   insertionGroup.current = undefined;
-                  openModal("mysql-manager");
+                  requestSources("mysql");
                 }}
                 disabled={!desktop || busy}
               >
@@ -2916,6 +2916,10 @@ export default function App() {
               onAddFiles={(group) => {
                 insertionGroup.current = group;
                 requestFiles();
+              }}
+              onAddMysql={(group) => {
+                insertionGroup.current = group;
+                requestSources("mysql");
               }}
               onAddPostgis={(group) => {
                 insertionGroup.current = group;

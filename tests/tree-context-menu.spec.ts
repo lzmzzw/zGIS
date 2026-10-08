@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { installDesktopMock } from "./desktop.mock";
+import { installDesktopMock, openDatabaseManager, addTestSource } from "./desktop.mock";
 
 const snapshot = JSON.stringify({
   version: 2,
@@ -53,6 +53,23 @@ async function setup(page: Page) {
   await expect(row(page, "points.geojson")).toBeVisible();
 }
 
+for (const engine of ["Mysql", "PostGIS"] as const) {
+  test(`${engine} table entry uses a configured source and adds to the selected group`, async ({ page }) => {
+    await setup(page);
+    await openDatabaseManager(page, engine);
+    await addTestSource(page, "已配置数据源", engine);
+    const panel = page.getByRole("region", { name: `${engine} 数据源管理`, exact: true });
+    await panel.getByRole("button", { name: "返回地图", exact: true }).click();
+    await row(page, "子组").click({ button: "right" });
+    await page.getByRole("menuitem", { name: `添加${engine}表图层`, exact: true }).click();
+    await expect(panel.locator(".pg-source")).toContainText("已配置数据源");
+    await panel.locator(".pg-table").filter({ hasText: /^roads$/ }).click();
+    await panel.getByRole("button", { name: "添加到地图", exact: true }).click();
+    await page.getByRole("button", { name: "载入", exact: true }).click();
+    await expect(page.locator('.tree-row[data-node-kind="layer"]').filter({ hasText: "roads" })).toHaveAttribute("aria-level", "3");
+  });
+}
+
 test("root, group and layer menus contain exactly the requested actions without horizontal overflow", async ({
   page,
 }) => {
@@ -63,8 +80,9 @@ test("root, group and layer menus contain exactly the requested actions without 
   await expect(page.getByRole("menuitem")).toHaveText([
     "新建分组",
     "新建文件",
-    "添加文件",
-    "添加PostGIS",
+    "添加文件图层",
+    "添加Mysql表图层",
+    "添加PostGIS表图层",
   ]);
   await page.keyboard.press("Escape");
   await row(page, "父组").click({ button: "right" });
@@ -72,8 +90,9 @@ test("root, group and layer menus contain exactly the requested actions without 
     "新建子分组",
     "重命名分组",
     "新建文件",
-    "添加文件",
-    "添加PostGIS",
+    "添加文件图层",
+    "添加Mysql表图层",
+    "添加PostGIS表图层",
     "解散分组",
     "删除分组",
   ]);
