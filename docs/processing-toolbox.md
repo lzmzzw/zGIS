@@ -1,6 +1,8 @@
 # 空间分析工具箱
 
-点击主界面右上角「工具箱」，在地图旁直接进行矢量分析。工具按用途分类，支持中文、英文名称及别名搜索；星标收藏和最近使用跨启动保留。运行记录保留本次会话最近 20 次参数与结果，点击记录只回填参数，不自动执行。
+点击 header 左侧「工具」（位于「设置」左侧），在地图旁直接进行矢量分析。入口与侧栏标题均为「工具」，入口采用纯文字样式。工具以分类树显示，默认折叠全部类别，点击类别查看工具；搜索支持中文、英文名称及别名，搜索时展开匹配类别，清空后恢复手动展开状态。
+
+侧栏采用分区工作台：搜索与工具分类树在上方，输入数据和输出设置位于参数区，字段标签与控件同行；运行按钮独立分区，使用说明位于最下方。参数区按需滚动，运行区保持可见。图层下拉框只显示名称，不显示要素数量。收藏、最近和运行记录已移除。
 
 ## 操作流程
 
@@ -9,7 +11,7 @@
 3. 设置距离、容差、分组字段或空间关系，填写结果名称，点击「运行分析」。已选中输入图层的要素时，可勾选仅使用选中的要素。
 4. 结果自动加入地图并定位，标记为未保存。可将结果选为下一次分析的输入，也可使用文件菜单保存或导出。原图层保持原样。
 
-失败时保留参数，可调整后重试。运行期间禁止重复提交和应用退出；计算在后台线程执行，界面显示等待状态。编辑模式、绘制草稿或其他弹窗未结束时不能运行。工具箱隐藏再打开保留当前参数；参数与运行记录仅在本次会话中保留。
+失败时保留参数，可调整后重试。运行期间禁止重复提交和应用退出；计算在后台线程执行，界面显示等待状态。编辑模式、绘制草稿或其他弹窗未结束时不能运行。侧栏隐藏再打开保留当前参数；切换工具保留各工具的参数，仅在本次会话中保留。
 
 ## 工具
 
@@ -58,7 +60,7 @@
 
 工具箱通过纯内存桌面命令 `gis_run_analysis` 调用共享 Rust 几何引擎，不要求启动 MCP 或 Codex，不读取任意路径或提交数据库。新增分析同时进入 MCP 工具清单，Agent 入口与权限边界见 [MCP 与 Codex Agent](spatial-mcp.md)。
 
-交互参考 [QGIS Processing Toolbox](https://docs.qgis.org/3.44/en/docs/user_manual/processing/toolbox.html) 的分类搜索、收藏、输入参数与运行记录；算法用途参考 [矢量叠加](https://docs.qgis.org/3.44/en/docs/user_manual/processing_algs/qgis/vectoroverlay.html) 和 [矢量几何](https://docs.qgis.org/3.44/en/docs/user_manual/processing_algs/qgis/vectorgeometry.html)。zGIS 使用现有 Rust 引擎及上述计算边界，不宣称 QGIS 算法或精度完全等价。
+交互参考 [QGIS Processing Toolbox](https://docs.qgis.org/3.44/en/docs/user_manual/processing/toolbox.html) 的分类搜索与输入参数；算法用途参考 [矢量叠加](https://docs.qgis.org/3.44/en/docs/user_manual/processing_algs/qgis/vectoroverlay.html) 和 [矢量几何](https://docs.qgis.org/3.44/en/docs/user_manual/processing_algs/qgis/vectorgeometry.html)。zGIS 使用现有 Rust 引擎及上述计算边界，不宣称 QGIS 算法或精度完全等价。
 
 ## 验证
 

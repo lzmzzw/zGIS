@@ -20,10 +20,8 @@ test("both docks resize by drag and keyboard, keep independent widths and never 
   await installDesktopMock(page);
   await page.goto("/");
   await page.getByRole("button", { name: "展开属性表", exact: true }).click();
-  await page
-    .getByRole("button", { name: "空间分析工具箱", exact: true })
-    .click();
-  const resize = page.getByRole("separator", { name: "调整工具箱侧栏宽度" });
+  await page.getByRole("button", { name: "工具", exact: true }).click();
+  const resize = page.getByRole("separator", { name: "调整工具侧栏宽度" });
   await expect(resize).toHaveAttribute("aria-valuenow", "368");
   const box = await resize.boundingBox();
   await page.mouse.move(box!.x + 2, box!.y + 100);
@@ -52,9 +50,7 @@ test("both docks resize by drag and keyboard, keep independent widths and never 
   await page.getByRole("button", { name: "返回地图", exact: true }).click();
   await expect(agentResize).toHaveAttribute("aria-valuenow", "448");
   await page.reload();
-  await page
-    .getByRole("button", { name: "空间分析工具箱", exact: true })
-    .click();
+  await page.getByRole("button", { name: "工具", exact: true }).click();
   await expect(resize).toHaveAttribute("aria-valuenow", "500");
   await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
   await expect(agentResize).toHaveAttribute("aria-valuenow", "448");
@@ -88,9 +84,7 @@ for (const theme of ["dark", "light"]) {
     await resize.focus();
     await page.keyboard.press("Home");
     await expect(resize).toHaveAttribute("aria-valuenow", "320");
-    await page
-      .getByRole("button", { name: "空间分析工具箱", exact: true })
-      .click();
+    await page.getByRole("button", { name: "工具", exact: true }).click();
     await layout(page);
     await page.screenshot({ path: `output/toolbox-dock-${theme}.png` });
   });

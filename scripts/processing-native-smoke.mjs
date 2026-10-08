@@ -94,9 +94,7 @@ try {
   );
   assert.equal(catalog.length, 28);
   assert.ok(catalog.some((tool) => tool.name === "intersection"));
-  await page
-    .getByRole("button", { name: "空间分析工具箱", exact: true })
-    .click();
+  await page.getByRole("button", { name: "工具", exact: true }).click();
   const checkDock = async () => {
     const side = await page.locator(".right-sidebar").boundingBox();
     for (const selector of [
@@ -113,7 +111,7 @@ try {
   };
   await page.getByRole("button", { name: "展开属性表", exact: true }).click();
   const toolboxResize = page.getByRole("separator", {
-    name: "调整工具箱侧栏宽度",
+    name: "调整工具侧栏宽度",
   });
   await toolboxResize.focus();
   await page.keyboard.press("Home");
@@ -135,17 +133,23 @@ try {
   await page.getByRole("button", { name: "隐藏助手侧栏" }).click();
   await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
   await expect(agentResize).toHaveAttribute("aria-valuenow", agentWidth);
-  await page
-    .getByRole("button", { name: "空间分析工具箱", exact: true })
-    .click();
+  await page.getByRole("button", { name: "工具", exact: true }).click();
   await expect(toolboxResize).toHaveAttribute("aria-valuenow", "340");
   await checkDock();
   const toolbox = page.locator(".processing-toolbox");
-  const selectTool = (name) =>
-    toolbox
+  const selectTool = async (name) => {
+    const option = toolbox
       .locator(".processing-tool-option")
-      .getByText(name, { exact: true })
-      .click();
+      .getByText(name, { exact: true });
+    if (!(await option.isVisible()))
+      await option
+        .locator(
+          'xpath=ancestor::div[contains(@class,"processing-tool-group")]',
+        )
+        .locator(".processing-group-toggle")
+        .click();
+    await option.click();
+  };
   const snapshot = () =>
     page.evaluate(async () =>
       JSON.parse(await window.__TAURI_INTERNALS__.invoke("load_recovery")),
@@ -169,10 +173,10 @@ try {
   await selectTool("相交");
   await toolbox
     .getByLabel("输入图层", { exact: true })
-    .selectOption({ label: "native-a.geojson · 1 个要素" });
+    .selectOption({ label: "native-a.geojson" });
   await toolbox
     .getByLabel("目标图层", { exact: true })
-    .selectOption({ label: "native-b.geojson · 1 个要素" });
+    .selectOption({ label: "native-b.geojson" });
   const intersection = await analyze("相交", "native-intersection");
   assert.equal(intersection.features.length, 1);
   assert.equal(intersection.features[0].geometry.type, "MultiPolygon");
@@ -194,7 +198,7 @@ try {
   await selectTool("缓冲区");
   await toolbox
     .getByLabel("输入图层", { exact: true })
-    .selectOption({ label: "native-centroid · 1 个要素" });
+    .selectOption({ label: "native-centroid" });
   await toolbox.getByLabel("缓冲距离（米）").fill("100");
   const buffer = await analyze("缓冲区", "native-buffer");
   assert.equal(buffer.features[0].geometry.type, "MultiPolygon");

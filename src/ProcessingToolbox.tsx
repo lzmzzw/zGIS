@@ -1,14 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import {
-  Check,
-  ChevronDown,
-  History,
-  LocateFixed,
-  Play,
-  Search,
-  Star,
-  X,
-} from "lucide-react";
+import { Check, ChevronDown, LocateFixed, Play, Search, X } from "lucide-react";
 import type { Geometry } from "geojson";
 import type { DocumentLayer } from "./domain/types";
 import {
@@ -57,18 +48,10 @@ interface ToolForm {
   outputName: string;
   customName: boolean;
 }
-interface RunRecord {
-  id: number;
+interface AnalysisResult {
   request: ProcessingRequest;
-  sourceName: string;
-  targetName?: string;
-  time: string;
-  outcome?: ProcessingOutcome;
-  error?: string;
+  outcome: ProcessingOutcome;
 }
-type ToolFilter = "all" | "favorites" | "recent";
-const favoriteKey = "zgis.processing.favorites.v1";
-const recentKey = "zgis.processing.recent.v1";
 const predicates = [
   ["intersects", "相交或接触"],
   ["within", "输入在目标内部"],
@@ -82,30 +65,6 @@ const kindLabels: Record<AnalysisGeometryKind, string> = {
   polygon: "面",
 };
 
-function readToolIds(key: string): string[] {
-  try {
-    const ids: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
-    return Array.isArray(ids)
-      ? [
-          ...new Set(
-            ids.filter(
-              (id): id is string =>
-                typeof id === "string" && Boolean(getAnalysisTool(id)),
-            ),
-          ),
-        ].slice(0, analysisTools.length)
-      : [];
-  } catch {
-    return [];
-  }
-}
-function persistToolIds(key: string, ids: string[]) {
-  try {
-    localStorage.setItem(key, JSON.stringify(ids));
-  } catch {
-    /* 不影响分析功能。 */
-  }
-}
 function layerName(layer: DocumentLayer): string {
   return layer.displayName || layer.name;
 }
@@ -347,18 +306,12 @@ export function ProcessingToolbox({
     buffer: initialForm(analysisTools[0], layers, activeLayerId),
   }));
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("");
-  const [filter, setFilter] = useState<ToolFilter>("all");
-  const [favorites, setFavorites] = useState(() => readToolIds(favoriteKey));
-  const [recent, setRecent] = useState(() => readToolIds(recentKey));
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<RunRecord>();
-  const [records, setRecords] = useState<RunRecord[]>([]);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [result, setResult] = useState<AnalysisResult>();
   const locked = useRef(false);
   const alive = useRef(true);
-  const runSequence = useRef(0);
   const tool = getAnalysisTool(toolId) ?? analysisTools[0];
   const form = forms[tool.id] ?? initialForm(tool, layers, activeLayerId);
   const source = layers.find((layer) => layer.id === form.sourceId);
@@ -438,21 +391,11 @@ export function ProcessingToolbox({
         (!tool.report && form.outputName.trim().length > 100
           ? "结果图层名称不超过 100 个字符。"
           : "");
-  const visibleTools = analysisTools.filter(
-    (item) =>
-      (!category || item.category === category) &&
-      (filter === "all" ||
-        (filter === "favorites" ? favorites : recent).includes(item.id)) &&
-      `${item.label} ${item.id} ${item.description} ${item.keywords.join(" ")}`
-        .toLocaleLowerCase()
-        .includes(query.trim().toLocaleLowerCase()),
+  const visibleTools = analysisTools.filter((item) =>
+    `${item.label} ${item.id} ${item.keywords.join(" ")}`
+      .toLocaleLowerCase()
+      .includes(query.trim().toLocaleLowerCase()),
   );
-  const sortedTools =
-    filter === "recent"
-      ? [...visibleTools].sort(
-          (a, b) => recent.indexOf(a.id) - recent.indexOf(b.id),
-        )
-      : visibleTools;
 
   useEffect(() => {
     alive.current = true;
@@ -486,46 +429,6 @@ export function ProcessingToolbox({
     setError("");
     setResult(undefined);
   }
-  function toggleFavorite(id: string) {
-    const next = favorites.includes(id)
-      ? favorites.filter((value) => value !== id)
-      : [...favorites, id];
-    setFavorites(next);
-    persistToolIds(favoriteKey, next);
-  }
-  function refill(record: RunRecord) {
-    if (locked.current) return;
-    const nextTool = getAnalysisTool(record.request.operation);
-    if (!nextTool) return;
-    const parameters = record.request.parameters;
-    setToolId(nextTool.id);
-    setForms((current) => ({
-      ...current,
-      [nextTool.id]: {
-        ...initialForm(nextTool, layers, activeLayerId),
-        sourceId: record.request.sourceId,
-        targetId: record.request.targetId ?? "",
-        selectedOnly:
-          record.request.selectedOnly &&
-          record.request.sourceId === activeLayerId &&
-          Boolean(selectedFeatureId),
-        outputName: record.request.outputName,
-        customName: true,
-        distanceMeters: String(parameters.distanceMeters ?? 100),
-        toleranceMeters: String(parameters.toleranceMeters ?? 10),
-        groupBy:
-          typeof parameters.groupBy === "string"
-            ? parameters.groupBy
-            : undefined,
-        predicate:
-          typeof parameters.predicate === "string"
-            ? parameters.predicate
-            : "intersects",
-      },
-    }));
-    setError("");
-    setResult(record);
-  }
   async function run(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (locked.current || unavailableReason) return;
@@ -551,34 +454,16 @@ export function ProcessingToolbox({
       parameters,
       outputName: form.outputName.trim(),
     };
-    const record: RunRecord = {
-      id: ++runSequence.current,
-      request,
-      sourceName: source ? layerName(source) : "",
-      targetName: tool.requiresTarget && target ? layerName(target) : undefined,
-      time: new Date().toLocaleTimeString("zh-CN", { hour12: false }),
-    };
-    const nextRecent = [
-      tool.id,
-      ...recent.filter((id) => id !== tool.id),
-    ].slice(0, 8);
-    setRecent(nextRecent);
-    persistToolIds(recentKey, nextRecent);
     try {
       const outcome = await onRun(request);
       if (alive.current) {
-        const completed = { ...record, outcome };
-        setResult(completed);
-        setRecords((current) => [completed, ...current].slice(0, 20));
+        setResult({ request, outcome });
       }
     } catch (reason) {
       if (alive.current) {
         const message =
           reason instanceof Error ? reason.message : String(reason);
         setError(message);
-        setRecords((current) =>
-          [{ ...record, error: message }, ...current].slice(0, 20),
-        );
       }
     } finally {
       locked.current = false;
@@ -590,16 +475,16 @@ export function ProcessingToolbox({
   return (
     <aside
       className="processing-toolbox"
-      aria-label="空间分析工具箱"
+      aria-label="空间分析工具"
       aria-busy={running}
     >
       <header className="processing-heading">
-        <strong>空间分析工具箱</strong>
+        <strong>工具</strong>
         <button
           type="button"
           className="icon-button"
-          aria-label="关闭空间分析工具箱"
-          title={running ? "请等待分析完成" : "关闭工具箱"}
+          aria-label="关闭工具侧栏"
+          title={running ? "请等待分析完成" : "关闭工具侧栏"}
           disabled={running}
           onClick={() => {
             if (!locked.current) onClose();
@@ -614,419 +499,337 @@ export function ProcessingToolbox({
             <Search size={15} aria-hidden="true" />
             <input
               aria-label="搜索分析工具"
-              placeholder="搜索工具名称 / 英文别名"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               disabled={running}
             />
           </div>
-          <div className="processing-filter-row">
-            <div className="processing-filter" aria-label="工具筛选">
-              {(
-                [
-                  ["all", "全部"],
-                  ["favorites", "收藏"],
-                  ["recent", "最近"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  aria-pressed={filter === value}
-                  disabled={running}
-                  onClick={() => setFilter(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <select
-              aria-label="分析工具分类"
-              value={category}
-              disabled={running}
-              onChange={(event) => setCategory(event.target.value)}
-            >
-              <option value="">所有分类</option>
-              {analysisToolCategories.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </div>
-          <div className="processing-tool-list">
-            {sortedTools.length === 0 ? (
-              <p className="processing-empty">
-                {query.trim()
-                  ? "没有匹配的工具，试试中文或英文名称。"
-                  : filter === "favorites"
-                    ? "点击工具旁的星标，收藏常用工具。"
-                    : "还没有使用记录。选择全部工具开始分析。"}
-              </p>
+          <nav className="processing-tool-list" aria-label="工具分类树">
+            {visibleTools.length === 0 ? (
+              <p className="processing-empty">没有匹配的工具。</p>
             ) : (
-              analysisToolCategories.map((group) => {
-                const items = sortedTools.filter(
+              analysisToolCategories.map((group, index) => {
+                const items = visibleTools.filter(
                   (item) => item.category === group,
                 );
+                if (!items.length) return null;
+                const expanded =
+                  Boolean(query.trim()) || expandedGroups.includes(group);
                 return (
-                  items.length > 0 && (
-                    <div className="processing-tool-group" key={group}>
-                      <p className="processing-group-label">{group}</p>
+                  <div className="processing-tool-group" key={group}>
+                    <button
+                      type="button"
+                      className="processing-group-toggle"
+                      aria-expanded={expanded}
+                      aria-controls={`processing-group-${index}`}
+                      disabled={running}
+                      onClick={() =>
+                        setExpandedGroups((current) =>
+                          current.includes(group)
+                            ? current.filter((value) => value !== group)
+                            : [...current, group],
+                        )
+                      }
+                    >
+                      <ChevronDown size={14} aria-hidden="true" />
+                      <span>{group}</span>
+                    </button>
+                    <div
+                      id={`processing-group-${index}`}
+                      role="group"
+                      aria-label={group}
+                      hidden={!expanded}
+                    >
                       {items.map((item) => (
-                        <div className="processing-tool-row" key={item.id}>
-                          <button
-                            className="processing-tool-option"
-                            type="button"
-                            disabled={running}
-                            aria-pressed={tool.id === item.id}
-                            title={item.description}
-                            onClick={() => chooseTool(item.id)}
-                          >
-                            <span>{item.label}</span>
-                            {tool.id === item.id && (
-                              <Check size={13} aria-hidden="true" />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            className={`processing-favorite${favorites.includes(item.id) ? " is-favorite" : ""}`}
-                            disabled={running}
-                            aria-label={`${favorites.includes(item.id) ? "取消收藏" : "收藏"}${item.label}`}
-                            aria-pressed={favorites.includes(item.id)}
-                            onClick={() => toggleFavorite(item.id)}
-                          >
-                            <Star size={14} aria-hidden="true" />
-                          </button>
-                        </div>
+                        <button
+                          className="processing-tool-option"
+                          type="button"
+                          key={item.id}
+                          disabled={running}
+                          aria-pressed={tool.id === item.id}
+                          onClick={() => chooseTool(item.id)}
+                        >
+                          <span>{item.label}</span>
+                          {tool.id === item.id && (
+                            <Check size={13} aria-hidden="true" />
+                          )}
+                        </button>
                       ))}
                     </div>
-                  )
+                  </div>
                 );
               })
             )}
-          </div>
+          </nav>
         </section>
         <form className="processing-form" onSubmit={(event) => void run(event)}>
           <div className="processing-tool-title">
             <h3>{tool.label}</h3>
             <span>{tool.category}</span>
           </div>
-          <p className="processing-description">{tool.description}</p>
-          <fieldset disabled={running}>
-            <label>
-              输入图层
-              <select
-                aria-label="输入图层"
-                value={form.sourceId}
-                onChange={(event) => {
-                  const next = layers.find(
-                    (layer) => layer.id === event.target.value,
-                  );
-                  changeForm({
-                    sourceId: event.target.value,
-                    selectedOnly: false,
-                    groupBy: undefined,
-                    ...(!form.customName
-                      ? { outputName: defaultOutput(tool, next) }
-                      : {}),
-                  });
-                }}
-              >
-                <option value="">请选择输入图层</option>
-                {form.sourceId && !source && (
-                  <option value={form.sourceId}>原输入图层已移除</option>
-                )}
-                {layers.map((layer) => (
-                  <option key={layer.id} value={layer.id}>
-                    {layerName(layer)} ·{" "}
-                    {layer.features.length.toLocaleString("zh-CN")} 个要素
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="processing-selected">
-              <input
-                type="checkbox"
-                aria-label="仅使用选中的要素"
-                checked={selectedOnly}
-                disabled={!canUseSelected || running}
-                onChange={(event) =>
-                  changeForm({ selectedOnly: event.target.checked })
-                }
-              />
-              仅使用选中的要素
-              <span>
-                {canUseSelected ? "1 个" : "先在当前输入图层选中要素"}
-              </span>
-            </label>
-            {tool.requiresTarget && (
+          <div className="processing-parameters">
+            <fieldset disabled={running}>
+              <legend>输入数据</legend>
               <label>
-                目标图层
+                <span>输入图层</span>
                 <select
-                  aria-label="目标图层"
-                  value={form.targetId}
-                  onChange={(event) =>
-                    changeForm({ targetId: event.target.value })
-                  }
+                  aria-label="输入图层"
+                  value={form.sourceId}
+                  onChange={(event) => {
+                    const next = layers.find(
+                      (layer) => layer.id === event.target.value,
+                    );
+                    changeForm({
+                      sourceId: event.target.value,
+                      selectedOnly: false,
+                      groupBy: undefined,
+                      ...(!form.customName
+                        ? { outputName: defaultOutput(tool, next) }
+                        : {}),
+                    });
+                  }}
                 >
-                  <option value="">请选择目标图层</option>
-                  {form.targetId && !target && (
-                    <option value={form.targetId}>原目标图层已移除</option>
+                  <option value="">请选择输入图层</option>
+                  {form.sourceId && !source && (
+                    <option value={form.sourceId}>原输入图层已移除</option>
                   )}
                   {layers.map((layer) => (
                     <option key={layer.id} value={layer.id}>
-                      {layerName(layer)} ·{" "}
-                      {layer.features.length.toLocaleString("zh-CN")} 个要素
+                      {layerName(layer)}
                     </option>
                   ))}
                 </select>
               </label>
-            )}
-            {tool.parameters.includes("distanceMeters") && (
-              <label>
-                缓冲距离（米）
+              <label className="processing-selected">
                 <input
-                  type="number"
-                  min="0"
-                  max="100000"
-                  step="any"
-                  value={form.distanceMeters}
+                  type="checkbox"
+                  aria-label="仅使用选中的要素"
+                  checked={selectedOnly}
+                  disabled={!canUseSelected || running}
                   onChange={(event) =>
-                    changeForm({ distanceMeters: event.target.value })
+                    changeForm({ selectedOnly: event.target.checked })
                   }
-                  required
                 />
+                仅使用选中的要素
+                <span>
+                  {canUseSelected ? "1 个" : "先在当前输入图层选中要素"}
+                </span>
               </label>
-            )}
-            {tool.parameters.includes("toleranceMeters") && (
-              <label>
-                简化容差（米）
-                <input
-                  type="number"
-                  min="0"
-                  max="100000"
-                  step="any"
-                  value={form.toleranceMeters}
-                  onChange={(event) =>
-                    changeForm({ toleranceMeters: event.target.value })
-                  }
-                  required
-                />
-              </label>
-            )}
-            {tool.parameters.includes("groupBy") && (
-              <label>
-                分组字段
-                <select
-                  aria-label="分组字段"
-                  value={
-                    form.groupBy === undefined
-                      ? "all"
-                      : `field:${fields.indexOf(form.groupBy)}`
-                  }
-                  onChange={(event) =>
-                    changeForm({
-                      groupBy:
-                        event.target.value === "all"
-                          ? undefined
-                          : fields[Number(event.target.value.slice(6))],
-                    })
-                  }
-                >
-                  <option value="all">不分组，融合全部面</option>
-                  {form.groupBy !== undefined &&
-                    !fields.includes(form.groupBy) && (
-                      <option value="field:-1">原分组字段已移除</option>
+              {tool.requiresTarget && (
+                <label>
+                  <span>目标图层</span>
+                  <select
+                    aria-label="目标图层"
+                    value={form.targetId}
+                    onChange={(event) =>
+                      changeForm({ targetId: event.target.value })
+                    }
+                  >
+                    <option value="">请选择目标图层</option>
+                    {form.targetId && !target && (
+                      <option value={form.targetId}>原目标图层已移除</option>
                     )}
-                  {fields.map((field, index) => (
-                    <option key={field} value={`field:${index}`}>
-                      {field || "（空字段名）"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {tool.parameters.includes("predicate") && (
-              <label>
-                空间关系
-                <select
-                  aria-label="空间关系"
-                  value={form.predicate}
-                  onChange={(event) =>
-                    changeForm({ predicate: event.target.value })
-                  }
-                >
-                  {predicates.map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+                    {layers.map((layer) => (
+                      <option key={layer.id} value={layer.id}>
+                        {layerName(layer)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {tool.parameters.includes("distanceMeters") && (
+                <label>
+                  <span>缓冲距离（米）</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100000"
+                    step="any"
+                    value={form.distanceMeters}
+                    onChange={(event) =>
+                      changeForm({ distanceMeters: event.target.value })
+                    }
+                    required
+                  />
+                </label>
+              )}
+              {tool.parameters.includes("toleranceMeters") && (
+                <label>
+                  <span>简化容差（米）</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100000"
+                    step="any"
+                    value={form.toleranceMeters}
+                    onChange={(event) =>
+                      changeForm({ toleranceMeters: event.target.value })
+                    }
+                    required
+                  />
+                </label>
+              )}
+              {tool.parameters.includes("groupBy") && (
+                <label>
+                  <span>分组字段</span>
+                  <select
+                    aria-label="分组字段"
+                    value={
+                      form.groupBy === undefined
+                        ? "all"
+                        : `field:${fields.indexOf(form.groupBy)}`
+                    }
+                    onChange={(event) =>
+                      changeForm({
+                        groupBy:
+                          event.target.value === "all"
+                            ? undefined
+                            : fields[Number(event.target.value.slice(6))],
+                      })
+                    }
+                  >
+                    <option value="all">不分组，融合全部面</option>
+                    {form.groupBy !== undefined &&
+                      !fields.includes(form.groupBy) && (
+                        <option value="field:-1">原分组字段已移除</option>
+                      )}
+                    {fields.map((field, index) => (
+                      <option key={field} value={`field:${index}`}>
+                        {field || "（空字段名）"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {tool.parameters.includes("predicate") && (
+                <label>
+                  <span>空间关系</span>
+                  <select
+                    aria-label="空间关系"
+                    value={form.predicate}
+                    onChange={(event) =>
+                      changeForm({ predicate: event.target.value })
+                    }
+                  >
+                    {predicates.map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </fieldset>
             {!tool.report && (
-              <label>
-                结果图层名称
-                <input
-                  maxLength={100}
-                  value={form.outputName}
-                  onChange={(event) =>
-                    changeForm({
-                      outputName: event.target.value,
-                      customName: true,
-                    })
-                  }
-                  required
-                />
-              </label>
+              <fieldset className="processing-output" disabled={running}>
+                <legend>输出设置</legend>
+                {!tool.report && (
+                  <label>
+                    <span>结果图层名称</span>
+                    <input
+                      maxLength={100}
+                      value={form.outputName}
+                      onChange={(event) =>
+                        changeForm({
+                          outputName: event.target.value,
+                          customName: true,
+                        })
+                      }
+                      required
+                    />
+                  </label>
+                )}
+              </fieldset>
             )}
-          </fieldset>
-          {layers.length === 0 && (
-            <p className="processing-notice">
-              尚无图层。先从文件导入数据，或新建矢量图层并保存编辑。
-            </p>
-          )}
+          </div>
+          <section className="processing-action" aria-label="运行分析">
+            {layers.length === 0 && (
+              <p className="processing-notice">
+                尚无图层。先从文件导入数据，或新建矢量图层并保存编辑。
+              </p>
+            )}
+            {unavailableReason && (
+              <p className="processing-notice" id="processing-unavailable">
+                {unavailableReason}
+              </p>
+            )}
+            {error && (
+              <div role="alert" className="processing-error">
+                分析失败：{error}
+                <p>输入已保留，调整后可重新运行。</p>
+              </div>
+            )}
+            <button
+              className="processing-run"
+              type="submit"
+              disabled={running || Boolean(unavailableReason)}
+              aria-describedby={
+                unavailableReason ? "processing-unavailable" : undefined
+              }
+            >
+              <Play size={15} aria-hidden="true" />
+              {running ? "正在分析…" : "运行分析"}
+            </button>
+            <div role="status" aria-live="polite" className="processing-status">
+              {running
+                ? "正在处理输入数据，请等待完成。"
+                : result?.outcome
+                  ? `分析完成${result.outcome.featureCount === undefined ? "" : `，输出 ${result.outcome.featureCount.toLocaleString("zh-CN")} 个要素`}，用时 ${(result.outcome.durationMs / 1000).toFixed(2)} 秒。`
+                  : ""}
+            </div>
+            {result?.outcome && (
+              <section className="processing-result" aria-label="分析结果">
+                {result.outcome.layerId && (
+                  <div className="processing-result-layer">
+                    <strong>
+                      {result.outcome.layerName || result.request.outputName}
+                    </strong>
+                    <button
+                      type="button"
+                      disabled={
+                        running ||
+                        !layers.some(
+                          (layer) => layer.id === result.outcome?.layerId,
+                        )
+                      }
+                      onClick={() => {
+                        if (result.outcome?.layerId)
+                          onLocateResult(result.outcome.layerId);
+                      }}
+                    >
+                      <LocateFixed size={14} />
+                      定位结果
+                    </button>
+                  </div>
+                )}
+                {result.outcome.featureCount === 0 && (
+                  <p>没有匹配要素。可调整空间关系或输入范围后重新分析。</p>
+                )}
+                {result.outcome.report && (
+                  <AnalysisReport
+                    operation={result.request.operation}
+                    report={result.outcome.report}
+                  />
+                )}
+              </section>
+            )}
+          </section>
+        </form>
+        <details className="processing-help">
+          <summary>
+            使用说明
+            <ChevronDown size={14} aria-hidden="true" />
+          </summary>
+          <p>{tool.help}</p>
           {tool.metric && (
-            <p className="processing-note">
+            <p>
               使用近似米制度量，适用于局部、低中纬度数据；大范围或高纬度分析请使用专业投影工具。
             </p>
           )}
-          <details className="processing-help">
-            <summary>
-              使用说明
-              <ChevronDown size={14} aria-hidden="true" />
-            </summary>
-            <p>{tool.help}</p>
-            <p>
-              分析仅支持二维。不修改输入数据；生成的独立结果图层可通过正常保存入口保存。
-            </p>
-          </details>
-          {unavailableReason && (
-            <p className="processing-notice" id="processing-unavailable">
-              {unavailableReason}
-            </p>
-          )}
-          {error && (
-            <div role="alert" className="processing-error">
-              分析失败：{error}
-              <p>输入已保留，调整后可重新运行。</p>
-            </div>
-          )}
-          <button
-            className="processing-run"
-            type="submit"
-            disabled={running || Boolean(unavailableReason)}
-            aria-describedby={
-              unavailableReason ? "processing-unavailable" : undefined
-            }
-          >
-            <Play size={15} aria-hidden="true" />
-            {running ? "正在分析…" : "运行分析"}
-          </button>
-          <div role="status" aria-live="polite" className="processing-status">
-            {running
-              ? "正在处理输入数据，请等待完成。"
-              : result?.outcome
-                ? `分析完成${result.outcome.featureCount === undefined ? "" : `，输出 ${result.outcome.featureCount.toLocaleString("zh-CN")} 个要素`}，用时 ${(result.outcome.durationMs / 1000).toFixed(2)} 秒。`
-                : ""}
-          </div>
-          {result?.outcome && (
-            <section className="processing-result" aria-label="分析结果">
-              {result.outcome.layerId && (
-                <div className="processing-result-layer">
-                  <strong>
-                    {result.outcome.layerName || result.request.outputName}
-                  </strong>
-                  <button
-                    type="button"
-                    disabled={
-                      running ||
-                      !layers.some(
-                        (layer) => layer.id === result.outcome?.layerId,
-                      )
-                    }
-                    onClick={() => {
-                      if (result.outcome?.layerId)
-                        onLocateResult(result.outcome.layerId);
-                    }}
-                  >
-                    <LocateFixed size={14} />
-                    定位结果
-                  </button>
-                </div>
-              )}
-              {result.outcome.featureCount === 0 && (
-                <p>没有匹配要素。可调整空间关系或输入范围后重新分析。</p>
-              )}
-              {result.outcome.report && (
-                <AnalysisReport
-                  operation={result.request.operation}
-                  report={result.outcome.report}
-                />
-              )}
-            </section>
-          )}
-        </form>
-        <section className="processing-history" aria-label="本次运行记录">
-          <button
-            className="processing-history-toggle"
-            type="button"
-            aria-expanded={historyOpen}
-            aria-controls="processing-run-records"
-            onClick={() => setHistoryOpen(!historyOpen)}
-          >
-            <History size={15} />
-            <span>本次运行记录</span>
-            <span>{records.length}</span>
-            <ChevronDown size={14} />
-          </button>
-          {historyOpen && (
-            <div id="processing-run-records">
-              {records.length === 0 ? (
-                <p className="processing-note">
-                  运行后可在这里回填参数。本次会话最多保留 20 条。
-                </p>
-              ) : (
-                <>
-                  <p className="processing-note">
-                    点击记录回填参数；不会自动运行。
-                  </p>
-                  {records.map((record) => (
-                    <button
-                      type="button"
-                      key={record.id}
-                      className="processing-history-item"
-                      disabled={running}
-                      onClick={() => refill(record)}
-                    >
-                      <span>
-                        <strong>
-                          {getAnalysisTool(record.request.operation)?.label}
-                        </strong>
-                        <time>{record.time}</time>
-                      </span>
-                      <span className="processing-history-source">
-                        {record.sourceName}
-                        {record.targetName ? ` → ${record.targetName}` : ""}
-                      </span>
-                      <span
-                        className={
-                          record.error
-                            ? "processing-history-error"
-                            : "processing-history-state"
-                        }
-                      >
-                        {record.error
-                          ? "失败 · 可调整后重试"
-                          : record.outcome?.featureCount === undefined
-                            ? "报告已生成"
-                            : `${record.outcome.featureCount.toLocaleString("zh-CN")} 个结果要素`}
-                      </span>
-                    </button>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-        </section>
+          <p>
+            分析仅支持二维。不修改输入数据；独立结果图层可通过正常保存入口保存。
+          </p>
+        </details>
       </div>
     </aside>
   );

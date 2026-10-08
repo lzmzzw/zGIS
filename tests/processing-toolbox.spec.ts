@@ -44,12 +44,19 @@ async function start(page: Page) {
   await installDesktopMock(page, fixture());
   await page.goto("/");
   await expect(page.locator(".layer-text")).toHaveCount(2);
-  await page
-    .getByRole("button", { name: "空间分析工具箱", exact: true })
-    .click();
+  await page.getByRole("button", { name: "工具", exact: true }).click();
   await expect(toolbox(page)).toBeVisible();
 }
 async function tool(page: Page, label: string) {
+  const option = toolbox(page)
+    .locator(".processing-tool-option")
+    .getByText(label, { exact: true });
+  if (!(await option.isVisible())) {
+    const group = option.locator(
+      'xpath=ancestor::div[contains(@class,"processing-tool-group")]',
+    );
+    await group.locator(".processing-group-toggle").click();
+  }
   await toolbox(page)
     .locator(".processing-tool-option")
     .getByText(label, { exact: true })
@@ -62,45 +69,52 @@ const calls = (page: Page) =>
     ),
   );
 
-test("search, categories, favorites, hiding and keyboard preserve the usable toolbox", async ({
+test("collapsed categories, search, keyboard and hiding preserve parameters without removed controls", async ({
   page,
 }) => {
   await start(page);
-  await expect(toolbox(page).locator(".processing-tool-option")).toHaveCount(
-    22,
+  const categories = toolbox(page).locator(".processing-group-toggle");
+  await expect(categories).toHaveCount(4);
+  for (const category of await categories.all())
+    await expect(category).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    toolbox(page).locator(".processing-tool-option:visible"),
+  ).toHaveCount(0);
+  await expect(toolbox(page).getByLabel("搜索分析工具")).not.toHaveAttribute(
+    "placeholder",
   );
+  await expect(toolbox(page).getByLabel("分析工具分类")).toHaveCount(0);
+  await expect(toolbox(page)).not.toContainText("选择工具");
+  await expect(toolbox(page)).not.toContainText("本次运行记录");
+  await expect(
+    toolbox(page).getByRole("button", { name: "收藏", exact: true }),
+  ).toHaveCount(0);
+  await categories.first().focus();
+  await page.keyboard.press("Enter");
+  await expect(categories.first()).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    toolbox(page).locator(".processing-tool-option:visible"),
+  ).toHaveCount(6);
   await toolbox(page).getByLabel("搜索分析工具").fill("centroid");
-  await expect(toolbox(page).locator(".processing-tool-option")).toHaveCount(1);
+  await expect(
+    toolbox(page).locator(".processing-tool-option:visible"),
+  ).toHaveCount(1);
   await tool(page, "质心");
-  await toolbox(page)
-    .getByRole("button", { name: "收藏质心", exact: true })
-    .click();
-  await toolbox(page)
-    .getByRole("button", { name: "收藏", exact: true })
-    .click();
-  await toolbox(page).getByLabel("搜索分析工具").fill("");
-  await expect(toolbox(page).locator(".processing-tool-option")).toHaveCount(1);
   await toolbox(page).getByLabel("结果图层名称").fill("质心工作稿");
   await toolbox(page)
-    .getByRole("button", { name: "关闭空间分析工具箱", exact: true })
+    .getByRole("button", { name: "关闭工具侧栏", exact: true })
     .click();
   await expect(
-    page.getByRole("button", { name: "空间分析工具箱", exact: true }),
+    page.getByRole("button", { name: "工具", exact: true }),
   ).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(toolbox(page).getByLabel("结果图层名称")).toHaveValue(
     "质心工作稿",
   );
   await page.reload();
-  await page
-    .getByRole("button", { name: "空间分析工具箱", exact: true })
-    .click();
-  await toolbox(page)
-    .getByRole("button", { name: "收藏", exact: true })
-    .click();
-  await expect(toolbox(page).locator(".processing-tool-option")).toHaveText(
-    "质心",
-  );
+  await page.getByRole("button", { name: "工具", exact: true }).click();
+  for (const category of await categories.all())
+    await expect(category).toHaveAttribute("aria-expanded", "false");
 });
 
 test("two layer intersection creates an independent result usable as the next input", async ({
@@ -110,7 +124,7 @@ test("two layer intersection creates an independent result usable as the next in
   await tool(page, "相交");
   await toolbox(page)
     .getByLabel("目标图层", { exact: true })
-    .selectOption({ label: "区域乙.geojson · 1 个要素" });
+    .selectOption({ label: "区域乙.geojson" });
   await toolbox(page).getByLabel("结果图层名称").fill("共同区域");
   await run(page).click();
   await expect(toolbox(page).getByRole("status")).toContainText("分析完成");
@@ -133,21 +147,59 @@ test("two layer intersection creates an independent result usable as the next in
   await tool(page, "质心");
   await toolbox(page)
     .getByLabel("输入图层", { exact: true })
-    .selectOption({ label: "共同区域 · 2 个要素" });
+    .selectOption({ label: "共同区域" });
   await toolbox(page).getByLabel("结果图层名称").fill("区域中心");
   await run(page).click();
   await expect(page.locator(".layer-text")).toHaveCount(4);
-  await toolbox(page)
-    .getByRole("button", { name: "本次运行记录", exact: false })
-    .click();
-  await expect(toolbox(page).locator(".processing-history-item")).toHaveCount(
-    2,
-  );
-  await toolbox(page).locator(".processing-history-item").last().click();
+  await tool(page, "相交");
   await expect(toolbox(page).getByLabel("结果图层名称")).toHaveValue(
     "共同区域",
   );
   expect(await calls(page)).toHaveLength(2);
+});
+
+test("text header entry and inline fields keep actions above bottom help at minimum width", async ({
+  page,
+}) => {
+  await start(page);
+  const entry = page
+    .locator(".header-menus")
+    .getByRole("button", { name: "工具", exact: true });
+  await expect(entry.locator("svg")).toHaveCount(0);
+  expect(
+    await page.locator(".header-menus > button").allTextContents(),
+  ).toEqual(["工具", "设置"]);
+  await expect(
+    page
+      .locator(".header-actions")
+      .getByRole("button", { name: "工具", exact: true }),
+  ).toHaveCount(0);
+  await tool(page, "相交");
+  await page.setViewportSize({ width: 960, height: 640 });
+  const resizer = page.getByRole("separator", { name: "调整工具侧栏宽度" });
+  await resizer.focus();
+  await page.keyboard.press("Home");
+  for (const field of ["输入图层", "目标图层", "结果图层名称"]) {
+    const input = toolbox(page).getByLabel(field, { exact: true });
+    const label = input.locator("..").locator("span");
+    const a = (await input.boundingBox())!;
+    const b = (await label.boundingBox())!;
+    expect(a.x).toBeGreaterThan(b.x + b.width);
+    expect(Math.abs(a.y + a.height / 2 - b.y - b.height / 2)).toBeLessThan(2);
+  }
+  const options = await toolbox(page)
+    .getByLabel("输入图层", { exact: true })
+    .locator("option")
+    .allTextContents();
+  expect(options.join("")).not.toContain("个要素");
+  await expect(toolbox(page).locator(".processing-description")).toHaveCount(0);
+  await expect(toolbox(page)).not.toContainText("参数已就绪");
+  await expect(toolbox(page)).not.toContainText("生成独立图层，保留原图层。");
+  const button = (await run(page).boundingBox())!;
+  const help = (await toolbox(page).locator(".processing-help").boundingBox())!;
+  expect(button.y + button.height).toBeLessThanOrEqual(help.y);
+  expect(help.y + help.height).toBeLessThanOrEqual(640);
+  await page.screenshot({ path: "output/tools-workbench-compact.png" });
 });
 
 test("failure preserves parameters, retry works, and duplicate runs or close are blocked", async ({
@@ -166,7 +218,7 @@ test("failure preserves parameters, retry works, and duplicate runs or close are
   ).toBeDisabled();
   await expect(
     toolbox(page).getByRole("button", {
-      name: "关闭空间分析工具箱",
+      name: "关闭工具侧栏",
       exact: true,
     }),
   ).toBeDisabled();
@@ -241,9 +293,7 @@ test("editing and elevated geometry give explicit guidance and cannot run", asyn
   const next = await page.context().newPage();
   await installDesktopMock(next, JSON.stringify(elevated));
   await next.goto("/");
-  await next
-    .getByRole("button", { name: "空间分析工具箱", exact: true })
-    .click();
+  await next.getByRole("button", { name: "工具", exact: true }).click();
   await expect(run(next)).toBeDisabled();
   await expect(toolbox(next)).toContainText("含高程");
 });
@@ -285,9 +335,7 @@ test("toolbox stays inside 960px dark and light windows with keyboard controls",
 
 test("browser version explains the desktop requirement", async ({ page }) => {
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "空间分析工具箱", exact: true })
-    .click();
+  await page.getByRole("button", { name: "工具", exact: true }).click();
   await expect(toolbox(page)).toContainText("空间分析需要桌面版");
   await expect(run(page)).toBeDisabled();
 });

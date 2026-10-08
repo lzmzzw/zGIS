@@ -42,7 +42,6 @@ import {
   Maximize2,
   Minimize2,
   Move,
-  Workflow,
 } from "lucide-react";
 import BasemapControl from "./BasemapControl";
 import ContextMenu, {
@@ -2494,6 +2493,16 @@ export default function App() {
               </button>
             </HeaderMenu>
             <button
+              ref={toolboxTrigger}
+              className="quiet"
+              aria-label="工具"
+              aria-pressed={toolboxOpen}
+              disabled={busy}
+              onClick={toggleToolbox}
+            >
+              工具
+            </button>
+            <button
               className="quiet"
               aria-label="设置"
               aria-pressed={modal === "settings"}
@@ -2514,19 +2523,6 @@ export default function App() {
             {active?.dirty && <span className="dirty-dot" title="未保存" />}
           </div>
           <div className="header-actions">
-            {modal !== "settings" && (
-              <button
-                ref={toolboxTrigger}
-                className={toolboxOpen ? "active" : "quiet"}
-                aria-label="空间分析工具箱"
-                aria-pressed={toolboxOpen}
-                disabled={busy}
-                onClick={toggleToolbox}
-              >
-                <Workflow />
-                工具箱
-              </button>
-            )}
             {desktop && modal !== "settings" && (
               <>
                 <IconButton
@@ -3575,7 +3571,7 @@ export default function App() {
           {(toolboxMounted || (agentOpen && desktop)) && (
             <RightSidebar
               hidden={!rightSidebarOpen}
-              label={toolboxOpen ? "工具箱" : "Agent"}
+              label={toolboxOpen ? "工具" : "Agent"}
               width={shownSidebarWidth}
               maxWidth={sidebarMaxWidth}
               onWidthChange={(width) =>
