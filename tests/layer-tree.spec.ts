@@ -7,8 +7,8 @@ test("empty unified tree, context group and pointer sorting", async ({
   await expect(tree.getByRole("treeitem")).toHaveCount(0);
   await expect(page.locator(".layers-panel button")).toHaveCount(0);
   await tree.click({ button: "right" });
-  await expect(page.getByRole("menuitem", { name: "添加文件…" })).toBeVisible();
-  await page.getByRole("menuitem", { name: "新建分组…" }).click();
+  await expect(page.getByRole("menuitem", { name: "添加文件" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "新建分组" }).click();
   await page.getByLabel("分组名称").fill("测绘");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   for (const name of ["a.geojson", "b.geojson"]) {
@@ -68,7 +68,7 @@ test("nested groups move as a whole into collapsed subgroups without cycles", as
     if (parent) await row(parent).click({ button: "right" });
     else await tree.click({ button: "right", position: { x: 30, y: 300 } });
     await page
-      .getByRole("menuitem", { name: parent ? "新建子分组…" : "新建分组…" })
+      .getByRole("menuitem", { name: parent ? "新建子分组" : "新建分组" })
       .click();
     await page.getByLabel("分组名称").fill(name);
     await page.getByRole("button", { name: "创建", exact: true }).click();
@@ -113,8 +113,12 @@ test("nested groups move as a whole into collapsed subgroups without cycles", as
   await drag("甲组", "甲孙组");
   await expect(row("甲组")).toHaveAttribute("aria-level", "3");
   await expect(row("nested.geojson")).toHaveAttribute("aria-level", "6");
-  await row("甲组").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "移到顶层" }).click();
+  const moving = await row("甲组").boundingBox();
+  const root = await page.getByRole("tree", {name:"图层树"}).boundingBox();
+  await page.mouse.move(moving!.x + 110, moving!.y + moving!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(root!.x + 110, root!.y + root!.height - 20, {steps:15});
+  await page.mouse.up();
   await expect(row("甲组")).toHaveAttribute("aria-level", "1");
   await expect(row("nested.geojson")).toHaveAttribute("aria-level", "4");
   await expect(

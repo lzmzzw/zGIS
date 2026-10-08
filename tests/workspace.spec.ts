@@ -276,7 +276,7 @@ test("immediate native close flushes new empty groups instead of a stale autosna
   await page.goto("/");
   const tree = page.getByRole("tree", { name: "图层树" });
   await tree.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "新建分组…" }).click();
+  await page.getByRole("menuitem", { name: "新建分组" }).click();
   await page.getByLabel("分组名称").fill("空分组");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(tree).toContainText("空分组");

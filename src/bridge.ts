@@ -64,6 +64,11 @@ export const api = {
       activeLayerId: activeLayerId ?? null,
     }),
   mcpResults: () => invoke<AnalysisLayer[]>("gis_results_drain"),
+  renameSourceFile: (sourceId: string, newName: string) =>
+    invoke<{ sourceId: string; name: string; path: string }>(
+      "rename_source_file",
+      { sourceId, newName },
+    ),
   open: () => invoke<InputFile[]>("open_files"),
   save: (
     content: string,

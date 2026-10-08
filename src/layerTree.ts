@@ -101,16 +101,40 @@ export function dissolveTreeGroup(
   tree: LayerTreeNode[],
   id: string,
 ): LayerTreeNode[] {
+  const node = findNode(tree, id);
+  if (node?.kind !== "group") throw new Error("分组不存在");
+  const removed = deleteTreeGroup(tree, id);
+  if (tree.some((n) => n.id === id)) {
+    const index = tree.findIndex((n) => n.id === id);
+    return [
+      ...removed.slice(0, index),
+      ...node.children,
+      ...removed.slice(index),
+    ];
+  }
+  return [...removed, ...node.children];
+}
+export function treeGroupLayerIds(tree: LayerTreeNode[], id: string): string[] {
+  const node = findNode(tree, id);
+  if (node?.kind !== "group") throw new Error("分组不存在");
+  const collect = (nodes: LayerTreeNode[]): string[] =>
+    nodes.flatMap((n) => (n.kind === "layer" ? [n.id] : collect(n.children)));
+  return collect(node.children);
+}
+export function deleteTreeGroup(
+  tree: LayerTreeNode[],
+  id: string,
+): LayerTreeNode[] {
   if (findNode(tree, id)?.kind !== "group") throw new Error("分组不存在");
   const visit = (nodes: LayerTreeNode[]): LayerTreeNode[] =>
-    nodes.flatMap((node) => {
-      if (node.kind !== "group") return [node];
-      if (node.id === id) return node.children;
-      const children = visit(node.children);
-      return [{ ...node, children }];
-    });
+    nodes
+      .filter((n) => n.id !== id)
+      .map((n) =>
+        n.kind === "group" ? { ...n, children: visit(n.children) } : n,
+      );
   return visit(tree);
 }
+
 export function moveTreeNode(
   tree: LayerTreeNode[],
   id: string,

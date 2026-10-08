@@ -89,9 +89,9 @@ async function setup(page: Page) {
 async function rename(page: Page, name: string, next: string) {
   await row(page, name).click({ button: "right" });
   await page
-    .getByRole("menuitem", { name: "重命名图层…", exact: true })
+    .getByRole("menuitem", { name: "设置别名", exact: true })
     .click();
-  await page.getByLabel("显示名称", { exact: true }).fill(next);
+  await page.getByLabel("图层别名", { exact: true }).fill(next);
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "确定", exact: true })
@@ -146,16 +146,6 @@ test("checkboxes and nested indentation align and geometry symbols open the only
     "background-color",
     "rgb(255, 136, 51)",
   );
-  await row(page, "points.geojson").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "图层属性…", exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("来源详情");
-  await expect(
-    page.getByRole("dialog").locator('input[type="color"],input[type="range"]'),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "应用样式", exact: true }),
-  ).toHaveCount(0);
-  await page.keyboard.press("Escape");
   await page.screenshot({ path: "output/smoke/layer-tree-aligned-dark.png" });
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await page.getByLabel("主题", { exact: true }).selectOption("light");
@@ -192,15 +182,9 @@ test("renaming changes display only, keeps save filenames and survives work-copy
     .click();
   await page.getByRole("button", { name: "导出为", exact: true }).click();
   await expect(page.getByLabel("文件名", { exact: true })).toHaveValue(
-    "points.geojson",
+    "测量点.geojson",
   );
-  await page.keyboard.press("Escape");
-  await row(page, "测量点").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "图层属性…", exact: true }).click();
-  await expect(page.getByRole("dialog")).toHaveAccessibleName(
-    "图层属性：测量点",
-  );
-  await expect(page.getByRole("dialog")).toContainText("points.geojson");
+  await expect(page.locator(".export-source-meta, .export-location")).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect
     .poll(() => page.evaluate(() => window.__ZG_TEST__.snapshot))
@@ -228,16 +212,16 @@ test("rename validation and Escape preserve the original display and keyboard fo
   const target = row(page, "points.geojson");
   await target.click({ button: "right" });
   await page
-    .getByRole("menuitem", { name: "重命名图层…", exact: true })
+    .getByRole("menuitem", { name: "设置别名", exact: true })
     .click();
-  await expect(page.getByLabel("显示名称", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("图层别名", { exact: true })).toHaveValue(
     "points.geojson",
   );
-  await page.getByLabel("显示名称", { exact: true }).fill("   ");
+  await page.getByLabel("图层别名", { exact: true }).fill("   ");
   await expect(
     page.getByRole("button", { name: "确定", exact: true }),
   ).toBeDisabled();
-  await page.getByLabel("显示名称", { exact: true }).fill("cancelled");
+  await page.getByLabel("图层别名", { exact: true }).fill("cancelled");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(target).toBeVisible();

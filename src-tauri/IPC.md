@@ -9,6 +9,7 @@
 
 | command | 参数 | 返回 |
 | --- | --- | --- |
+| `rename_source_file` | `{sourceId:string,newName:string}` | `{sourceId,name,path}`；只重命名已打开文件，保留扩展名，SHP 同步组件，检测外部修改且拒绝覆盖；失败回滚 |
 | `open_files` | 无 | `[{name,bytes:number[],sourceId}]`，取消返回空数组 |
 | `save_file` | `{sourceId?:string,suggestedName,content,overwrite}` | `{sourceId,name,path}|null`，取消返回 null |
 | `export_shapefile` | `{features:Feature[],suggestedName:string,crs?:string}` | `{sourceId,name,path}\|null`，取消返回 null；只保存新的 ZIP |

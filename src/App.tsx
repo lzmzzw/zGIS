@@ -56,6 +56,8 @@ import {
   moveTreeNode,
   addTreeGroup,
   dissolveTreeGroup,
+  deleteTreeGroup,
+  treeGroupLayerIds,
   updateTreeGroup,
   type LayerTreeNode,
 } from "./layerTree";
@@ -672,7 +674,7 @@ export default function App() {
     }
     if (value === "export" && active)
       setExportFilename(
-        active.name.replace(/\.[^.]+$/, "") +
+        (active.displayName ?? active.name).replace(/\.[^.]+$/, "") +
           (exportMode === "shp"
             ? ".zip"
             : exportMode === "geojson"
@@ -1618,7 +1620,7 @@ export default function App() {
       await task(async () => {
         const result = await api.saveShapefileFolder(
           active.features,
-          active.name.replace(/\.[^.]+$/, "") + ".shp",
+          (active.displayName ?? active.name).replace(/\.[^.]+$/, "") + ".shp",
           active.originalCrs ?? "EPSG:4326",
         );
         if (!result) {
@@ -1651,7 +1653,7 @@ export default function App() {
       exportSaveLayerId.current = editing ? active.id : undefined;
       if (desktop) {
         setExportMode("shp");
-        setExportFilename(active.name.replace(/\.[^.]+$/, "") + ".zip");
+        setExportFilename((active.displayName ?? active.name).replace(/\.[^.]+$/, "") + ".zip");
         setError("");
         setModal("export");
         return;
@@ -1693,11 +1695,12 @@ export default function App() {
     setActiveId(id);
     return true;
   }
-  function requestNewLayer() {
+  function requestNewLayer(groupId?: string) {
     if (editingLayerId) {
       setError("请先保存并退出当前图层编辑，再新建图层");
       return;
     }
+    insertionGroup.current = groupId;
     openModal("new-layer");
   }
   function cancelDrawing() {
@@ -2461,7 +2464,7 @@ export default function App() {
             hidden={modal === "settings"}
           >
             <HeaderMenu label="文件">
-              <button onClick={requestNewLayer} disabled={busy}>
+              <button onClick={() => requestNewLayer()} disabled={busy}>
                 <Plus />
                 新建
               </button>
@@ -2486,7 +2489,7 @@ export default function App() {
               </button>
             </HeaderMenu>
             <HeaderMenu label="数据">
-              <button onClick={requestNewLayer} disabled={busy}>
+              <button onClick={() => requestNewLayer()} disabled={busy}>
                 <Plus />
                 新建矢量图层…
               </button>
@@ -2700,7 +2703,7 @@ export default function App() {
                 });
                 openModal("style");
               }}
-              onRenameLayer={(id, value) => {
+              onAliasLayer={(id, value) => {
                 const displayName = value.trim();
                 if (
                   cellDraft ||
@@ -2720,7 +2723,41 @@ export default function App() {
                       : l,
                   ),
                 );
-                setStatus("图层显示名已修改，来源文件名不变");
+                setStatus("图层别名已设置");
+              }}
+              onRenameLayer={(id, name) => {
+                const layer = layers.find((l) => l.id === id);
+                if (!layer?.sourceId || busy || cellDraft) return;
+                void task(async () => {
+                  const renamed = await api.renameSourceFile(layer.sourceId!, name);
+                  const next = currentLayers.current.map((l) =>
+                    l.sourceId === layer.sourceId ? { ...l, name: renamed.name } : l);
+                  setLayers(next);
+                  currentLayers.current = next;
+                  if (desktop) await writeSnapshot(next);
+                  setStatus("文件已重命名");
+                });
+              }}
+              onNewFile={(group) => requestNewLayer(group)}
+              onDeleteGroup={(id) => {
+                if (busy || cellDraft) return;
+                const ids = new Set(treeGroupLayerIds(tree, id));
+                if (editingLayerId && ids.has(editingLayerId)) {
+                  setError("请先保存并退出分组内图层编辑，再删除分组");
+                  return;
+                }
+                void task(async () => {
+                  const next = currentLayers.current.filter((l) => !ids.has(l.id));
+                  setTree((old) => deleteTreeGroup(old, id));
+                  setLayers(next);
+                  currentLayers.current = next;
+                  for (const layerId of ids) {
+                    histories.current.delete(layerId);
+                    dbBaselines.current.delete(layerId);
+                    dbBounds.current.delete(layerId);
+                  }
+                  if (activeId && ids.has(activeId)) setActiveId(next[0]?.id);
+                });
               }}
               onFit={(id) => {
                 if (cellDraft) return;
@@ -4018,7 +4055,7 @@ export default function App() {
           </Modal>
         )}
         {modal === "new-layer" && (
-          <Modal title="新建矢量图层" onClose={() => openModal(null)}>
+          <Modal title="新建矢量图层" onClose={() => { insertionGroup.current = undefined; openModal(null); }}>
             <div className="form-grid">
               <label>
                 图层名称

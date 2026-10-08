@@ -397,16 +397,7 @@ export function ExportPanel({
             <span className="export-source-name">
               {layer.displayName ?? layer.name}
             </span>
-            <span className="export-source-meta">
-              {layer.features.length.toLocaleString()} 个要素 ·{" "}
-              {[
-                ...new Set(
-                  layer.features.map(
-                    (feature) => feature.geometry?.type ?? "空几何",
-                  ),
-                ),
-              ].join(" / ") || "无几何"}
-            </span>
+
           </div>
         </div>
         <div className="export-fields">
@@ -480,9 +471,7 @@ export function ExportPanel({
                   </select>
                 </label>
               )}
-              <p className="export-location">
-                {desktop ? "导出时选择保存位置" : "保存到浏览器下载目录"}
-              </p>
+
             </>
           )}
           {issue && (

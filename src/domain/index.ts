@@ -405,6 +405,7 @@ export async function importFiles(
     });
     layers.push(
       makeLayer(base, importGeoJSON(JSON.stringify(result)), "shp", {
+        sourceId: pick("shp")?.sourceId,
         originalCrs: decoder.decode(new Uint8Array(pick("prj")!.bytes)),
         warnings: ["SHP 可编辑；编辑结果另存新文件，不覆盖原 SHP 文件组"],
       }),
@@ -472,7 +473,7 @@ export async function importFiles(
         })),
         options,
       );
-      layers.push(...imported);
+      layers.push(...imported.map((layer) => ({...layer, sourceId: file.sourceId})));
     } else if (!/\.(shp|dbf|shx|prj|cpg)$/i.test(file.name))
       throw new Error(`不支持文件：${file.name}`);
   }

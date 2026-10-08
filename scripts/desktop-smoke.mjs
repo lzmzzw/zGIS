@@ -1,8 +1,9 @@
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 import shp from "shpjs";
 import { layerBasemapSmoke } from "./layer-basemap-smoke.mjs";
 import { layerTreeStyleSmoke } from "./layer-tree-style-smoke.mjs";
@@ -86,7 +87,7 @@ async function fileAction(name) {
   if (name === "退出") { await page.getByRole("button", { name: "关闭窗口", exact: true }).click(); return; }
   if (name === "移除图层") {
     await page.locator('.tree-row.selected .layer-text').click({ button: "right" });
-    await page.getByRole("menuitem", { name: "移除图层…", exact: true }).click();
+    await page.getByRole("menuitem", { name: "移除", exact: true }).click();
     return;
   }
   await page
@@ -349,6 +350,18 @@ await editingOpening;
 await page.getByRole("button", { name: "导入", exact: true }).click();
 await page.waitForFunction(() => document.querySelectorAll(".attribute-panel tbody tr").length === 4);
 assert.equal(await page.locator("tbody tr").count(), 4);
+// 验证真实文件重命名及句柄延续，仅操作本轮生成的 output 夹具。
+const renamedFixture = "output/smoke/fixtures/editing-renamed.geojson";
+const renameOriginal = await fs.readFile("output/smoke/fixtures/editing.geojson", "utf8");
+try { await fs.unlink(renamedFixture); } catch (error) { if (error.code !== "ENOENT") throw error; }
+await page.locator('[data-node-kind="layer"]').click({button:"right"});
+await page.getByRole("menuitem", {name:"重命名",exact:true}).click();
+await page.getByLabel("文件名称", {exact:true}).fill("editing-renamed");
+await page.getByRole("button", {name:"确定",exact:true}).click();
+await expect(page.locator(".operation-status")).toContainText("文件已重命名");
+assert.equal(await fs.readFile(renamedFixture, "utf8"), renameOriginal);
+assert.equal(await fs.access("output/smoke/fixtures/editing.geojson").then(()=>true,()=>false), false);
+console.log("PASS: native registered source rename updates the on-disk filename");
 await sidebarDesignSmoke(page);
 await page.locator("tbody tr").first().click();
 await editCell("城市");

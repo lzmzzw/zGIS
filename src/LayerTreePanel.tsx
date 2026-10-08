@@ -21,6 +21,9 @@ interface Props {
   onRemoveLayer?(id: string): void;
   onStyle(id: string): void;
   onRenameLayer(id: string, name: string): void;
+  onAliasLayer(id: string, name: string): void;
+  onNewFile(groupId?: string): void;
+  onDeleteGroup(id: string): void;
   onToggleLayer(id: string): void;
   onToggleGroup(id: string): void;
   onCollapseGroup(id: string): void;
@@ -69,8 +72,8 @@ export default function LayerTree(props: Props) {
   >(undefined);
   const [dialog, setDialog] = useState<
     | { kind: "new-group"; parentId?: string }
-    | { kind: "rename-layer" | "rename-group"; id: string }
-    | { kind: "dissolve-group"; id: string }
+    | { kind: "alias-layer" | "rename-layer" | "rename-group"; id: string }
+    | { kind: "dissolve-group" | "delete-group"; id: string }
   >();
   const [name, setName] = useState("");
   const [drop, setDrop] = useState<{ id: string; position: DropPosition }>();
@@ -449,7 +452,7 @@ export default function LayerTree(props: Props) {
   const dialogTargetValid =
     dialog?.kind === "new-group"
       ? !dialog.parentId || dialogTarget?.kind === "group"
-      : dialog?.kind === "rename-layer"
+      : dialog?.kind === "rename-layer" || dialog?.kind === "alias-layer"
         ? dialogTarget?.kind === "layer" && layerById.has(dialogTarget.id)
         : dialogTarget?.kind === "group";
   const groupId = node?.kind === "group" ? node.id : undefined;
@@ -476,105 +479,68 @@ export default function LayerTree(props: Props) {
       danger,
     });
   };
+  const separator = (id: string) => items.push({ id, separator: true });
+  const newGroup = () => {
+    setName("");
+    setDialog({ kind: "new-group", parentId: groupId });
+  };
   if (!node || node.kind === "group") {
-    addItem("add-files", "添加文件…", () => props.onAddFiles(groupId));
+    addItem("new-group", groupId ? "新建子分组" : "新建分组", newGroup);
+    if (node?.kind === "group") {
+      addItem("rename-group", "重命名分组", () => {
+        setName(node.name);
+        setDialog({ kind: "rename-group", id: node.id });
+      });
+      separator("group-name");
+    }
+    addItem("new-file", "新建文件", () => props.onNewFile(groupId));
+    separator("add");
+    addItem("add-files", "添加文件", () => props.onAddFiles(groupId));
     addItem(
       "add-postgis",
-      "添加 PostGIS…",
+      "添加PostGIS",
       () => props.onAddPostgis(groupId),
       !props.desktop,
     );
-    addItem("new-group", groupId ? "新建子分组…" : "新建分组…", () => {
-      setName("");
-      setDialog({ kind: "new-group", parentId: groupId });
+    if (node?.kind === "group") {
+      separator("remove");
+      addItem("dissolve-group", "解散分组", () =>
+        setDialog({ kind: "dissolve-group", id: node.id }),
+      );
+      addItem(
+        "delete-group",
+        "删除分组",
+        () => setDialog({ kind: "delete-group", id: node.id }),
+        false,
+        undefined,
+        true,
+      );
+    }
+  } else {
+    addItem("alias-layer", "设置别名", () => {
+      setName(menuLayer?.displayName ?? menuLayer?.name ?? "");
+      setDialog({ kind: "alias-layer", id: node.id });
     });
-  }
-  if (node && context) {
-    if (node.kind === "group") {
-      items.push({ id: "group-controls", separator: true });
-      addItem("toggle-group", node.visible ? "隐藏分组" : "显示分组", () =>
-        props.onToggleGroup(node.id),
-      );
-      addItem("collapse-group", node.collapsed ? "展开分组" : "折叠分组", () =>
-        props.onCollapseGroup(node.id),
-      );
-    } else {
-      addItem(
-        "fit-layer",
-        "缩放至图层",
-        () => props.onFit(node.id),
-        !menuLayer?.features.some((feature) => feature.geometry),
-      );
-      addItem(
-        "open-table",
-        "打开属性表",
-        () => props.onOpenTable?.(node.id),
-        !props.onOpenTable,
-      );
-      addItem(
-        "toggle-layer",
-        menuLayer?.visible ? "隐藏图层" : "显示图层",
-        () => props.onToggleLayer(node.id),
-      );
-      addItem("properties", "图层属性…", () => props.onProperties(node.id));
-    }
     addItem(
-      "rename",
-      node.kind === "group" ? "重命名分组…" : "重命名图层…",
+      "rename-layer",
+      "重命名",
       () => {
-        setName(
-          node.kind === "group"
-            ? node.name
-            : (menuLayer?.displayName ?? menuLayer?.name ?? ""),
-        );
-        setDialog({
-          kind: node.kind === "group" ? "rename-group" : "rename-layer",
-          id: node.id,
-        });
+        setName(menuLayer?.name ?? "");
+        setDialog({ kind: "rename-layer", id: node.id });
       },
-      node.kind === "group" && !props.onRenameGroup,
+      !props.desktop ||
+        !menuLayer?.sourceId ||
+        menuLayer?.sourceKind === "postgis",
     );
-    items.push({ id: "reorder", separator: true });
+    separator("remove");
     addItem(
-      "move-up",
-      "上移",
-      () => moveSibling(node, context.siblings, -1),
-      context.siblings[0]?.id === node.id,
-      "Alt+↑",
+      "remove-layer",
+      "移除",
+      () => props.onRemoveLayer?.(node.id),
+      !props.onRemoveLayer,
+      undefined,
+      true,
     );
-    addItem(
-      "move-down",
-      "下移",
-      () => moveSibling(node, context.siblings, 1),
-      context.siblings.at(-1)?.id === node.id,
-      "Alt+↓",
-    );
-    addItem(
-      "move-root",
-      "移到顶层",
-      () => props.onMove(node.id, null, "inside"),
-      !context.parentId,
-    );
-    items.push({ id: "remove", separator: true });
-    if (node.kind === "group") {
-      addItem(
-        "dissolve-group",
-        "解散分组…",
-        () => setDialog({ kind: "dissolve-group", id: node.id }),
-        !props.onDissolveGroup,
-        undefined,
-        true,
-      );
-    } else {
-      addItem(
-        "remove-layer",
-        "移除图层…",
-        () => props.onRemoveLayer?.(node.id),
-        !props.onRemoveLayer,
-        undefined,
-        true,
-      );
-    }
   }
   return (
     <>
@@ -692,14 +658,20 @@ export default function LayerTree(props: Props) {
               if (
                 !props.busy &&
                 dialogTargetValid &&
-                (dialog.kind === "dissolve-group" || name.trim())
+                (dialog.kind === "dissolve-group" ||
+                  dialog.kind === "delete-group" ||
+                  name.trim())
               ) {
                 if (dialog.kind === "new-group")
                   props.onNewGroup(name.trim(), dialog.parentId);
+                else if (dialog.kind === "alias-layer")
+                  props.onAliasLayer(dialog.id, name.trim());
                 else if (dialog.kind === "rename-layer")
                   props.onRenameLayer(dialog.id, name.trim());
                 else if (dialog.kind === "dissolve-group")
                   props.onDissolveGroup?.(dialog.id);
+                else if (dialog.kind === "delete-group")
+                  props.onDeleteGroup(dialog.id);
                 else props.onRenameGroup?.(dialog.id, name.trim());
                 setDialog(undefined);
               }
@@ -710,22 +682,34 @@ export default function LayerTree(props: Props) {
                 ? dialog.parentId
                   ? "新建子分组"
                   : "新建分组"
-                : dialog.kind === "rename-layer"
-                  ? "重命名图层"
-                  : dialog.kind === "rename-group"
-                    ? "重命名分组"
-                    : "解散分组"}
+                : dialog.kind === "alias-layer"
+                  ? "设置别名"
+                  : dialog.kind === "rename-layer"
+                    ? "重命名"
+                    : dialog.kind === "rename-group"
+                      ? "重命名分组"
+                      : dialog.kind === "delete-group"
+                        ? "删除分组"
+                        : "解散分组"}
             </h3>
-            {dialog.kind === "dissolve-group" ? (
+            {dialog.kind === "delete-group" ? (
+              <p className="layer-rename-help">
+                删除此分组及其全部子分组、图层？未保存的修改将丢弃，磁盘文件保留。
+              </p>
+            ) : dialog.kind === "dissolve-group" ? (
               <p className="layer-rename-help">
                 解散“
                 {dialogTarget?.kind === "group" ? dialogTarget.name : "分组"}
-                ”？图层和子分组将保留在上一级。
+                ”？图层和子分组将按原有结构移到根层。
               </p>
             ) : (
               <>
                 <label htmlFor="layer-group-name">
-                  {dialog.kind === "rename-layer" ? "显示名称" : "分组名称"}
+                  {dialog.kind === "alias-layer"
+                    ? "图层别名"
+                    : dialog.kind === "rename-layer"
+                      ? "文件名称"
+                      : "分组名称"}
                 </label>
                 <input
                   id="layer-group-name"
@@ -741,7 +725,10 @@ export default function LayerTree(props: Props) {
             <div>
               <button
                 type="button"
-                autoFocus={dialog.kind === "dissolve-group"}
+                autoFocus={
+                  dialog.kind === "dissolve-group" ||
+                  dialog.kind === "delete-group"
+                }
                 onClick={() => setDialog(undefined)}
               >
                 取消
@@ -749,7 +736,9 @@ export default function LayerTree(props: Props) {
               <button
                 type="submit"
                 disabled={
-                  (dialog.kind !== "dissolve-group" && !name.trim()) ||
+                  (dialog.kind !== "dissolve-group" &&
+                    dialog.kind !== "delete-group" &&
+                    !name.trim()) ||
                   props.busy ||
                   !dialogTargetValid
                 }
@@ -758,7 +747,9 @@ export default function LayerTree(props: Props) {
                   ? "创建"
                   : dialog.kind === "dissolve-group"
                     ? "解散"
-                    : "确定"}
+                    : dialog.kind === "delete-group"
+                      ? "删除"
+                      : "确定"}
               </button>
             </div>
           </form>

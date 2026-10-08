@@ -7,6 +7,8 @@ import {
   addTreeGroup,
   updateTreeGroup,
   dissolveTreeGroup,
+  deleteTreeGroup,
+  treeGroupLayerIds,
   type LayerTreeNode,
 } from "./layerTree";
 const tree: LayerTreeNode[] = [
@@ -112,8 +114,17 @@ it("解散分组仅提升直属子节点，保留子组、图层、顺序且不�
       ...parent,
       children: [
         { kind: "layer", id: "a" },
-        { kind: "layer", id: "b" },
-        child,
+        { kind: "layer", id: "d" },
+      ],
+    },
+    ...group.children,
+  ]);
+  expect(treeGroupLayerIds([parent], "nested")).toEqual(["b", "c"]);
+  expect(deleteTreeGroup([parent], "nested")).toEqual([
+    {
+      ...parent,
+      children: [
+        { kind: "layer", id: "a" },
         { kind: "layer", id: "d" },
       ],
     },

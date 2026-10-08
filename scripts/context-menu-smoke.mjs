@@ -29,11 +29,12 @@ export async function contextMenuSmoke(page) {
 
   await layer.click({ button: "right" });
   await expect(page.getByRole("menu", { name: "图层操作", exact: true })).toBeVisible();
-  for (const name of ["缩放至图层", "打开属性表", "图层属性…", "重命名图层…", "移除图层…"])
+  for (const name of ["设置别名", "移除"])
     await expect(page.getByRole("menuitem", { name, exact: true })).toBeEnabled();
-  for (const name of ["添加文件…", "新建分组…", "新建子分组…"])
+  for (const name of ["添加文件", "新建分组", "新建子分组"])
     await expect(page.getByRole("menuitem", { name, exact: true })).toHaveCount(0);
-  await expect(page.getByRole("menuitem", { name: "移到顶层", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem")).toHaveText(["设置别名", "重命名", "移除"]);
+  assert.equal(await menu.evaluate((element) => element.scrollWidth <= element.clientWidth), true);
   await page.keyboard.press("Escape");
   await expect(layer).toBeFocused();
 

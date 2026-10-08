@@ -275,6 +275,94 @@ struct SavedFile {
     name: String,
     path: String,
 }
+#[tauri::command]
+async fn rename_source_file(state: State<'_, Backend>, source_id: String, new_name: String) -> Result<SavedFile, String> {
+    let files = state.files.clone();
+    tauri::async_runtime::spawn_blocking(move || rename_source_file_blocking(&files, &source_id, &new_name))
+        .await.map_err(io_error)?
+}
+
+fn rename_source_file_blocking(files: &Mutex<HashMap<String, FileHandle>>, source_id: &str, new_name: &str) -> Result<SavedFile, String> {
+    let mut handles = files.lock().map_err(io_error)?;
+    let source = handles.get(source_id).ok_or("文件句柄失效，请重新打开图层")?.path.clone();
+    let extension = source.extension().ok_or("来源文件没有扩展名")?.to_string_lossy();
+    if !["csv", "geojson", "json", "shp", "zip"].contains(&extension.to_ascii_lowercase().as_str()) {
+        return Err("该来源格式不支持重命名".into());
+    }
+    let trimmed = new_name.trim();
+    let suffix = format!(".{extension}");
+    let stem = if trimmed.to_ascii_lowercase().ends_with(&suffix.to_ascii_lowercase()) {
+        &trimmed[..trimmed.len() - suffix.len()]
+    } else { trimmed };
+    let reserved = stem.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    if stem.is_empty() || stem.ends_with(['.', ' ']) || stem.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|'])
+        || stem.chars().any(char::is_control) || ["CON", "PRN", "AUX", "NUL"].contains(&reserved.as_str())
+        || (reserved.len() == 4 && (reserved.starts_with("COM") || reserved.starts_with("LPT")) && reserved.ends_with(['1','2','3','4','5','6','7','8','9'])) {
+        return Err("文件名无效，请输入不含路径或保留字符的名称".into());
+    }
+    let parent = source.parent().ok_or("来源目录无效")?;
+    let sources = shapefile_group(vec![source.clone()])?;
+    let pairs: Vec<_> = sources.iter().map(|path| (path.clone(), parent.join(format!("{stem}.{}", path.extension().unwrap_or_default().to_string_lossy())))).collect();
+    for (old, _) in &pairs {
+        let hash = fingerprint(old)?;
+        if handles.values().any(|handle| handle.path == *old && handle.hash != hash) {
+            return Err("源文件已被外部修改，请重新打开后重命名".into());
+        }
+    }
+    rename_file_group(&pairs, move_file_new)?;
+    for handle in handles.values_mut() {
+        if let Some((_, target)) = pairs.iter().find(|(old, _)| *old == handle.path) {
+            // 重命名不改变内容，已核验的指纹继续用于后续保存冲突检查。
+            handle.path = target.clone();
+        }
+    }
+    let target = &pairs[0].1;
+    Ok(SavedFile { source_id: source_id.into(), name: target.file_name().unwrap_or_default().to_string_lossy().into_owned(), path: target.to_string_lossy().into_owned() })
+}
+
+fn move_file_new(source: &Path, target: &Path) -> Result<(), String> {
+    publish_new(source, target)?;
+    #[cfg(not(windows))]
+    if let Err(error) = fs::remove_file(source) {
+        let _ = fs::remove_file(target);
+        return Err(io_error(error));
+    }
+    Ok(())
+}
+
+fn rename_file_group(pairs: &[(PathBuf, PathBuf)], mut move_file: impl FnMut(&Path, &Path) -> Result<(), String>) -> Result<(), String> {
+    if pairs.iter().all(|(old, new)| old == new) { return Ok(()); }
+    for (old, target) in pairs {
+        let same_source = old.to_string_lossy().eq_ignore_ascii_case(&target.to_string_lossy());
+        if target.try_exists().map_err(io_error)? && !same_source {
+            return Err("目标目录中已有同名文件，不能覆盖，请使用其他名称".into());
+        }
+    }
+    // 先暂存全部组件，兼容仅改变字母大小写，并在任何一步失败时还原文件组。
+    let mut staged: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let mut published = 0usize;
+    let result = (|| {
+        for (old, _) in pairs {
+            let temp = old.with_file_name(format!(".zgis-rename-{}.tmp", uuid::Uuid::new_v4()));
+            move_file(old, &temp)?;
+            staged.push((old.clone(), temp));
+        }
+        for ((_, temp), (_, target)) in staged.iter().zip(pairs) {
+            move_file(temp, target)?;
+            published += 1;
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let mut rollback_errors = Vec::new();
+        for (index, (old, temp)) in staged.iter().enumerate().rev() {
+            let current = if index < published { &pairs[index].1 } else { temp };
+            if let Err(rollback_error) = move_file_new(current, old) { rollback_errors.push(rollback_error); }
+        }
+        return if rollback_errors.is_empty() { Err(error) } else { Err(format!("{error}；还原文件组失败：{}", rollback_errors.join("；"))) };
+    }
+    Ok(())
+}
 fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
     use std::io::Write;
     let temp = path.with_file_name(format!(".zgis-{}.tmp", uuid::Uuid::new_v4()));
@@ -1137,6 +1225,7 @@ pub fn run() {
             save_shapefile_folder,
             open_files,
             save_file,
+            rename_source_file,
             save_recovery,
             load_recovery,
             preferences::load_preferences,
@@ -1163,6 +1252,86 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rename_source_preserves_extension_and_registered_handles() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("original.geojson");
+        fs::write(&source, b"{}").unwrap();
+        let handles = Mutex::new(HashMap::new());
+        let opened = read_selected_files(vec![source.clone()], &handles).unwrap();
+        let saved = rename_source_file_blocking(&handles, &opened[0].source_id, "new.geojson").unwrap();
+        assert_eq!(saved.name, "new.geojson");
+        assert_eq!(saved.source_id, opened[0].source_id);
+        assert!(!source.exists());
+        let registry = handles.lock().unwrap();
+        let handle = &registry[&saved.source_id];
+        assert_eq!(handle.path.file_name().unwrap(), "new.geojson");
+        assert_eq!(fingerprint(&handle.path).unwrap(), handle.hash);
+    }
+    #[test]
+    fn rename_source_rejects_collision_invalid_names_and_external_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("original.csv");
+        fs::write(&source, b"a,b").unwrap();
+        fs::write(dir.path().join("taken.csv"), b"other").unwrap();
+        let handles = Mutex::new(HashMap::new());
+        let opened = read_selected_files(vec![source.clone()], &handles).unwrap();
+        for name in ["taken", "../outside", "CON", "LPT1", "bad.", "bad:", ""] {
+            assert!(rename_source_file_blocking(&handles, &opened[0].source_id, name).is_err(), "{name}");
+        }
+        assert!(rename_source_file_blocking(&handles, "missing", "valid").is_err());
+        assert_eq!(fs::read(dir.path().join("taken.csv")).unwrap(), b"other");
+        assert_eq!(fs::read(&source).unwrap(), b"a,b");
+        fs::write(&source, b"changed").unwrap();
+        assert!(rename_source_file_blocking(&handles, &opened[0].source_id, "valid").is_err());
+        assert!(source.exists());
+    }
+    #[test]
+    fn rename_source_shapefile_updates_all_component_handles_and_rejects_partial_collision() {
+        let dir = tempfile::tempdir().unwrap();
+        for ext in ["shp", "shx", "dbf", "prj", "cpg"] { fs::write(dir.path().join(format!("old.{ext}")), ext).unwrap(); }
+        let handles = Mutex::new(HashMap::new());
+        let opened = read_selected_files(vec![dir.path().join("old.shp")], &handles).unwrap();
+        fs::write(dir.path().join("new.dbf"), "existing").unwrap();
+        assert!(rename_source_file_blocking(&handles, &opened[0].source_id, "new").is_err());
+        assert!(dir.path().join("old.shp").exists());
+        fs::remove_file(dir.path().join("new.dbf")).unwrap();
+        rename_source_file_blocking(&handles, &opened[0].source_id, "new").unwrap();
+        assert_eq!(handles.lock().unwrap().len(), 5);
+        for handle in handles.lock().unwrap().values() {
+            assert_eq!(handle.path.file_stem().unwrap(), "new");
+            assert_eq!(fingerprint(&handle.path).unwrap(), handle.hash);
+            assert!(!dir.path().join(format!("old.{}", handle.path.extension().unwrap().to_string_lossy())).exists());
+        }
+    }
+    #[test]
+    fn rename_source_group_rolls_back_partial_publication() {
+        let dir = tempfile::tempdir().unwrap();
+        let pairs: Vec<_> = ["shp", "dbf", "shx"].iter().map(|ext| {
+            let old = dir.path().join(format!("old.{ext}"));
+            fs::write(&old, ext).unwrap();
+            (old, dir.path().join(format!("new.{ext}")))
+        }).collect();
+        let mut calls = 0;
+        assert!(rename_file_group(&pairs, |old, new| {
+            calls += 1;
+            if calls == 5 { return Err("模拟组件发布失败".into()); }
+            move_file_new(old, new)
+        }).is_err());
+        for (old, new) in &pairs { assert!(old.exists()); assert!(!new.exists()); }
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 3);
+    }
+    #[test]
+    fn rename_source_case_only_preserves_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("old.csv");
+        fs::write(&source, b"a,b").unwrap();
+        let handles = Mutex::new(HashMap::new());
+        let opened = read_selected_files(vec![source], &handles).unwrap();
+        let renamed = rename_source_file_blocking(&handles, &opened[0].source_id, "OLD").unwrap();
+        assert_eq!(renamed.name, "OLD.csv");
+        assert_eq!(fs::read(&renamed.path).unwrap(), b"a,b");
+    }
     #[test]
     fn selected_files_register_deduplicated_native_sources() {
         let dir = tempfile::tempdir().unwrap();

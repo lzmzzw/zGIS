@@ -53,7 +53,7 @@ async function setup(page: Page) {
   await expect(row(page, "points.geojson")).toBeVisible();
 }
 
-test("root and node menus expose only relevant actions; disabled moves reflect current position", async ({
+test("root, group and layer menus contain exactly the requested actions without horizontal overflow", async ({
   page,
 }) => {
   await setup(page);
@@ -61,47 +61,37 @@ test("root and node menus expose only relevant actions; disabled moves reflect c
   await tree.focus();
   await page.keyboard.press("Shift+F10");
   await expect(page.getByRole("menuitem")).toHaveText([
-    "添加文件…",
-    "添加 PostGIS…",
-    "新建分组…",
+    "新建分组",
+    "新建文件",
+    "添加文件",
+    "添加PostGIS",
   ]);
   await page.keyboard.press("Escape");
-  await expect(tree).toBeFocused();
   await row(page, "父组").click({ button: "right" });
-  await expect(
-    page.getByRole("menuitem", { name: "移到顶层", exact: true }),
-  ).toBeDisabled();
-  await expect(
-    page.getByRole("menuitem", { name: "上移", exact: false }),
-  ).toBeDisabled();
-  await expect(
-    page.getByRole("menuitem", { name: "新建子分组…", exact: true }),
-  ).toBeEnabled();
+  await expect(page.getByRole("menuitem")).toHaveText([
+    "新建子分组",
+    "重命名分组",
+    "新建文件",
+    "添加文件",
+    "添加PostGIS",
+    "解散分组",
+    "删除分组",
+  ]);
   await page.keyboard.press("Escape");
   await row(page, "points.geojson").click({ button: "right" });
+  await expect(page.getByRole("menuitem")).toHaveText([
+    "设置别名",
+    "重命名",
+    "移除",
+  ]);
   await expect(
-    page.getByRole("menuitem", { name: "新建分组…", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("menuitem", { name: "添加文件…", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("menuitem", { name: "缩放至图层", exact: true }),
-  ).toBeEnabled();
-  await expect(
-    page.getByRole("menuitem", { name: "打开属性表", exact: true }),
-  ).toBeEnabled();
-  await page.getByRole("menuitem", { name: "隐藏图层", exact: true }).click();
-  await row(page, "points.geojson").click({ button: "right" });
-  await expect(
-    page.getByRole("menuitem", { name: "显示图层", exact: true }),
-  ).toBeEnabled();
-  await page.getByRole("menuitem", { name: "移到顶层", exact: true }).click();
-  await expect(row(page, "points.geojson")).toHaveAttribute("aria-level", "1");
-  await row(page, "points.geojson").click({ button: "right" });
-  await expect(
-    page.getByRole("menuitem", { name: "移到顶层", exact: true }),
+    page.getByRole("menuitem", { name: "重命名", exact: true }),
   ).toBeDisabled();
+  expect(
+    await page
+      .getByRole("menu")
+      .evaluate((el) => el.scrollWidth <= el.clientWidth),
+  ).toBe(true);
 });
 
 test("creating children expands the parent; dissolving confirms and preserves nested layers", async ({
@@ -113,29 +103,27 @@ test("creating children expands the parent; dissolving confirms and preserves ne
     .click();
   await row(page, "父组").focus();
   await page.keyboard.press("Shift+F10");
-  await page
-    .getByRole("menuitem", { name: "新建子分组…", exact: true })
-    .click();
+  await page.getByRole("menuitem", { name: "新建子分组", exact: true }).click();
   await page.getByLabel("分组名称", { exact: true }).fill("新增子组");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(row(page, "父组")).toHaveAttribute("aria-expanded", "true");
   await expect(row(page, "新增子组")).toHaveAttribute("aria-level", "2");
   await row(page, "子组").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "解散分组…", exact: true }).click();
+  await page.getByRole("menuitem", { name: "解散分组", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "解散分组", exact: true }),
-  ).toContainText("图层和子分组将保留在上一级");
+  ).toContainText("图层和子分组将按原有结构移到根层");
   await page.keyboard.press("Escape");
   await expect(row(page, "子组")).toBeFocused();
   await expect(row(page, "points.geojson")).toHaveAttribute("aria-level", "3");
   await row(page, "子组").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "解散分组…", exact: true }).click();
+  await page.getByRole("menuitem", { name: "解散分组", exact: true }).click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "解散", exact: true })
     .click();
   await expect(row(page, "子组")).toHaveCount(0);
-  await expect(row(page, "points.geojson")).toHaveAttribute("aria-level", "2");
+  await expect(row(page, "points.geojson")).toHaveAttribute("aria-level", "1");
   await expect(row(page, "新增子组")).toHaveAttribute("aria-level", "2");
   await expect
     .poll(() => page.evaluate(() => window.__ZG_TEST__.snapshot))
@@ -146,8 +134,8 @@ test("tree menus open tables, preserve drafts and confirm dirty layer removal", 
   page,
 }) => {
   await setup(page);
-  await row(page, "points.geojson").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "打开属性表", exact: true }).click();
+  await row(page, "points.geojson").click();
+  await page.getByRole("button", { name: "展开属性表", exact: true }).click();
   await expect(page.locator(".table-scroll")).toBeVisible();
   await page.locator("tbody tr").first().click();
   await page.getByRole("button", { name: "编辑属性", exact: true }).click();
@@ -167,11 +155,104 @@ test("tree menus open tables, preserve drafts and confirm dirty layer removal", 
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await row(page, "points.geojson").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "移除图层…", exact: true }).click();
+  await page.getByRole("menuitem", { name: "移除", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "取消", exact: true })
     .click();
   await expect(row(page, "points.geojson")).toBeVisible();
+});
+
+test("deleting a group confirms recursive removal while cancel preserves the tree", async ({
+  page,
+}) => {
+  await setup(page);
+  await row(page, "父组").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "删除分组", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("磁盘文件保留");
+  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(row(page, "points.geojson")).toBeVisible();
+  await row(page, "父组").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "删除分组", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "删除", exact: true })
+    .click();
+  await expect(page.locator(".tree-row")).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => JSON.parse(window.__ZG_TEST__.snapshot!).layers.length,
+      ),
+    )
+    .toBe(0);
+});
+
+test("file rename uses the registered source, preserves alias and handles collision", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.evaluate(() =>
+    window.__ZG_TEST__.dropFiles([
+      {
+        name: "source.geojson",
+        sourceId: "native-source",
+        bytes: [
+          ...new TextEncoder().encode(
+            '{"type":"FeatureCollection","features":[]}',
+          ),
+        ],
+      },
+    ]),
+  );
+  await row(page, "source.geojson").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "设置别名", exact: true }).click();
+  await page.getByLabel("图层别名", { exact: true }).fill("工作别名");
+  await page.getByRole("button", { name: "确定", exact: true }).click();
+  const rename = async (name: string) => {
+    await row(page, "工作别名").click({ button: "right" });
+    await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
+    await page.getByLabel("文件名称", { exact: true }).fill(name);
+    await page.getByRole("button", { name: "确定", exact: true }).click();
+  };
+  await page.evaluate(() => {
+    window.__ZG_TEST__.saveError = "同名文件不能覆盖";
+  });
+  await rename("taken");
+  await expect(page.getByRole("alert")).toContainText("同名文件不能覆盖");
+  await page.evaluate(() => {
+    window.__ZG_TEST__.saveError = "";
+  });
+  await rename("renamed");
+  await expect(page.locator(".operation-status")).toContainText("文件已重命名");
+  await expect(row(page, "工作别名")).toBeVisible();
+  const calls = await page.evaluate(() =>
+    window.__ZG_TEST__.calls.filter((c) => c.command === "rename_source_file"),
+  );
+  expect(calls.at(-1)!.args).toEqual({
+    sourceId: "native-source",
+    newName: "renamed",
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.__ZG_TEST__.snapshot))
+    .toContain("renamed.geojson");
+});
+test("new file from a group is inserted into that group", async ({ page }) => {
+  await setup(page);
+  await row(page, "子组").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "新建文件", exact: true }).click();
+  await page.getByRole("button", { name: "创建并编辑", exact: true }).click();
+  await expect(page.locator('[data-node-kind="layer"]').last()).toHaveAttribute(
+    "aria-level",
+    "3",
+  );
+  await row(page, "父组").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "删除分组", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "删除", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("请先保存并退出");
+  await expect(row(page, "父组")).toBeVisible();
 });
