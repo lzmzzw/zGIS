@@ -90,9 +90,9 @@ export async function sidebarDesignSmoke(page) {
       };
     });
     assert.equal(measurements.height, 288);
-    assert.equal(measurements.mainGap, 72);
+    assert.equal(measurements.mainGap, 36);
     assert.equal(measurements.groupGap, 32);
-    assert.ok(measurements.mainGap > measurements.groupGap * 2);
+    assert.ok(measurements.mainGap > measurements.groupGap);
     assert.ok(measurements.neutral);
     assert.ok(
       measurements.contrast.every((ratio) => ratio >= 4.5),
@@ -130,6 +130,6 @@ export async function sidebarDesignSmoke(page) {
     .click();
   await setTheme(originalTheme ?? "dark");
   console.log(
-    "PASS: installed neutral dark/light sidebars, readable contrast, fixed 288px directory, 72/32px whitespace, shared width and reachable help/action",
+    "PASS: installed neutral dark/light sidebars, readable contrast, fixed 288px directory, 36/32px whitespace, shared width and reachable help/action",
   );
 }

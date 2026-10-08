@@ -76,9 +76,9 @@
   gap: 6px;
   border-color: transparent;
   background: transparent;
-  font-size: var(--font-size-sm);
-  color: var(--text);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-xs);
+  color: var(--muted);
+  font-weight: var(--font-weight-semibold);
 }
 .processing-group-toggle > svg {
   transform: rotate(-90deg);
@@ -121,7 +121,7 @@
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  padding: 72px 16px 16px;
+  padding: 36px 16px 16px;
 }
 .processing-tool-title {
   display: flex;
@@ -224,6 +224,12 @@
 }
 .processing-selected > .processing-selected-label {
   color: var(--text);
+}
+.processing-selected:has(> input:disabled) {
+  cursor: not-allowed;
+}
+.processing-selected > input:disabled + .processing-selected-label {
+  color: var(--disabled-text);
 }
 .processing-number-unit {
   position: relative;

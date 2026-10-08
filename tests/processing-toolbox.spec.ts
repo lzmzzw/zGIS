@@ -298,6 +298,8 @@ test("selected input sends only the chosen feature, and invalid distance stays l
 }) => {
   await start(page);
   await tool(page, "缓冲区");
+  await expect(toolbox(page).getByLabel("仅使用选中的要素")).toBeDisabled();
+  await expect(toolbox(page).getByText("先在当前输入图层选中要素")).toHaveCount(0);
   await page.getByRole("button", { name: "展开属性表", exact: true }).click();
   await page.locator("tbody tr").first().click();
   await toolbox(page)
@@ -482,9 +484,9 @@ for (const theme of ["dark", "light"]) {
       };
     });
     expect(geometry.regionHeight).toBe(288);
-    expect(geometry.mainGap).toBe(72);
+    expect(geometry.mainGap).toBe(36);
     expect(geometry.groupGap).toBe(32);
-    expect(geometry.mainGap).toBeGreaterThan(geometry.groupGap * 2);
+    expect(geometry.mainGap).toBeGreaterThan(geometry.groupGap);
     expect(geometry.neutral).toBe(true);
     await page.screenshot({ path: `output/toolbox-design-${theme}-1440.png` });
     await page.setViewportSize({ width: 960, height: 640 });

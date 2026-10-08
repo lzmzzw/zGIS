@@ -630,9 +630,7 @@ export function ProcessingToolbox({
                       <span className="processing-selected-label">
                         仅使用选中的要素
                       </span>
-                      <span>
-                        {canUseSelected ? "1 个" : "先在当前输入图层选中要素"}
-                      </span>
+                      {canUseSelected && <span>1 个</span>}
                     </label>
                     {tool.requiresTarget && (
                       <label>
@@ -786,11 +784,6 @@ export function ProcessingToolbox({
               </div>
               <section className="processing-action" aria-label="运行分析">
                 <div className="processing-feedback">
-                  {layers.length === 0 && (
-                    <p className="processing-notice">
-                      尚无图层。先从文件导入数据，或新建矢量图层并保存编辑。
-                    </p>
-                  )}
                   {unavailableReason && (
                     <p
                       className="processing-notice"
