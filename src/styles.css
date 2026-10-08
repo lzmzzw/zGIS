@@ -674,6 +674,35 @@ tbody tr:hover {
 .attribute-cell.editing {
   position: relative;
 }
+.attribute-panel th {
+  padding-right: 16px;
+}
+.attribute-panel th > .header-menu {
+  min-width: 0;
+}
+.attribute-panel th .header-menu > summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.attribute-panel table.resized-columns {
+  table-layout: fixed;
+}
+.column-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  border-right: 1px solid var(--border);
+}
+.column-resizer:hover,
+.column-resizer:focus-visible {
+  background: var(--selected);
+  border-right-color: var(--accent);
+}
 .cell-size-reference {
   visibility: hidden;
 }

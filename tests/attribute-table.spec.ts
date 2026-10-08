@@ -69,6 +69,39 @@ for (const theme of ["dark", "light"]) {
   });
 }
 
+test("column widths and display order change without changing attribute values", async ({ page }) => {
+  await setup(page);
+  const handle = page.getByRole("separator", { name: "调整 code 列宽", exact: true });
+  const header = handle.locator("..");
+  const before = await header.boundingBox();
+  const box = await handle.boundingBox();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2 + 80, box!.y + box!.height / 2, { steps: 8 });
+  await page.mouse.up();
+  expect((await header.boundingBox())!.width).toBeCloseTo(before!.width + 80, 0);
+  await cell(page, "code").dblclick();
+  expect((await cell(page, "code").boundingBox())!.width).toBeCloseTo(before!.width + 80, 0);
+  await page.getByLabel("属性 code", { exact: true }).press("Escape");
+  const countHeader = page.getByRole("separator", { name: "调整 count 列宽", exact: true }).locator("..");
+  await countHeader.dragTo(header, { targetPosition: { x: 8, y: 12 } });
+  await expect(page.locator(".attribute-panel thead .header-menu > summary")).toHaveText([
+    "count", "code", "enabled", "empty", "detail", "long",
+  ]);
+  expect(await page.locator(".attribute-panel tbody tr.selected td[data-field]").evaluateAll((cells) =>
+    cells.map((el) => [el.getAttribute("data-field"), el.textContent]),
+  )).toEqual([["count", "1"], ["code", "001"], ["enabled", "true"], ["empty", "NULL"], ["detail", '{"name":"原值"}'], ["long", "长文本".repeat(50)]]);
+  expect((await header.boundingBox())!.width).toBeCloseTo(before!.width + 80, 0);
+  await handle.dblclick();
+  await expect(page.locator(".attribute-panel table")).not.toHaveClass("resized-columns");
+  await header.locator("summary").focus();
+  await page.keyboard.press("Alt+ArrowLeft");
+  await expect(page.locator(".attribute-panel thead .header-menu > summary")).toHaveText([
+    "code", "count", "enabled", "empty", "detail", "long",
+  ]);
+  await expect(page.locator(".layer-text").filter({ hasText: "attributes.geojson" })).not.toContainText("*");
+});
+
 test("cell validation, keyboard commit, cancellation and NULL retain correct types", async ({
   page,
 }) => {

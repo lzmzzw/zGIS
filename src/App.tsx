@@ -439,6 +439,10 @@ export default function App() {
   } | null>(null);
   const [tableEditing, setTableEditing] = useState(false);
   const [tableMaximized, setTableMaximized] = useState(false);
+  const [columnWidths, setColumnWidths] = useState<Record<string, Record<string, number>>>({});
+  const [columnOrders, setColumnOrders] = useState<Record<string, string[]>>({});
+  const columnDrag = useRef<string | null>(null);
+  const columnResize = useRef<{ x: number; width: number } | null>(null);
   const [cellDraft, setCellDraft] = useState<{
     layerId: string;
     featureId: string;
@@ -1469,8 +1473,8 @@ export default function App() {
               : f,
           ),
         );
-      const fieldIndex = fields.indexOf(cellDraft.field);
-      const nextField = fields[fieldIndex + direction];
+      const fieldIndex = displayFields.indexOf(cellDraft.field);
+      const nextField = displayFields[fieldIndex + direction];
       const oldField = cellDraft.field;
       setCellDraft(null);
       if (modal === "cell") setModal(null);
@@ -2083,6 +2087,70 @@ export default function App() {
       ...(active?.features.flatMap((f) => Object.keys(f.properties)) ?? []),
     ]),
   ];
+  const savedOrder = columnOrders[activeId ?? ""] ?? [];
+  const displayFields = [
+    ...savedOrder.filter((field) => fields.includes(field)),
+    ...fields.filter((field) => !savedOrder.includes(field)),
+  ];
+  const columnKeys = ["index", "geometry", ...displayFields.map((field) => `field:${field}`)];
+  const widths = columnWidths[activeId ?? ""];
+  function resetColumnWidths() {
+    if (!activeId) return;
+    setColumnWidths((old) => {
+      const next = { ...old };
+      delete next[activeId];
+      return next;
+    });
+  }
+  function resizeColumn(key: string, width: number, header: HTMLElement) {
+    if (!activeId) return;
+    const measured = Object.fromEntries(
+      [...header.parentElement!.children].map((el, index) => [columnKeys[index], el.getBoundingClientRect().width]),
+    );
+    setColumnWidths((old) => ({
+      ...old,
+      [activeId]: { ...measured, ...old[activeId], [key]: Math.max(48, width) },
+    }));
+  }
+  function renderColumnResizer(key: string, label: string) {
+    return (
+      <span
+        className="column-resizer"
+        role="separator"
+        aria-label={`调整 ${label} 列宽`}
+        aria-orientation="vertical"
+        aria-valuemin={48}
+        aria-valuenow={widths?.[key] == null ? undefined : Math.round(widths[key])}
+        tabIndex={0}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => { e.stopPropagation(); resetColumnWidths(); }}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.currentTarget.focus();
+          columnResize.current = { x: e.clientX, width: e.currentTarget.parentElement!.getBoundingClientRect().width };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (!columnResize.current || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+          resizeColumn(key, columnResize.current.width + e.clientX - columnResize.current.x, e.currentTarget.parentElement!);
+        }}
+        onLostPointerCapture={() => { columnResize.current = null; }}
+        onPointerUp={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Home") { e.preventDefault(); resetColumnWidths(); }
+          if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+          e.preventDefault();
+          e.stopPropagation();
+          const header = e.currentTarget.parentElement!;
+          resizeColumn(key, header.getBoundingClientRect().width + (e.key === "ArrowRight" ? 16 : -16), header);
+        }}
+      />
+    );
+  }
   const filtered =
     active?.features.filter(
       (f) =>
@@ -3572,10 +3640,18 @@ export default function App() {
               )}
               {tableOpen && (
                 <div className="table-scroll">
-                  <table>
+                  <table
+                    className={widths ? "resized-columns" : undefined}
+                    style={widths ? { width: columnKeys.reduce((sum, key) => sum + (widths[key] ?? 140), 0) } : undefined}
+                  >
+                    {widths && (
+                      <colgroup>
+                        {columnKeys.map((key) => <col key={key} style={{ width: widths[key] ?? 140 }} />)}
+                      </colgroup>
+                    )}
                     <thead>
                       <tr>
-                        <th className="index-cell">#</th>
+                        <th className="index-cell">#{renderColumnResizer("index", "序号")}</th>
                         <th>
                           几何{" "}
                           <button
@@ -3586,11 +3662,36 @@ export default function App() {
                           >
                             <Plus />
                           </button>
+                          {renderColumnResizer("geometry", "几何")}
                         </th>
-                        {fields.map((field) => (
+                        {displayFields.map((field) => (
                           <th
                             key={field}
                             title={field}
+                            draggable={!cellDraft}
+                            onDragStart={(e) => {
+                              if ((e.target as HTMLElement).closest(".column-resizer")) { e.preventDefault(); return; }
+                              columnDrag.current = field;
+                              e.dataTransfer.setData("text/plain", field);
+                              e.dataTransfer.effectAllowed = "move";
+                            }}
+                            onDragEnd={() => { columnDrag.current = null; }}
+                            onDragOver={(e) => {
+                              if (!columnDrag.current) return;
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = "move";
+                            }}
+                            onDrop={(e) => {
+                              const from = columnDrag.current;
+                              if (!from || !activeId || from === field) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const next = displayFields.filter((name) => name !== from);
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              next.splice(next.indexOf(field) + (e.clientX > rect.left + rect.width / 2 ? 1 : 0), 0, from);
+                              setColumnOrders((old) => ({ ...old, [activeId]: next }));
+                              columnDrag.current = null;
+                            }}
                             onContextMenu={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
@@ -3613,6 +3714,19 @@ export default function App() {
                                 });
                             }}
                             onKeyDown={(event) => {
+                              if (event.altKey && !cellDraft && activeId &&
+                                  (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                const next = [...displayFields];
+                                const from = next.indexOf(field);
+                                const to = from + (event.key === "ArrowLeft" ? -1 : 1);
+                                if (to >= 0 && to < next.length) {
+                                  [next[from], next[to]] = [next[to], next[from]];
+                                  setColumnOrders((old) => ({ ...old, [activeId]: next }));
+                                }
+                                return;
+                              }
                               if (!(
                                 event.key === "ContextMenu" ||
                                 (event.shiftKey && event.key === "F10")
@@ -3672,6 +3786,7 @@ export default function App() {
                                 删除字段
                               </button>
                             </HeaderMenu>
+                            {renderColumnResizer(`field:${field}`, field)}
                           </th>
                         ))}
                       </tr>
@@ -3742,7 +3857,7 @@ export default function App() {
                             {page * pageSize + index + 1}
                           </td>
                           <td>{f.geometry?.type ?? "空"}</td>
-                          {fields.map((field) => {
+                          {displayFields.map((field) => {
                             const draft =
                               cellDraft?.featureId === f.id &&
                               cellDraft.layerId === activeId &&
