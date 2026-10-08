@@ -232,6 +232,7 @@ export function ConnectionPanel({
 }
 
 export function LoadPanel({
+  engine = "postgis",
   layer,
   column,
   srid,
@@ -245,6 +246,7 @@ export function LoadPanel({
   onLoad,
   onClose,
 }: {
+  engine?: "postgis" | "mysql";
   layer: DbLayer;
   column: string;
   srid: number;
@@ -261,7 +263,7 @@ export function LoadPanel({
   const valid =
     Number.isInteger(limit) &&
     limit >= 1 &&
-    limit <= 100000 &&
+    limit <= (engine === "mysql" ? 10000 : 100000) &&
     (layer.geometryKind === "geometry" ||
       (Boolean(column || layer.geometryColumn) &&
         Number.isInteger(srid) &&
@@ -291,7 +293,9 @@ export function LoadPanel({
                     .filter(
                       (item) =>
                         item.type.includes("text") ||
-                        item.type.includes("character"),
+                        item.type.includes("character") ||
+                        item.type.includes("varchar") ||
+                        item.type.startsWith("char("),
                     )
                     .map((item) => (
                       <option key={item.name}>{item.name}</option>
@@ -307,8 +311,12 @@ export function LoadPanel({
                   onChange={(event) => onSrid(Number(event.target.value))}
                 >
                   <option value={4326}>EPSG:4326 · WGS84</option>
-                  <option value={4490}>EPSG:4490 · CGCS2000</option>
-                  <option value={3857}>EPSG:3857 · Web Mercator</option>
+                  {engine !== "mysql" && (
+                    <option value={4490}>EPSG:4490 · CGCS2000</option>
+                  )}
+                  {engine !== "mysql" && (
+                    <option value={3857}>EPSG:3857 · Web Mercator</option>
+                  )}
                 </select>
               </label>
             </>
@@ -330,7 +338,7 @@ export function LoadPanel({
               aria-label="最多读取记录"
               type="number"
               min={1}
-              max={100000}
+              max={engine === "mysql" ? 10000 : 100000}
               value={limit}
               disabled={busy}
               onChange={(event) => onLimit(Number(event.target.value))}

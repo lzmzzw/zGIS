@@ -50,6 +50,7 @@ import ContextMenu, {
 } from "./ContextMenu";
 import { cellText, parseCellValue } from "./attributeEditing";
 import LayerTree from "./LayerTreePanel";
+import PostgisManager from "./PostgisManager";
 import {
   reconcileTree,
   orderedTreeLayers,
@@ -78,12 +79,7 @@ import ProcessingToolbox, {
 import { getAnalysisTool } from "./analysisTools";
 import MapView, { type Tool, type DrawDraft } from "./MapView";
 import { ImportPanel, ExportPanel } from "./FilePanels";
-import {
-  SourcePanel,
-  ConnectionPanel,
-  LoadPanel,
-  SubmitPanel,
-} from "./DatabasePanels";
+import { SourcePanel, ConnectionPanel, LoadPanel } from "./DatabasePanels";
 import { databaseChanges } from "./dbChanges";
 import {
   restoreWorkspace,
@@ -235,6 +231,8 @@ interface History {
   future: GeoFeature[][];
   pastFields?: string[][];
   futureFields?: string[][];
+  pastSchemas?: DocumentLayer["schemaChanges"][];
+  futureSchemas?: DocumentLayer["schemaChanges"][];
 }
 function HeaderMenu({
   label,
@@ -468,7 +466,10 @@ export default function App() {
     | "database"
     | "db-load"
     | "db-sources"
-    | "submit"
+    | "postgis-manager"
+    | "mysql-manager"
+    | "rename-field"
+    | "delete-field"
     | "settings"
     | "close"
     | "quit"
@@ -493,6 +494,7 @@ export default function App() {
   const [propertyText, setPropertyText] = useState("{}");
   const [wktText, setWktText] = useState("");
   const [newField, setNewField] = useState("");
+  const [fieldTarget, setFieldTarget] = useState("");
   const [recoveryReady, setRecoveryReady] = useState(!desktop);
   const snapshotQueue = useRef<Promise<unknown>>(Promise.resolve());
   const exitPending = useRef(false);
@@ -652,6 +654,7 @@ export default function App() {
   const [dbWktColumn, setDbWktColumn] = useState("");
   const [dbSrid, setDbSrid] = useState(4326);
   const [dbLimit, setDbLimit] = useState(10000);
+  const [dbEngine, setDbEngine] = useState<"postgis" | "mysql">("postgis");
   const [targetSchema, setTargetSchema] = useState("public");
   const [targetTable, setTargetTable] = useState("");
   useEffect(() => {
@@ -775,7 +778,7 @@ export default function App() {
       setError("请先保存并退出当前图层编辑，再加载数据源");
       return;
     }
-    openModal(connectionId ? "db-sources" : "database");
+    openModal("postgis-manager");
   }
   function configureDatabase(index: number) {
     setDbIndex(index);
@@ -1259,25 +1262,35 @@ export default function App() {
       openModal("import");
     } else await importSelected(files);
   }
-  function edit(features: GeoFeature[], fieldNames = active?.fieldNames) {
+  function edit(
+    features: GeoFeature[],
+    fieldNames = active?.fieldNames,
+    schemaChanges = active?.schemaChanges,
+  ) {
     if (!active || busy || !editable) return;
     const history = histories.current.get(active.id) ?? {
       past: [],
       future: [],
     };
     history.pastFields ??= history.past.map(() => active.fieldNames ?? []);
+    history.pastSchemas ??= history.past.map(() => active.schemaChanges ?? []);
     history.past.push(active.features);
     (history.pastFields ??= []).push(active.fieldNames ?? []);
+    history.pastSchemas.push(active.schemaChanges ?? []);
     if (history.past.length > 30) {
       history.past.shift();
       history.pastFields.shift();
+      history.pastSchemas.shift();
     }
     history.future = [];
     history.futureFields = [];
+    history.futureSchemas = [];
     histories.current.set(active.id, history);
     setLayers((old) =>
       old.map((l) =>
-        l.id === active.id ? { ...l, features, fieldNames, dirty: true } : l,
+        l.id === active.id
+          ? { ...l, features, fieldNames, schemaChanges, dirty: true }
+          : l,
       ),
     );
     refreshHistory((n) => n + 1);
@@ -1300,7 +1313,16 @@ export default function App() {
     if (insert)
       feature = {
         ...feature,
-        properties: Object.fromEntries(fields.map((field) => [field, ""])),
+        properties: Object.fromEntries(
+          fields
+            .filter(
+              (field) =>
+                !active.db?.columns.some(
+                  (c) => c.name === field && (c.generated || c.hasDefault),
+                ),
+            )
+            .map((field) => [field, ""]),
+        ),
       };
     edit(
       insert
@@ -1325,11 +1347,15 @@ export default function App() {
     if (!h) return;
     h.pastFields ??= h.past.map(() => active.fieldNames ?? []);
     h.futureFields ??= h.future.map(() => active.fieldNames ?? []);
+    h.pastSchemas ??= h.past.map(() => active.schemaChanges ?? []);
+    h.futureSchemas ??= h.future.map(() => active.schemaChanges ?? []);
     const from = direction === "undo" ? h.past : h.future;
     const to = direction === "undo" ? h.future : h.past;
     const next = from.pop();
     const fromFields = direction === "undo" ? h.pastFields : h.futureFields;
     const nextFields = fromFields?.pop() ?? active.fieldNames;
+    const nextSchema =
+      (direction === "undo" ? h.pastSchemas : h.futureSchemas).pop() ?? [];
     if (next) {
       if (selectedId && !next.some((f) => f.id === selectedId))
         setSelectedId(undefined);
@@ -1337,6 +1363,9 @@ export default function App() {
       if (direction === "undo")
         (h.futureFields ??= []).push(active.fieldNames ?? []);
       else (h.pastFields ??= []).push(active.fieldNames ?? []);
+      (direction === "undo" ? h.futureSchemas : h.pastSchemas).push(
+        active.schemaChanges ?? [],
+      );
       setLayers((old) =>
         old.map((l) =>
           l.id === active.id
@@ -1344,6 +1373,7 @@ export default function App() {
                 ...l,
                 features: next,
                 fieldNames: nextFields,
+                schemaChanges: nextSchema,
                 dirty:
                   editingBaseline.current?.id === active.id
                     ? editingBaseline.current.dirty ||
@@ -1612,8 +1642,13 @@ export default function App() {
     }
     if (!active) return;
     saveStopsEditing.current = stopEditing;
-    if (active.sourceKind === "postgis") {
-      openModal("submit");
+    if (Boolean(active.db)) {
+      await task(async () => {
+        await commitLayer(active);
+        if (stopEditing) finishEditing(active.id);
+        else markEditingSaved(active.id);
+        if (desktop) await writeSnapshot(currentLayers.current);
+      });
       return;
     }
     if (active.sourceKind === "shp" && asNew) {
@@ -1653,7 +1688,9 @@ export default function App() {
       exportSaveLayerId.current = editing ? active.id : undefined;
       if (desktop) {
         setExportMode("shp");
-        setExportFilename((active.displayName ?? active.name).replace(/\.[^.]+$/, "") + ".zip");
+        setExportFilename(
+          (active.displayName ?? active.name).replace(/\.[^.]+$/, "") + ".zip",
+        );
         setError("");
         setModal("export");
         return;
@@ -1856,6 +1893,7 @@ export default function App() {
       if (!info) throw new Error("请选择数据表");
       const layer = {
         ...info,
+        engine: dbEngine,
         geometryColumn:
           info.geometryKind === "wkt"
             ? dbWktColumn || info.geometryColumn
@@ -1876,9 +1914,20 @@ export default function App() {
       const doc = makeLayer(
         `${layer.schema}.${layer.table}`,
         result.features,
-        "postgis",
+        dbEngine,
         {
-          db: { connectionId, ...layer },
+          fieldNames: layer.columns
+            .filter(
+              (c) =>
+                c.name !== layer.geometryColumn &&
+                !/geometry|geography/i.test(c.type),
+            )
+            .map((c) => c.name),
+          db: {
+            connectionId,
+            ...layer,
+            keyColumns: result.writable === false ? [] : layer.keyColumns,
+          },
           warnings: result.truncated
             ? [`已达到 ${dbLimit} 条读取上限，当前不是全表`]
             : [],
@@ -1898,7 +1947,8 @@ export default function App() {
     const before = dbBaselines.current.get(doc.id);
     if (!before) throw new Error("提交基线缺失，请重新载入来源");
     const changes = databaseChanges(before, doc.features);
-    if (!changes.length) {
+    const schemaChanges = doc.schemaChanges ?? [];
+    if (!changes.length && !schemaChanges.length) {
       const updated = { ...doc, dirty: false };
       setLayers((old) =>
         old.map((layer) => (layer.id === doc.id ? updated : layer)),
@@ -1917,18 +1967,37 @@ export default function App() {
       );
     };
     try {
-      await api.commit(doc.db.connectionId, doc.db, changes);
+      await api.commit(doc.db.connectionId, doc.db, changes, schemaChanges);
     } catch (reason) {
-      if (errorText(reason).includes("提交结果待核对"))
+      if (
+        /结果待核对|字段结构已提交|未确认|超时|回滚结果/.test(errorText(reason))
+      )
         blockRetry(
           "提交结果待核对，请重新载入来源后核对数据；当前副本禁止重复提交。",
         );
       throw reason;
     }
+    const nextColumns = doc.db.columns.map((c) => ({ ...c }));
+    for (const change of schemaChanges) {
+      if (change.kind === "add")
+        nextColumns.push({
+          name: change.name,
+          type: "character varying(255)",
+          nullable: true,
+        });
+      else if (change.kind === "rename") {
+        const c = nextColumns.find((c) => c.name === change.name);
+        if (c) c.name = change.newName!;
+      } else {
+        const index = nextColumns.findIndex((c) => c.name === change.name);
+        if (index >= 0) nextColumns.splice(index, 1);
+      }
+    }
+    const nextDb = { ...doc.db, columns: nextColumns };
     const result = await api
       .query(
         doc.db.connectionId,
-        doc.db,
+        nextDb,
         dbReadLimits.current.get(doc.id) ?? 10000,
         dbBounds.current.get(doc.id),
       )
@@ -1949,6 +2018,15 @@ export default function App() {
     histories.current.delete(doc.id);
     const updated = {
       ...doc,
+      db: nextDb,
+      schemaChanges: [],
+      fieldNames: nextColumns
+        .filter(
+          (c) =>
+            c.name !== nextDb.geometryColumn &&
+            !/geometry|geography/i.test(c.type),
+        )
+        .map((c) => c.name),
       features: result.features,
       dirty: false,
       warnings: result.truncated
@@ -1965,18 +2043,6 @@ export default function App() {
       layer.id === doc.id ? updated : layer,
     );
     return updated;
-  }
-  async function commit() {
-    if (!active) return;
-    await task(async () => {
-      await commitLayer(active);
-      if (editing) {
-        if (saveStopsEditing.current) finishEditing(active.id);
-        else markEditingSaved(active.id);
-      }
-      setModal(null);
-      if (desktop) await writeSnapshot(currentLayers.current);
-    });
   }
   async function closeLayer(targetId = active?.id) {
     if (targetId === editingLayerId) {
@@ -2095,7 +2161,7 @@ export default function App() {
   const h = active ? histories.current.get(active.id) : undefined;
   const canEdit =
     Boolean(active) &&
-    (active?.sourceKind !== "postgis" ||
+    (!active?.db ||
       (Boolean(active.db?.keyColumns.length) &&
         !uncertainDocs.has(active.id!)));
   const editable = canEdit && editing;
@@ -2258,12 +2324,31 @@ export default function App() {
         if (!editing) beginEditing();
         openModal("field");
       },
-      contextBlocked ||
-        sketching ||
-        !canEdit ||
-        active?.sourceKind === "postgis",
+      contextBlocked || sketching || !canEdit,
       false,
-      active?.sourceKind === "postgis" ? "不支持修改数据库表结构" : undefined,
+      undefined,
+    );
+    contextAction(
+      "rename-field",
+      "重命名字段…",
+      () => {
+        if (!editing) beginEditing();
+        setFieldTarget(context.field);
+        setNewField(context.field);
+        openModal("rename-field");
+      },
+      contextBlocked || sketching || !canEdit,
+    );
+    contextAction(
+      "delete-field",
+      "删除字段…",
+      () => {
+        if (!editing) beginEditing();
+        setFieldTarget(context.field);
+        openModal("delete-field");
+      },
+      contextBlocked || sketching || !canEdit,
+      true,
     );
   } else if (context) {
     if (context.kind === "map") {
@@ -2474,7 +2559,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => void save(true)}
-                disabled={!active || busy || active.sourceKind === "postgis"}
+                disabled={!active || busy || Boolean(active.db)}
               >
                 <Save />
                 另存为
@@ -2489,17 +2574,19 @@ export default function App() {
               </button>
             </HeaderMenu>
             <HeaderMenu label="数据">
-              <button onClick={() => requestNewLayer()} disabled={busy}>
-                <Plus />
-                新建矢量图层…
-              </button>
-              <button onClick={openFiles} disabled={busy}>
-                <FolderOpen />
-                导入数据…
+              <button
+                onClick={() => {
+                  insertionGroup.current = undefined;
+                  openModal("mysql-manager");
+                }}
+                disabled={!desktop || busy}
+              >
+                <Database />
+                Mysql 数据源
               </button>
               <button onClick={openSources} disabled={!desktop || busy}>
                 <Database />
-                PostGIS 数据源…
+                PostGIS 数据源
               </button>
             </HeaderMenu>
             <button
@@ -2600,7 +2687,11 @@ export default function App() {
           }}
         />
         <main
-          hidden={modal === "settings"}
+          hidden={
+            modal === "settings" ||
+            modal === "postgis-manager" ||
+            modal === "mysql-manager"
+          }
           className="workspace"
           ref={workspaceElement}
           style={
@@ -2676,7 +2767,7 @@ export default function App() {
               readonlyIds={layers
                 .filter(
                   (l) =>
-                    l.sourceKind === "postgis" &&
+                    Boolean(l.db) &&
                     (!l.db?.keyColumns.length || uncertainDocs.has(l.id)),
                 )
                 .map((l) => l.id)}
@@ -2729,9 +2820,15 @@ export default function App() {
                 const layer = layers.find((l) => l.id === id);
                 if (!layer?.sourceId || busy || cellDraft) return;
                 void task(async () => {
-                  const renamed = await api.renameSourceFile(layer.sourceId!, name);
+                  const renamed = await api.renameSourceFile(
+                    layer.sourceId!,
+                    name,
+                  );
                   const next = currentLayers.current.map((l) =>
-                    l.sourceId === layer.sourceId ? { ...l, name: renamed.name } : l);
+                    l.sourceId === layer.sourceId
+                      ? { ...l, name: renamed.name }
+                      : l,
+                  );
                   setLayers(next);
                   currentLayers.current = next;
                   if (desktop) await writeSnapshot(next);
@@ -2747,7 +2844,9 @@ export default function App() {
                   return;
                 }
                 void task(async () => {
-                  const next = currentLayers.current.filter((l) => !ids.has(l.id));
+                  const next = currentLayers.current.filter(
+                    (l) => !ids.has(l.id),
+                  );
                   setTree((old) => deleteTreeGroup(old, id));
                   setLayers(next);
                   currentLayers.current = next;
@@ -2947,6 +3046,7 @@ export default function App() {
                     <IconButton
                       label="保存编辑"
                       disabled={
+                        !canEdit ||
                         !active?.dirty ||
                         busy ||
                         Boolean(cellDraft) ||
@@ -3242,6 +3342,70 @@ export default function App() {
                       <Pencil />
                       编辑属性
                     </button>
+                    <IconButton
+                      label="新增记录"
+                      disabled={
+                        !editable ||
+                        !tableEditing ||
+                        busy ||
+                        Boolean(cellDraft) ||
+                        Boolean(drawDraft) ||
+                        gestureActive
+                      }
+                      onClick={() => {
+                        if (!active) return;
+                        const feature: GeoFeature = {
+                          id: crypto.randomUUID(),
+                          geometry: null,
+                          properties: Object.fromEntries(
+                            fields
+                              .filter(
+                                (field) =>
+                                  !active.db?.columns.some(
+                                    (c) =>
+                                      c.name === field &&
+                                      (c.generated || c.hasDefault),
+                                  ),
+                              )
+                              .map((field) => [field, ""]),
+                          ),
+                        };
+                        edit([...active.features, feature]);
+                        setSelectedId(feature.id);
+                        setPage(Math.floor(active.features.length / pageSize));
+                      }}
+                    >
+                      <Plus />
+                    </IconButton>
+                    <IconButton
+                      label="删除记录"
+                      disabled={
+                        !editable ||
+                        !tableEditing ||
+                        !selected ||
+                        busy ||
+                        Boolean(cellDraft) ||
+                        Boolean(drawDraft) ||
+                        gestureActive
+                      }
+                      onClick={() => openModal("delete")}
+                    >
+                      <Trash2 />
+                    </IconButton>
+                    <IconButton
+                      label="保存属性编辑"
+                      disabled={
+                        !editable ||
+                        !active?.dirty ||
+                        busy ||
+                        Boolean(cellDraft) ||
+                        Boolean(drawDraft) ||
+                        gestureActive
+                      }
+                      onClick={() => void save()}
+                    >
+                      <Save />
+                    </IconButton>
                     {cellDraft && (
                       <>
                         <button
@@ -3399,12 +3563,7 @@ export default function App() {
                           <button
                             className="quiet field-add"
                             aria-label="添加字段"
-                            disabled={
-                              !active ||
-                              !editable ||
-                              busy ||
-                              active.sourceKind === "postgis"
-                            }
+                            disabled={!active || !editable || busy}
                             onClick={() => openModal("field")}
                           >
                             <Plus />
@@ -3469,15 +3628,30 @@ export default function App() {
                                 {fieldSummary(field)}
                               </span>
                               <button
-                                disabled={
-                                  !editable ||
-                                  busy ||
-                                  active?.sourceKind === "postgis"
-                                }
+                                disabled={!editable || busy}
                                 onClick={() => openModal("field")}
                               >
                                 <Plus />
                                 添加字段
+                              </button>
+                              <button
+                                disabled={!editable || busy}
+                                onClick={() => {
+                                  setFieldTarget(field);
+                                  setNewField(field);
+                                  openModal("rename-field");
+                                }}
+                              >
+                                重命名字段
+                              </button>
+                              <button
+                                disabled={!editable || busy}
+                                onClick={() => {
+                                  setFieldTarget(field);
+                                  openModal("delete-field");
+                                }}
+                              >
+                                删除字段
                               </button>
                             </HeaderMenu>
                           </th>
@@ -3747,6 +3921,56 @@ export default function App() {
             />
           </Modal>
         )}
+        <PostgisManager
+          open={modal === "postgis-manager"}
+          onClose={() => openModal(null)}
+          inUseConnectionIds={layers.flatMap((l) =>
+            l.db ? [l.db.connectionId] : [],
+          )}
+          onActive={(id, config) => {
+            setConnectionId(id);
+            setConnection(config);
+          }}
+          onLoad={(id, config, layer) => {
+            if (editingLayerId || cellDraft) {
+              setError("请先保存并退出当前图层编辑，再加载数据源");
+              return;
+            }
+            setDbEngine("postgis");
+            setConnectionId(id);
+            setConnection(config);
+            setDbLayers([layer]);
+            setDbIndex(0);
+            setDbWktColumn("");
+            setDbSrid(layer.srid || 4326);
+            openModal("db-load");
+          }}
+        />
+        <PostgisManager
+          engine="mysql"
+          open={modal === "mysql-manager"}
+          onClose={() => openModal(null)}
+          inUseConnectionIds={layers.flatMap((l) =>
+            l.db ? [l.db.connectionId] : [],
+          )}
+          onActive={() => {}}
+          onLoad={(id, config, layer) => {
+            if (editingLayerId || cellDraft) {
+              setError("请先保存并退出当前图层编辑，再加载数据源");
+              return;
+            }
+            setDbEngine("mysql");
+            setConnectionId(id);
+            setConnection(config);
+            setDbLayers([{ ...layer, engine: "mysql" }]);
+            setDbIndex(0);
+            setDbWktColumn("");
+            setDbSrid(layer.srid || 4326);
+            setDbLimit(Math.min(dbLimit, 10000));
+            setDbUseViewport(false);
+            openModal("db-load");
+          }}
+        />
         {modal === "settings" && (
           <SettingsPage
             services={services}
@@ -3784,9 +4008,7 @@ export default function App() {
                   )}
                 </div>
                 <button
-                  disabled={
-                    !editable || busy || active.sourceKind === "postgis"
-                  }
+                  disabled={!editable || busy}
                   onClick={() => openModal("field")}
                 >
                   <Plus />
@@ -4022,12 +4244,7 @@ export default function App() {
             <div className="modal-actions">
               <button onClick={() => openModal(null)}>取消</button>
               <button
-                disabled={
-                  !newField.trim() ||
-                  !editable ||
-                  busy ||
-                  active?.sourceKind === "postgis"
-                }
+                disabled={!newField.trim() || !editable || busy}
                 onClick={() => {
                   const name = newField.trim();
                   if (name.length > 1024 || fields.length >= 10_000) {
@@ -4044,6 +4261,12 @@ export default function App() {
                       properties: { ...f.properties, [name]: "" },
                     })),
                     [...fields, name],
+                    active!.db
+                      ? [
+                          ...(active!.schemaChanges ?? []),
+                          { kind: "add", name },
+                        ]
+                      : active!.schemaChanges,
                   );
                   setNewField("");
                   openModal(null);
@@ -4054,8 +4277,92 @@ export default function App() {
             </div>
           </Modal>
         )}
+        {(modal === "rename-field" || modal === "delete-field") && active && (
+          <Modal
+            title={modal === "rename-field" ? "重命名字段" : "删除字段"}
+            onClose={() => openModal(null)}
+          >
+            {modal === "rename-field" ? (
+              <label>
+                新字段名
+                <input
+                  aria-label="新字段名"
+                  autoFocus
+                  value={newField}
+                  onChange={(e) => setNewField(e.target.value)}
+                />
+              </label>
+            ) : (
+              <p>
+                删除字段“{fieldTarget}”及该字段的全部值？保存编辑后同步到来源。
+              </p>
+            )}
+            <div className="modal-actions">
+              <button onClick={() => openModal(null)}>取消</button>
+              <button
+                className={modal === "delete-field" ? "danger" : undefined}
+                disabled={
+                  !editable ||
+                  busy ||
+                  (modal === "rename-field" && !newField.trim())
+                }
+                onClick={() => {
+                  const rename = modal === "rename-field";
+                  const name = newField.trim();
+                  if (
+                    rename &&
+                    (name.length > 1024 ||
+                      (fields.includes(name) && name !== fieldTarget))
+                  ) {
+                    setError("字段名无效或已存在，不能覆盖原值");
+                    return;
+                  }
+                  if (rename && name === fieldTarget) {
+                    openModal(null);
+                    return;
+                  }
+                  const features = active.features.map((f) => {
+                    const properties = { ...f.properties };
+                    if (rename && Object.hasOwn(properties, fieldTarget))
+                      properties[name] = properties[fieldTarget];
+                    delete properties[fieldTarget];
+                    return { ...f, properties };
+                  });
+                  edit(
+                    features,
+                    rename
+                      ? fields.map((f) => (f === fieldTarget ? name : f))
+                      : fields.filter((f) => f !== fieldTarget),
+                    active.db
+                      ? [
+                          ...(active.schemaChanges ?? []),
+                          rename
+                            ? {
+                                kind: "rename",
+                                name: fieldTarget,
+                                newName: name,
+                              }
+                            : { kind: "delete", name: fieldTarget },
+                        ]
+                      : active.schemaChanges,
+                  );
+                  setNewField("");
+                  openModal(null);
+                }}
+              >
+                {modal === "rename-field" ? "重命名字段" : "删除字段"}
+              </button>
+            </div>
+          </Modal>
+        )}
         {modal === "new-layer" && (
-          <Modal title="新建矢量图层" onClose={() => { insertionGroup.current = undefined; openModal(null); }}>
+          <Modal
+            title="新建矢量图层"
+            onClose={() => {
+              insertionGroup.current = undefined;
+              openModal(null);
+            }}
+          >
             <div className="form-grid">
               <label>
                 图层名称
@@ -4224,6 +4531,7 @@ export default function App() {
               layer={dbLayers[dbIndex]}
               column={dbWktColumn}
               srid={dbSrid}
+              engine={dbEngine}
               limit={dbLimit}
               viewport={dbUseViewport}
               busy={busy}
@@ -4232,28 +4540,6 @@ export default function App() {
               onLimit={setDbLimit}
               onViewport={setDbUseViewport}
               onLoad={() => void loadDatabase()}
-              onClose={() => openModal(null)}
-            />
-          </Modal>
-        )}
-        {modal === "submit" && active?.db && (
-          <Modal
-            title="提交到数据库"
-            showError={false}
-            onClose={() => {
-              if (!busy) openModal(null);
-            }}
-          >
-            <SubmitPanel
-              target={active.displayName ?? active.name}
-              changes={databaseChanges(
-                dbBaselines.current.get(active.id) ?? [],
-                active.features,
-              )}
-              busy={busy}
-              blocked={uncertainDocs.has(active.id)}
-              error={error}
-              onSubmit={() => void commit()}
               onClose={() => openModal(null)}
             />
           </Modal>

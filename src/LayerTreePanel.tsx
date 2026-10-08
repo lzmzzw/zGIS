@@ -528,9 +528,7 @@ export default function LayerTree(props: Props) {
         setName(menuLayer?.name ?? "");
         setDialog({ kind: "rename-layer", id: node.id });
       },
-      !props.desktop ||
-        !menuLayer?.sourceId ||
-        menuLayer?.sourceKind === "postgis",
+      !props.desktop || !menuLayer?.sourceId || Boolean(menuLayer?.db),
     );
     separator("remove");
     addItem(

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { installDesktopMock } from "./desktop.mock";
+import { installDesktopMock, loadDatabaseTestLayer } from "./desktop.mock";
 
 declare global {
   interface Window {
@@ -165,7 +165,8 @@ test("field menus support keyboard access, restore focus and open an editable fi
   await expectClipboard(page, "name：文本 · 2 条 · 0 空值");
   await expect(summary).toBeFocused();
   await page.keyboard.press("Shift+F10");
-  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
   await expect(item(page, "添加字段…")).toBeFocused();
   await page.keyboard.press("Space");
   await expect(
@@ -173,6 +174,35 @@ test("field menus support keyboard access, restore focus and open an editable fi
   ).toBeVisible();
   await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(page.getByRole("dialog").locator(":focus")).toHaveCount(1);
+});
+
+test("file field menus add, rename and delete with undo and redo preserving values", async ({page}) => {
+  await setup(page);
+  await page.getByRole("button", {name:"编辑",exact:true}).click();
+  const fieldMenu = async (field: string) => page.locator(`.attribute-panel th[title="${field}"]`).click({button:"right"});
+  await fieldMenu("name"); await item(page, "添加字段…").click();
+  await page.getByLabel("新字段名", {exact:true}).fill("extra");
+  await page.getByRole("dialog").getByRole("button", {name:"添加字段",exact:true}).click();
+  await expect(cell(page, 0, "extra")).toHaveText("");
+  await fieldMenu("name"); await item(page, "重命名字段…").click();
+  await page.getByLabel("新字段名", {exact:true}).fill("label");
+  await page.getByRole("dialog").getByRole("button", {name:"重命名字段",exact:true}).click();
+  await expect(cell(page, 0, "label")).toHaveText("第一条");
+  await expect(cell(page, 0, "name")).toHaveCount(0);
+  await fieldMenu("label"); await item(page, "删除字段…").click();
+  await page.getByRole("dialog").getByRole("button", {name:"删除字段",exact:true}).click();
+  await expect(cell(page, 0, "label")).toHaveCount(0);
+  await page.getByRole("button", {name:"撤销",exact:true}).click();
+  await expect(cell(page, 0, "label")).toHaveText("第一条");
+  await page.getByRole("button", {name:"撤销",exact:true}).click();
+  await expect(cell(page, 0, "name")).toHaveText("第一条");
+  await page.getByRole("button", {name:"重做",exact:true}).click();
+  await expect(cell(page, 0, "label")).toHaveText("第一条");
+  await page.getByRole("button", {name:"重做",exact:true}).click();
+  await expect(cell(page, 0, "label")).toHaveCount(0);
+  await page.getByRole("button", {name:"保存并退出编辑",exact:true}).click();
+  expect(await page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "save_file"))).toHaveLength(1);
+  expect(await page.evaluate(() => window.__ZG_TEST__.calls.some(c => c.command === "commit_changes" || c.command === "commit_mysql_changes"))).toBe(false);
 });
 
 test("menu geometry stays within the viewport and outside clicks, resize and replacement dismiss it", async ({
@@ -329,21 +359,7 @@ test("read-only database records expose copying while edits and schema changes r
   await installDesktopMock(page);
   await clipboard(page);
   await page.goto("/");
-  await page
-    .locator(".app-header summary")
-    .filter({ hasText: /^数据$/ })
-    .click();
-  await page
-    .getByRole("button", { name: "PostGIS 数据源…", exact: true })
-    .filter({ visible: true })
-    .click();
-  await page.getByLabel("数据库", { exact: true }).fill("test");
-  await page.getByLabel("用户", { exact: true }).fill("tester");
-  await page.getByRole("button", { name: "连接", exact: true }).click();
-  await page
-    .locator(".source-table")
-    .filter({ hasText: "public.readonly" })
-    .dblclick();
+  await loadDatabaseTestLayer(page,"readonly");
   await page.getByRole("button", { name: "载入", exact: true }).click();
   await page.getByRole("button", { name: "展开属性表", exact: true }).click();
   await cell(page, 0).click({ button: "right" });
@@ -357,6 +373,8 @@ test("read-only database records expose copying while edits and schema changes r
     .focus();
   await page.keyboard.press("Shift+F10");
   await expect(item(page, "添加字段…")).toBeDisabled();
+  await expect(item(page, "重命名字段…")).toBeDisabled();
+  await expect(item(page, "删除字段…")).toBeDisabled();
   await page.keyboard.press("End");
   await expect(item(page, "复制字段摘要")).toBeFocused();
   await page.keyboard.press("ArrowDown");

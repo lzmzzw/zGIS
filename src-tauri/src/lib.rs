@@ -21,6 +21,9 @@ mod preferences;
 mod codex_agent;
 mod basemap_preview;
 mod app_info;
+mod postgis_catalog;
+mod mysql_catalog;
+mod database_passwords;
 
 #[tauri::command]
 async fn export_shapefile(
@@ -873,6 +876,86 @@ struct Change {
     #[serde(default)]
     geometry_changed: Option<bool>,
 }
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct SchemaChange {
+    pub(crate) kind: String,
+    pub(crate) name: String,
+    #[serde(default)]
+    pub(crate) new_name: Option<String>,
+}
+
+fn validate_field_name(name: &str) -> Result<(), String> {
+    if name.trim().is_empty() || name.len() > 63 || name.chars().any(char::is_control) {
+        return Err("数据库字段名必须非空、无控制字符且不超过 63 字节".into());
+    }
+    Ok(())
+}
+fn schema_change_plan(layer: &Layer, changes: &[SchemaChange], geometry_columns: &[String]) -> Result<(Layer, Vec<String>), String> {
+    if changes.len() > 100 { return Err("单次最多 100 个字段操作".into()); }
+    let mut result = layer.clone();
+    let mut statements = Vec::new();
+    let target = table_sql(&layer.schema, &layer.table)?;
+    for change in changes {
+        validate_field_name(&change.name)?;
+        if change.kind != "rename" && change.new_name.is_some() { return Err("仅重命名字段允许 newName".into()); }
+        let existing = result.columns.iter().position(|column| column.name == change.name);
+        if change.kind != "add" {
+            let column = existing.map(|i| &result.columns[i]).ok_or("字段不存在或操作顺序无效")?;
+            if result.key_columns.contains(&change.name) || geometry_columns.contains(&change.name) || change.name == result.geometry_column || column.generated {
+                return Err("不能删除或重命名主键、几何列或自动生成字段".into());
+            }
+        }
+        let sql = match change.kind.as_str() {
+            "add" => {
+                if existing.is_some() { return Err("新增字段名已存在".into()); }
+                result.columns.push(Column { name: change.name.clone(), data_type: "character varying".into(), nullable: true, generated: false, has_default: false });
+                format!("ALTER TABLE {target} ADD COLUMN {} pg_catalog.varchar(255)", ident(&change.name)?)
+            }
+            "rename" => {
+                let new_name = change.new_name.as_deref().ok_or("重命名字段缺少 newName")?;
+                validate_field_name(new_name)?;
+                if result.columns.iter().any(|column| column.name == new_name) { return Err("重命名目标字段已存在".into()); }
+                result.columns[existing.ok_or("字段不存在")?].name = new_name.into();
+                format!("ALTER TABLE {target} RENAME COLUMN {} TO {}", ident(&change.name)?, ident(new_name)?)
+            }
+            "delete" => {
+                result.columns.remove(existing.ok_or("字段不存在")?);
+                format!("ALTER TABLE {target} DROP COLUMN {} RESTRICT", ident(&change.name)?)
+            }
+            _ => return Err("未知字段操作".into()),
+        };
+        statements.push(sql);
+    }
+    Ok((result, statements))
+}
+fn mapped_schema_baseline(baseline: &Value, changes: &[SchemaChange]) -> Result<Value, String> {
+    if changes.is_empty() { return Ok(baseline.clone()); }
+    let mut properties = baseline.as_object().ok_or("记录基线必须为对象")?.clone();
+    for change in changes {
+        match change.kind.as_str() {
+            "add" => { properties.insert(change.name.clone(), Value::Null); }
+            "rename" => {
+                let value = properties.remove(&change.name).ok_or("记录基线缺少重命名字段")?;
+                properties.insert(change.new_name.clone().ok_or("重命名字段缺少 newName")?, value);
+            }
+            "delete" => { properties.remove(&change.name).ok_or("记录基线缺少删除字段")?; }
+            _ => return Err("未知字段操作".into()),
+        }
+    }
+    Ok(Value::Object(properties))
+}
+
+async fn guard_drop_dependencies(tx: &tokio_postgres::Transaction<'_>, target: &str, name: &str) -> Result<(), String> {
+    let dependent = tx.query_one("SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a WHERE a.attrelid=$1::text::regclass AND a.attname=$2 AND (EXISTS (SELECT 1 FROM pg_catalog.pg_index i WHERE i.indrelid=a.attrelid AND a.attnum=ANY(i.indkey)) OR EXISTS (SELECT 1 FROM pg_catalog.pg_constraint c WHERE (c.conrelid=a.attrelid AND a.attnum=ANY(c.conkey)) OR (c.confrelid=a.attrelid AND a.attnum=ANY(c.confkey))) OR EXISTS (SELECT 1 FROM pg_catalog.pg_depend d WHERE d.refclassid='pg_catalog.pg_class'::regclass AND d.refobjid=a.attrelid AND d.refobjsubid=a.attnum AND d.deptype='n')))", &[&target, &name]).await.map_err(|_| "字段依赖检查失败，提交已回滚")?;
+    if dependent.get::<_,bool>(0) { return Err(format!("字段 {name} 仍有索引、约束或其他依赖，不能删除")); }
+    Ok(())
+}
+async fn guard_schema_triggers(tx: &tokio_postgres::Transaction<'_>, target: &str) -> Result<(), String> {
+    let row = tx.query_one("SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger WHERE tgrelid=$1::text::regclass AND NOT tgisinternal)", &[&target]).await.map_err(|_| "触发器依赖检查失败，提交已回滚")?;
+    if row.get::<_,bool>(0) { return Err("表存在自定义触发器，不能安全删除或重命名字段".into()); }
+    Ok(())
+}
 fn validate_bbox(bbox: Option<Vec<f64>>) -> Result<Option<Vec<f64>>, String> {
     if let Some(b) = &bbox {
         if b.len() != 4
@@ -963,20 +1046,40 @@ async fn commit_changes(
     connection_id: String,
     layer: Layer,
     changes: Vec<Change>,
+    schema_changes: Option<Vec<SchemaChange>>,
 ) -> Result<Value, String> {
     if changes.len() > 10000 {
         return Err("单次提交最多 10000 条".into());
     }
     let mut db = state.databases.lock().await;
     let client = db.get_mut(&connection_id).ok_or("连接已失效")?;
-    let layer = validated(client, &layer).await?;
+    let original_layer = validated(client, &layer).await?;
+    let schema_changes = schema_changes.unwrap_or_default();
+    let geometry_columns = if schema_changes.is_empty() { vec![] } else { discover(client).await?.into_iter().filter(|other| other.schema == original_layer.schema && other.table == original_layer.table && other.geometry_kind == "geometry").map(|other| other.geometry_column).collect() };
+    let (layer, schema_statements) = schema_change_plan(&original_layer, &schema_changes, &geometry_columns)?;
     let target = table_sql(&layer.schema, &layer.table)?;
     let where_clause = key_where(&layer)?;
     let tx = client.transaction().await.map_err(io_error)?;
     tx.batch_execute("SET LOCAL statement_timeout='30s'; SET LOCAL lock_timeout='5s'")
         .await
         .map_err(io_error)?;
+    if !schema_changes.is_empty() {
+        tx.batch_execute(&format!("LOCK TABLE {target} IN ACCESS EXCLUSIVE MODE")).await.map_err(|_| "无法锁定字段结构，提交已回滚")?;
+        for change in &changes {
+            if change.kind == "insert" { continue; }
+            if original_layer.key_columns.iter().any(|name| change.db_key.get(name).is_none() || change.db_key[name].is_null()) { return Err("变更缺少有效主键".into()); }
+            let sql = format!("SELECT {} FROM {target} WHERE {} FOR UPDATE", record_expr(&original_layer)?, key_where(&original_layer)?);
+            let rows = tx.query(&sql, &[&change.db_key]).await.map_err(io_error)?;
+            if rows.len() != 1 || !baseline_matches(&rows[0].get::<_,Value>(0), &change.baseline) { return Err("记录已被其他操作修改或删除，字段和数据提交已回滚".into()); }
+        }
+        for (change, statement) in schema_changes.iter().zip(schema_statements) {
+            if change.kind == "rename" || change.kind == "delete" { guard_schema_triggers(&tx, &target).await?; }
+            if change.kind == "delete" { guard_drop_dependencies(&tx, &target, &change.name).await?; }
+            tx.batch_execute(&statement).await.map_err(|_| "字段结构修改失败，请检查权限或依赖；提交已回滚")?;
+        }
+    }
     for change in &changes {
+        let baseline = if change.kind == "insert" { Value::Null } else { mapped_schema_baseline(&change.baseline, &schema_changes)? };
         let geometry_changed = change.kind == "insert" || change.geometry_changed.unwrap_or(true);
         if change.kind != "delete" && geometry_changed {
             validate_geometry(&change.geometry)?;
@@ -1012,7 +1115,7 @@ async fn commit_changes(
                 record_expr(&layer)?
             );
             let rows = tx.query(&sql, &[&change.db_key]).await.map_err(io_error)?;
-            if rows.len() != 1 || !baseline_matches(&rows[0].get::<_, Value>(0), &change.baseline) {
+            if rows.len() != 1 || !baseline_matches(&rows[0].get::<_, Value>(0), &baseline) {
                 return Err("记录已被其他操作修改或删除，提交已回滚".into());
             }
         }
@@ -1039,12 +1142,12 @@ async fn commit_changes(
                 .find(|c| &c.name == name)
                 .ok_or("属性字段不属于发现的表")?;
             if col.generated {
-                if change.kind == "update" && change.baseline.get(name) != Some(value) {
+                if change.kind == "update" && baseline.get(name) != Some(value) {
                     return Err("不能修改自动生成字段".into());
                 }
                 continue;
             }
-            if change.kind == "update" && change.baseline.get(name) == Some(value) {
+            if change.kind == "update" && baseline.get(name) == Some(value) {
                 continue;
             }
             if value.is_null() && !col.nullable {
@@ -1193,6 +1296,8 @@ async fn export_database(
 pub fn run() {
     tauri::Builder::default()
         .manage(Backend::default())
+        .manage(mysql_catalog::MysqlBackend::default())
+        .manage(database_passwords::PasswordStore::default())
         .manage(processing::ProcessingState::default())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
@@ -1235,6 +1340,21 @@ pub fn run() {
             app_info::open_project_link,
             connect_database,
             disconnect_database,
+            database_passwords::load_database_source_password,
+            database_passwords::save_database_source_password,
+            database_passwords::delete_database_source_password,
+            mysql_catalog::connect_mysql_database,
+            mysql_catalog::disconnect_mysql_database,
+            mysql_catalog::load_mysql_sources,
+            mysql_catalog::save_mysql_sources,
+            mysql_catalog::discover_mysql_tables,
+            mysql_catalog::preview_mysql_table,
+            mysql_catalog::commit_mysql_changes,
+            mysql_catalog::query_mysql_geometry,
+            postgis_catalog::load_database_sources,
+            postgis_catalog::save_database_sources,
+            postgis_catalog::discover_database_tables,
+            postgis_catalog::preview_database_table,
             discover_layers,
             query_layer,
             commit_changes,
@@ -1251,6 +1371,52 @@ pub fn run() {
 }
 #[cfg(test)]
 mod tests {
+    fn schema_test_layer() -> super::Layer {
+        super::Layer { schema: "public".into(), table: "records".into(), geometry_column: "geom".into(), geometry_kind: "geometry".into(), srid: 4326, key_columns: vec!["id".into()], columns: [
+            ("id", "bigint", true), ("geom", "USER-DEFINED", false), ("name", "text", false), ("amount", "numeric", false)
+        ].into_iter().map(|(name,kind,generated)| super::Column { name:name.into(),data_type:kind.into(),nullable:true,generated,has_default:false }).collect() }
+    }
+    fn schema_op(kind: &str, name: &str, new_name: Option<&str>) -> super::SchemaChange { super::SchemaChange {kind:kind.into(),name:name.into(),new_name:new_name.map(str::to_string)} }
+    #[test]
+    fn postgres_schema_changes_quote_names_preserve_type_and_default_varchar() {
+        let layer=schema_test_layer();
+        let changes=vec![schema_op("add","new\"field",None),schema_op("rename","amount",Some("total")),schema_op("delete","name",None)];
+        let (result,sql)=super::schema_change_plan(&layer,&changes,&["geom".into()]).unwrap();
+        assert!(sql[0].contains("ADD COLUMN \"new\"\"field\" pg_catalog.varchar(255)"));
+        assert_eq!(result.columns.iter().find(|column| column.name=="total").unwrap().data_type,"numeric");
+        assert_eq!(result.columns.iter().find(|column| column.name=="new\"field").unwrap().data_type,"character varying");
+        assert!(sql[2].ends_with("DROP COLUMN \"name\" RESTRICT"));
+        assert!(!sql.iter().any(|statement| statement.contains("CASCADE")));
+    }
+    #[test]
+    fn postgres_schema_protects_keys_all_geometries_generated_and_duplicate_names() {
+        let mut layer=schema_test_layer();
+        layer.columns.push(super::Column{name:"other_geom".into(),data_type:"USER-DEFINED".into(),nullable:true,generated:false,has_default:false});
+        layer.columns.push(super::Column{name:"computed".into(),data_type:"text".into(),nullable:true,generated:true,has_default:false});
+        for name in ["id","geom","other_geom","computed"] { for kind in ["rename","delete"] {
+            assert!(super::schema_change_plan(&layer,&[schema_op(kind,name,if kind=="rename"{Some("changed")}else{None})],&["geom".into(),"other_geom".into()]).is_err());
+        }}
+        for op in [schema_op("add","name",None),schema_op("rename","name",Some("amount")),schema_op("rename","missing",Some("new")),schema_op("add","bad\nname",None),schema_op("delete","name",Some("illegal")),schema_op("rename","name",None)] { assert!(super::schema_change_plan(&layer,&[op],&[]).is_err()); }
+        assert!(super::schema_change_plan(&layer,&[schema_op("add",&"字".repeat(22),None)],&[]).is_err());
+    }
+    #[test]
+    fn postgres_schema_baseline_maps_exactly_without_mutating_source() {
+        let original=serde_json::json!({"id":"9007199254740993","geom":"original-geometry","name":"kept","amount":"123.456"});
+        let changes=vec![schema_op("add","extra",None),schema_op("rename","amount",Some("total")),schema_op("delete","name",None)];
+        assert_eq!(super::mapped_schema_baseline(&original,&changes).unwrap(),serde_json::json!({"id":"9007199254740993","geom":"original-geometry","extra":null,"total":"123.456"}));
+        assert_eq!(original["amount"],"123.456");
+        assert!(super::mapped_schema_baseline(&original,&[schema_op("delete","missing",None)]).is_err());
+        assert!(super::mapped_schema_baseline(&serde_json::Value::Null,&changes).is_err());
+    }
+    #[test]
+    fn postgres_schema_supports_staged_operation_sequences_and_rejects_unknown_payloads() {
+        let changes=vec![schema_op("add","new",None),schema_op("rename","new",Some("renamed")),schema_op("delete","renamed",None)];
+        let (result,_)=super::schema_change_plan(&schema_test_layer(),&changes,&[]).unwrap();
+        assert_eq!(result.columns.len(),4);
+        assert_eq!(super::mapped_schema_baseline(&serde_json::json!({"id":"1"}),&changes).unwrap(),serde_json::json!({"id":"1"}));
+        assert!(serde_json::from_value::<super::SchemaChange>(serde_json::json!({"kind":"add","name":"field","sql":"arbitrary"})).is_err());
+        assert!(super::schema_change_plan(&schema_test_layer(),&vec![schema_op("add","field",None);101],&[]).is_err());
+    }
     use super::*;
     #[test]
     fn rename_source_preserves_extension_and_registered_handles() {

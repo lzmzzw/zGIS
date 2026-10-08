@@ -1,7 +1,7 @@
 use tauri::Manager;
 
 #[cfg(windows)]
-fn crypt(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
+pub(crate) fn crypt(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::{Foundation::LocalFree, Security::Cryptography::*};
     let input = CRYPT_INTEGER_BLOB { cbData: bytes.len() as u32, pbData: bytes.as_ptr() as *mut u8 };
     let mut output = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
@@ -15,7 +15,7 @@ fn crypt(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
     Ok(result)
 }
 #[cfg(not(windows))]
-fn crypt(_: &[u8], _: bool) -> Result<Vec<u8>, String> { Err("底图配置安全存储仅支持 Windows".into()) }
+pub(crate) fn crypt(_: &[u8], _: bool) -> Result<Vec<u8>, String> { Err("底图配置安全存储仅支持 Windows".into()) }
 
 #[tauri::command]
 pub fn save_preferences(app: tauri::AppHandle, content: String) -> Result<(), String> {

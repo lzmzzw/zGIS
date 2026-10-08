@@ -10,6 +10,10 @@ $hadRecovery = Test-Path -LiteralPath $recoveryPath
 $preferencesPath = Join-Path $env:LOCALAPPDATA 'com.personal.zgis\basemaps.dat'
 $preferencesBackup = "$preferencesPath.smoke-$([Guid]::NewGuid().ToString('N'))"
 $hadPreferences = Test-Path -LiteralPath $preferencesPath
+$sourceIsolation = @('postgis-sources.json', 'mysql-sources.json', 'database-passwords.dat') | ForEach-Object {
+  $sourcePath = Join-Path $env:LOCALAPPDATA "com.personal.zgis\$_"
+  @{ Path = $sourcePath; Backup = "$sourcePath.smoke-$([Guid]::NewGuid().ToString('N'))"; Exists = (Test-Path -LiteralPath $sourcePath); Isolated = $false }
+}
 $previousArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 $previousUserData = $env:WEBVIEW2_USER_DATA_FOLDER
 $testProcess = $null
@@ -21,6 +25,10 @@ try {
   $recoveryIsolated = $true
   if ($hadPreferences) { Move-Item -LiteralPath $preferencesPath -Destination $preferencesBackup }
   $preferencesIsolated = $true
+  foreach ($source in $sourceIsolation) {
+    if ($source.Exists) { Move-Item -LiteralPath $source.Path -Destination $source.Backup }
+    $source.Isolated = $true
+  }
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9226'
   $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path (Get-Location) 'output\desktop\installed-webview'
   & node scripts/create-fixtures.mjs
@@ -57,6 +65,12 @@ try {
   if ($preferencesIsolated) {
     if (Test-Path -LiteralPath $preferencesPath) { Remove-Item -LiteralPath $preferencesPath }
     if ($hadPreferences -and (Test-Path -LiteralPath $preferencesBackup)) { Move-Item -LiteralPath $preferencesBackup -Destination $preferencesPath }
+  }
+  foreach ($source in $sourceIsolation) {
+    if ($source.Isolated) {
+      if (Test-Path -LiteralPath $source.Path) { Remove-Item -LiteralPath $source.Path }
+      if ($source.Exists -and (Test-Path -LiteralPath $source.Backup)) { Move-Item -LiteralPath $source.Backup -Destination $source.Path }
+    }
   }
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $previousArguments
   $env:WEBVIEW2_USER_DATA_FOLDER = $previousUserData

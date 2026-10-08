@@ -16,7 +16,13 @@ export interface ImportOptions {
   encoding?: string;
   geoJsonXYCopy?: boolean;
 }
+export interface SchemaChange {
+  kind: "add" | "rename" | "delete";
+  name: string;
+  newName?: string;
+}
 export interface DocumentLayer {
+  schemaChanges?: SchemaChange[];
   id: string;
   name: string;
   // name 保留来源/保存文件名，displayName 仅用于工作区显示。
@@ -30,13 +36,14 @@ export interface DocumentLayer {
   strokeWidth?: number;
   restored?: boolean;
   restoredFrom?: string;
-  sourceKind: "geojson" | "csv" | "shp" | "postgis";
+  sourceKind: "geojson" | "csv" | "shp" | "postgis" | "mysql";
   sourceId?: string;
   crs: string;
   originalCrs?: string;
   dirty: boolean;
   csvConfig?: ImportOptions;
   db?: {
+    engine?: "postgis" | "mysql";
     connectionId: string;
     schema: string;
     table: string;
@@ -44,7 +51,13 @@ export interface DocumentLayer {
     geometryKind: "geometry" | "wkt";
     srid: number;
     keyColumns: string[];
-    columns: { name: string; type: string; nullable: boolean }[];
+    columns: {
+      name: string;
+      type: string;
+      nullable: boolean;
+      generated?: boolean;
+      hasDefault?: boolean;
+    }[];
   };
   warnings?: string[];
 }

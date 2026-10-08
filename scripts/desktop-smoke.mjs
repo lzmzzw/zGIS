@@ -342,8 +342,37 @@ console.log(
   "PASS: desktop WebView2, native open/save/export/cancel, source ID preservation, external-file conflict protection and immediate discarded-recovery clearing",
 );
 await page.locator(".app-header summary").filter({ hasText: /^数据$/ }).click();
-assert.deepEqual(await page.locator(".app-header .header-menu[open] button").allTextContents(), ["新建矢量图层…", "导入数据…", "PostGIS 数据源…"]);
+assert.deepEqual(await page.locator(".app-header .header-menu[open] button").allTextContents(), ["Mysql 数据源", "PostGIS 数据源"]);
 await page.keyboard.press("Escape");
+for (const engine of ["Mysql", "PostGIS"]) {
+  await page.locator(".app-header summary").filter({ hasText: /^数据$/ }).click();
+  await page.getByRole("button", {name:`${engine} 数据源`,exact:true}).filter({visible:true}).click();
+  const manager = page.getByRole("region", {name:`${engine} 数据源管理`,exact:true});
+  await expect(manager).toBeVisible();
+  await expect(manager.locator(".pg-source")).toHaveCount(0);
+  await expect(manager).toContainText(`选择或新增一个${engine} 数据源`);
+  await manager.getByRole("button", {name:"新增数据源",exact:true}).click();
+  const dialog = page.getByRole("dialog", {name:`新增 ${engine} 数据源`,exact:true});
+  await expect(dialog.getByLabel("端口", {exact:true})).toHaveValue(engine === "Mysql" ? "3306" : "5432");
+  await expect(dialog.getByLabel("TLS", {exact:true})).toHaveValue("require");
+  await expect(dialog.getByRole("button", {name:"添加并连接",exact:true})).toBeDisabled();
+  await dialog.getByRole("button", {name:"取消",exact:true}).click();
+  const passwordRoundtrip = await page.evaluate(async (engine) => {
+    const ipc = window.__TAURI_INTERNALS__.invoke;
+    const sourceId = "isolated-smoke-password";
+    const password = "native-test-only-password";
+    try {
+      await ipc("save_database_source_password", {engine,sourceId,password});
+      return await ipc("load_database_source_password", {engine,sourceId}) === password;
+    } finally { await ipc("delete_database_source_password", {engine,sourceId}); }
+  }, engine === "Mysql" ? "mysql" : "postgis");
+  assert.equal(passwordRoundtrip,true);
+  assert.equal(await page.evaluate(engine => window.__TAURI_INTERNALS__.invoke("load_database_source_password", {engine,sourceId:"isolated-smoke-password"}), engine === "Mysql" ? "mysql" : "postgis"),null);
+  await page.screenshot({path:`output/desktop/${engine.toLowerCase()}-manager.png`});
+  await manager.getByRole("button", {name:"返回地图",exact:true}).click();
+  await expect(page.getByLabel("地理数据地图", {exact:true})).toBeVisible();
+}
+console.log("PASS: native two-engine data menus, isolated empty pages, source dialog cancellation and secure password IPC without database connections");
 const editingOpening = nativeDialog("output/smoke/fixtures/editing.geojson");
 await fileAction("打开");
 await editingOpening;
@@ -362,6 +391,27 @@ await expect(page.locator(".operation-status")).toContainText("文件已重命�
 assert.equal(await fs.readFile(renamedFixture, "utf8"), renameOriginal);
 assert.equal(await fs.access("output/smoke/fixtures/editing.geojson").then(()=>true,()=>false), false);
 console.log("PASS: native registered source rename updates the on-disk filename");
+await page.getByRole("button", {name:"编辑属性",exact:true}).click();
+await page.getByRole("button", {name:"添加字段",exact:true}).filter({visible:true}).first().click();
+await page.getByLabel("字段名", {exact:true}).fill("native_field");
+await page.getByRole("dialog").getByRole("button", {name:"添加字段",exact:true}).click();
+await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
+await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
+assert.ok(JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_field === ""));
+await page.locator(".attribute-panel th").filter({hasText:"native_field"}).click({button:"right"});
+await page.getByRole("menuitem",{name:"重命名字段…",exact:true}).click();
+await page.getByLabel("新字段名",{exact:true}).fill("native_renamed");
+await page.getByRole("dialog").getByRole("button",{name:"重命名字段",exact:true}).click();
+await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
+await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
+assert.ok(JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_renamed === "" && !Object.hasOwn(f.properties,"native_field")));
+await page.locator(".attribute-panel th").filter({hasText:"native_renamed"}).click({button:"right"});
+await page.getByRole("menuitem",{name:"删除字段…",exact:true}).click();
+await page.getByRole("dialog").getByRole("button",{name:"删除字段",exact:true}).click();
+await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
+await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
+assert.ok(JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => !Object.hasOwn(f.properties,"native_renamed")));
+console.log("PASS: native shared attribute field add, rename, delete and source-file save");
 await sidebarDesignSmoke(page);
 await page.locator("tbody tr").first().click();
 await editCell("城市");

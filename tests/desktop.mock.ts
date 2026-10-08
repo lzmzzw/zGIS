@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import type { GeoFeature } from "../src/domain";
+import type { DatabaseSource, DatabaseCatalog } from "../src/bridge";
 export interface DesktopTestState {
   dropFiles: (files: {name:string;bytes:number[];sourceId?:string}[], error?:string) => Promise<void>;
   mcpEnabled: boolean;
@@ -8,6 +9,19 @@ export interface DesktopTestState {
   calls: { command: string; args: Record<string, unknown> }[];
   commitError: string;
   queryError: string;
+  databaseSources: DatabaseSource[];
+  mysqlSources: DatabaseSource[];
+  sourceSaveError: string;
+  databaseConnectError: string;
+  catalogError: string;
+  previewError: string;
+  previewDelays: Record<string, number>;
+  previewCompletions: string[];
+  catalogs: Record<string, DatabaseCatalog>;
+  storedDatabasePasswords: Record<string, string>;
+  passwordLoadError: string;
+  passwordSaveError: string;
+  passwordDeleteError: string;
   backupError: string;
   analysisError: string;
   analysisDelay: number;
@@ -37,9 +51,10 @@ declare global {
 export async function installDesktopMock(
   page: Page,
   snapshot: string | null = null,
+  initial: { databaseSources?: DatabaseSource[]; mysqlSources?: DatabaseSource[]; passwords?: Record<string,string> } = {},
 ) {
   await page.addInitScript(
-    ({ snapshot }) => {
+    ({ snapshot, initial }) => {
       const callbacks = new Map<number, (event: unknown) => unknown>();
       const listeners = new Map<number, { event: string; handler: number }>();
       let next = 1;
@@ -50,6 +65,8 @@ export async function installDesktopMock(
         calls: [],
         commitError: "",
         queryError: "",
+        databaseSources: initial.databaseSources ?? [], mysqlSources: initial.mysqlSources ?? [], sourceSaveError: "", databaseConnectError: "", catalogError: "", previewError: "", previewDelays: {}, previewCompletions: [], catalogs: {}, storedDatabasePasswords: initial.passwords ?? {},
+        passwordLoadError:"", passwordSaveError:"", passwordDeleteError:"",
         backupError: "",
         analysisError: "",
         analysisDelay: 0,
@@ -221,7 +238,40 @@ export async function installDesktopMock(
                 path: "test-file",
               };
             }
-            if (command === "connect_database") return "test-connection";
+            if (command === "load_database_sources" || command === "load_mysql_sources") return structuredClone(command === "load_database_sources" ? state.databaseSources : state.mysqlSources);
+            if (command === "load_database_source_password") { if (state.passwordLoadError) throw Error(state.passwordLoadError); return state.storedDatabasePasswords[`${args.engine}/${args.sourceId}`] ?? null; }
+            if (command === "save_database_source_password") { if (state.passwordSaveError) throw Error(state.passwordSaveError); state.storedDatabasePasswords[`${args.engine}/${args.sourceId}`] = String(args.password); return null; }
+            if (command === "delete_database_source_password") { if (state.passwordDeleteError) throw Error(state.passwordDeleteError); delete state.storedDatabasePasswords[`${args.engine}/${args.sourceId}`]; return null; }
+            if (command === "save_database_sources" || command === "save_mysql_sources") {
+              if (state.sourceSaveError) throw Error(state.sourceSaveError);
+              const sources = args.sources as DatabaseSource[];
+              if (sources.some(source => "password" in source)) throw Error("Password must not persist");
+              if (command === "save_database_sources") state.databaseSources = structuredClone(sources); else state.mysqlSources = structuredClone(sources);
+              return null;
+            }
+            if (command === "connect_database" || command === "connect_mysql_database") {
+              if (state.databaseConnectError) throw Error(state.databaseConnectError);
+              return `${command}-${state.calls.filter(c => c.command === command).length}`;
+            }
+            if (command === "disconnect_database" || command === "disconnect_mysql_database") return null;
+            if (command === "discover_database_tables" || command === "discover_mysql_tables") {
+              if (state.catalogError) throw Error(state.catalogError);
+              if (state.catalogs[String(args.connectionId)]) return structuredClone(state.catalogs[String(args.connectionId)]);
+              const mysql = command === "discover_mysql_tables";
+              const schema = mysql ? "test" : "public";
+              const column = (name: string, type = "text", nullable = true) => ({name,type,nullable});
+              const table = (name: string, keys: string[] = ["id"], geometries = [{name:"geom",srid:4326,type:"Point"}]) => ({schema,table:name,columns:[{...column("id","bigint",false),generated:true,hasDefault:true},column("name"),...geometries.map(g => column(g.name,"geometry"))],keyColumns:keys,geometryColumns:geometries});
+              return {schemas:mysql ? [] : ["public","archive","empty"],tables:[table("roads"),table("readonly",[]),table("unassigned",["id"],[{name:"geom",srid:0,type:"Geometry"}]),table("dual_geom",["id"],[{name:"geom",srid:4326,type:"Point"},{name:"boundary",srid:4490,type:"MultiPolygon"}]),{schema,table:"counts",columns:[column("id","bigint",false),column("amount","numeric",false)],keyColumns:["id"],geometryColumns:[]},{...table("wkt_points",["id"],[]),columns:[column("id","bigint",false),column("location")]},...(!mysql ? [{...table("historic_roads"),schema:"archive"}] : [])]};
+            }
+            if (command === "preview_database_table" || command === "preview_mysql_table") {
+              const error = state.previewError;
+              const table = String(args.table);
+              const delay = state.previewDelays[table] ?? 0;
+              if (delay) await new Promise<void>(resolve => window.setTimeout(resolve,delay));
+              state.previewCompletions.push(table);
+              if (error) throw Error(error);
+              return {columns:[{name:"id",type:"bigint",nullable:false},{name:"name",type:"text",nullable:true}],rows:Array.from({length:Number(args.limit)},(_,i) => ["9007199254740993",i ? null : `${args.connectionId}/${table}`]),truncated:true};
+            }
             if (command === "discover_layers")
               return [
                   {
@@ -251,27 +301,45 @@ export async function installDesktopMock(
                   columns: [],
                 },
               ];
-            if (command === "query_layer") {
+            if (command === "query_layer" || command === "query_mysql_geometry") {
               if (state.queryError) throw Error(state.queryError);
               return {
                 features: structuredClone(state.features),
+                columns: [{ name: "id", type: "bigint", nullable: false }, ...Object.keys(state.features[0]?.properties ?? {}).map(name => ({ name, type: "varchar", nullable: true }))],
                 srid: 4326,
                 truncated: false,
               };
             }
-            if (command === "commit_changes") {
+            if (command === "commit_changes" || command === "commit_mysql_changes") {
               if (state.commitError) throw Error(state.commitError);
+              for (const change of (args.schemaChanges ?? []) as {kind:string;name:string;newName?:string}[]) {
+                state.features = state.features.map(feature => {
+                  const properties = {...feature.properties};
+                  if (change.kind === "add") properties[change.name] = "";
+                  if (change.kind === "rename") { properties[change.newName!] = properties[change.name]; delete properties[change.name]; }
+                  if (change.kind === "delete") delete properties[change.name];
+                  return {...feature, properties};
+                });
+              }
               for (const change of args.changes as {
                 kind: string;
                 properties?: Record<string, unknown>;
                 geometry?: GeoFeature["geometry"];
+                dbKey?: GeoFeature["dbKey"];
               }[])
-                if (change.kind === "update")
-                  state.features[0] = {
-                    ...state.features[0],
+                if (change.kind === "update") {
+                  const index = state.features.findIndex(feature => JSON.stringify(feature.dbKey) === JSON.stringify(change.dbKey));
+                  state.features[index >= 0 ? index : 0] = {
+                    ...state.features[index >= 0 ? index : 0],
                     properties: change.properties!,
                     geometry: change.geometry!,
                   };
+                } else if (change.kind === "insert") {
+                  const id = `db-inserted-${state.features.length + 1}`;
+                  state.features.push({id, geometry:change.geometry ?? null, properties:change.properties ?? {}, dbKey:[id], baseline:`baseline-${id}`});
+                } else if (change.kind === "delete") {
+                  state.features = state.features.filter(feature => JSON.stringify(feature.dbKey) !== JSON.stringify(change.dbKey));
+                }
               return null;
             }
             if (command === "plugin:window|destroy") {
@@ -283,6 +351,29 @@ export async function installDesktopMock(
         },
       });
     },
-    { snapshot },
+    { snapshot, initial },
   );
+}
+
+export async function openDatabaseManager(page: Page, engine: "PostGIS" | "Mysql" = "PostGIS") {
+  await page.locator(".app-header summary").filter({ hasText: /^数据$/ }).click();
+  await page.getByRole("button", {name:`${engine} 数据源`,exact:true}).filter({visible:true}).click();
+}
+export async function addTestSource(page: Page, name = "测试数据源", engine: "PostGIS" | "Mysql" = "PostGIS") {
+  await page.getByRole("button",{name:"新增数据源",exact:true}).filter({visible:true}).click();
+  const dialog = page.getByRole("dialog",{name:`新增 ${engine} 数据源`,exact:true});
+  await dialog.getByLabel("数据源名称",{exact:true}).fill(name);
+  await dialog.getByLabel("主机",{exact:true}).fill("test.invalid");
+  await dialog.getByLabel("数据库",{exact:true}).fill("test");
+  await dialog.getByLabel("用户名",{exact:true}).fill("tester");
+  await dialog.getByLabel("密码",{exact:true}).fill("test-only-password");
+  await dialog.getByRole("button",{name:"添加并连接",exact:true}).click();
+}
+export async function loadDatabaseTestLayer(page: Page, table = "roads") {
+  await openDatabaseManager(page);
+  await addTestSource(page);
+  const manager = page.getByRole("region",{name:"PostGIS 数据源管理",exact:true});
+  if (table === "wkt_points") await manager.getByRole("button",{name:"全部表",exact:true}).click();
+  await manager.locator(".pg-table").filter({hasText:new RegExp(`^${table}(普通表)?$`)}).click();
+  await manager.getByRole("button",{name:table === "wkt_points" ? "从 WKT 列加载" : "添加到地图",exact:true}).click();
 }

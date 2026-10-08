@@ -14,13 +14,20 @@ export interface DroppedFiles {
 export const onFilesDropped = (handler: (payload: DroppedFiles) => void) =>
   listen<DroppedFiles>("gis-files-dropped", (event) => handler(event.payload));
 export interface DbLayer {
+  engine?: "postgis" | "mysql";
   schema: string;
   table: string;
   geometryColumn: string;
   geometryKind: "geometry" | "wkt";
   srid: number;
   keyColumns: string[];
-  columns: { name: string; type: string; nullable: boolean }[];
+  columns: {
+    name: string;
+    type: string;
+    nullable: boolean;
+    generated?: boolean;
+    hasDefault?: boolean;
+  }[];
 }
 export interface DbConnection {
   host: string;
@@ -30,7 +37,99 @@ export interface DbConnection {
   password: string;
   sslMode: string;
 }
+export interface DatabaseSource extends Omit<DbConnection, "password"> {
+  id: string;
+  name: string;
+}
+export interface DatabaseTable {
+  schema: string;
+  table: string;
+  columns: DbLayer["columns"];
+  keyColumns: string[];
+  geometryColumns: { name: string; srid: number; type: string }[];
+}
+export interface DatabaseCatalog {
+  schemas: string[];
+  tables: DatabaseTable[];
+}
+export interface DatabasePreview {
+  columns: DbLayer["columns"];
+  rows: (string | null)[][];
+  truncated: boolean;
+}
 export const api = {
+  databaseSourcePassword: (engine: "postgis" | "mysql", sourceId: string) =>
+    invoke<string | null>("load_database_source_password", {
+      engine,
+      sourceId,
+    }),
+  saveDatabaseSourcePassword: (
+    engine: "postgis" | "mysql",
+    sourceId: string,
+    password: string,
+  ) =>
+    invoke<void>("save_database_source_password", {
+      engine,
+      sourceId,
+      password,
+    }),
+  deleteDatabaseSourcePassword: (
+    engine: "postgis" | "mysql",
+    sourceId: string,
+  ) => invoke<void>("delete_database_source_password", { engine, sourceId }),
+
+  mysqlSources: () => invoke<DatabaseSource[]>("load_mysql_sources"),
+  saveMysqlSources: (sources: DatabaseSource[]) =>
+    invoke<void>("save_mysql_sources", { sources }),
+  connectMysql: (config: DbConnection) =>
+    invoke<string>("connect_mysql_database", { config }),
+  disconnectMysql: (connectionId: string) =>
+    invoke<void>("disconnect_mysql_database", { connectionId }),
+  mysqlCatalog: (connectionId: string) =>
+    invoke<DatabaseCatalog>("discover_mysql_tables", { connectionId }),
+  previewMysqlTable: (
+    connectionId: string,
+    schema: string,
+    table: string,
+    limit: number,
+  ) =>
+    invoke<DatabasePreview>("preview_mysql_table", {
+      connectionId,
+      schema,
+      table,
+      limit,
+    }),
+  queryMysqlGeometry: (
+    connectionId: string,
+    schema: string,
+    table: string,
+    geometryColumn: string,
+    limit: number,
+    srid?: number,
+  ) =>
+    invoke<{ features: GeoFeature[]; srid: number; truncated: boolean }>(
+      "query_mysql_geometry",
+      { connectionId, schema, table, geometryColumn, limit, srid },
+    ),
+  databaseSources: () => invoke<DatabaseSource[]>("load_database_sources"),
+  saveDatabaseSources: (sources: DatabaseSource[]) =>
+    invoke<void>("save_database_sources", { sources }),
+  databaseCatalog: (connectionId: string) =>
+    invoke<DatabaseCatalog>("discover_database_tables", { connectionId }),
+  previewDatabaseTable: (
+    connectionId: string,
+    schema: string,
+    table: string,
+    limit: number,
+  ) =>
+    invoke<DatabasePreview>("preview_database_table", {
+      connectionId,
+      schema,
+      table,
+      limit,
+    }),
+  disconnect: (connectionId: string) =>
+    invoke<void>("disconnect_database", { connectionId }),
   checkAppUpdate: () => invoke<AppUpdateStatus>("check_app_update"),
   openProjectLink: (target: "github" | "license" | "releases") =>
     invoke<void>("open_project_link", { target }),
@@ -131,12 +230,27 @@ export const api = {
     limit = 10000,
     bbox?: number[],
   ) =>
-    invoke<{ features: GeoFeature[]; srid: number; truncated: boolean }>(
-      "query_layer",
-      { connectionId, ...layer, limit, bbox },
+    invoke<{
+      features: GeoFeature[];
+      srid: number;
+      truncated: boolean;
+      writable?: boolean;
+    }>(layer.engine === "mysql" ? "query_mysql_geometry" : "query_layer", {
+      connectionId,
+      ...layer,
+      limit,
+      bbox,
+    }),
+  commit: (
+    connectionId: string,
+    layer: DbLayer,
+    changes: unknown[],
+    schemaChanges: import("./domain/types").SchemaChange[] = [],
+  ) =>
+    invoke(
+      layer.engine === "mysql" ? "commit_mysql_changes" : "commit_changes",
+      { connectionId, layer, changes, schemaChanges },
     ),
-  commit: (connectionId: string, layer: DbLayer, changes: unknown[]) =>
-    invoke("commit_changes", { connectionId, layer, changes }),
   exportDb: (
     connectionId: string,
     schema: string,

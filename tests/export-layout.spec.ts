@@ -17,13 +17,13 @@ for (const theme of ["dark", "light"]) {
       .locator(".app-header summary")
       .filter({ hasText: /^文件$/ })
       .click();
-    await page
-      .getByRole("button", { name: "导出为", exact: true })
-      .click();
+    await page.getByRole("button", { name: "导出为", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.locator(".export-source")).toContainText(
-      "4 个要素 · Point",
+      "城市.geojson",
     );
+    await expect(dialog).not.toContainText("4 个要素 · Point");
+    await expect(dialog).not.toContainText("导出时选择保存位置");
     await expect(dialog).not.toContainText("导出摘要");
     const width = (await dialog.boundingBox())!.width;
     expect(width).toBeLessThanOrEqual(562);

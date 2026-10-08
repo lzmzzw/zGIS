@@ -5,7 +5,18 @@
 - `check_app_update`：读取当前运行版本并查询固定公开 GitHub Releases API，返回 `{currentVersion,status,latestVersion?}`。status 为 current、available 或 unpublished；404 表示暂无可用公开发行版，HTTP 错误或无效版本返回错误，不当作已是最新。SemVer 比较包含预发布优先级、忽略构建元数据。请求 10 秒超时、256 KB 上限，不附带令牌，也不下载安装或重启。
 - `open_project_link {target}`：target 仅允许 github、license、releases，分别映射项目仓库、GNU GPL 3.0 和项目发布页；Windows 使用 ShellExecuteW 在系统浏览器打开，不接受任意 URL 或 shell。
 
-前端参数使用 camelCase。错误返回中文字符串；凭据只存活在当前进程内。
+前端参数使用 camelCase。错误返回中文字符串；数据库密码按用户授权使用 Windows 当前用户 DPAPI 加密持久化，普通配置与恢复文件不含密码。
+
+## 数据源管理
+
+- `load_database_sources` / `save_database_sources {sources}`：PostGIS 安全源配置；MySQL 对应 `load_mysql_sources` / `save_mysql_sources`。源为 `{id,name,host,port,database,user,sslMode}`，不接受 password 或未知字段。
+- `load_database_source_password {engine,sourceId}`：返回密码或 null；`save_database_source_password {engine,sourceId,password}` 与 `delete_database_source_password {engine,sourceId}` 保存/删除密码。engine 仅 postgis/mysql，两引擎隔离。固定私有文件 `database-passwords.dat`，DPAPI 加密、原子写入，密码最大 4096 bytes、存储最大 1 MiB；错误不含密码。
+- `discover_database_tables {connectionId}` / `discover_mysql_tables {connectionId}`：返回 `{schemas,tables}`，表包含 schema/table、columns、keyColumns、geometryColumns（name/srid/type）。MySQL schemas 为空，表属于连接指定数据库。
+- `preview_database_table {connectionId,schema,table,limit}` / `preview_mysql_table {connectionId,table,limit}`：返回 `{columns,rows,truncated}`，limit 为 10 或 20，单次最多 128 列/1 MiB，15 秒超时；非空值以字符串保留精度，复杂/大字段摘要。
+- `connect_mysql_database {config}` / `disconnect_mysql_database {connectionId}`：MySQL 独立会话，TLS require/prefer 均验证证书且不降级，disable 明确启用明文。
+- `query_mysql_geometry {connectionId,schema,table,geometryColumn,geometryKind?,limit,srid?,bbox?}`：返回 `{features,srid,truncated,writable}`，最多 10000 条，geometry/WKT 工作坐标 4326；未知 geometry SRID=0 需明确确认，其他拒绝。保留 NULL 几何、稳定主键身份、完整属性及提交基线；geometry 基线保存原始存储。二进制属性或单属性超过 64 KiB/总结果超过 16 MiB 拒绝。writable=false 时前端只读。
+- `commit_mysql_changes {connectionId,layer,changes,schemaChanges?}` 与 PostGIS `commit_changes` 使用相同变更契约。支持新增/修改/删除记录、几何与属性分离，InnoDB 事务锁行比较完整基线，参数化并拒绝字段转换警告。MySQL 几何写回只支持二维，属性修改保持原 geometry/SRID；WKT 字段保留文本类型。几何写入及字段同步要求 MySQL 8+。
+- `schemaChanges` 为 `{kind:'add'|'rename'|'delete',name,newName?}[]`，新增 nullable varchar(255)，重命名保留类型。禁止删除/重命名主键、几何、生成字段及不安全依赖。PostGIS ALTER 与记录写入同一事务；MySQL 使用单次原子 ALTER 后再提交记录，结构已提交而数据失败会返回“提交结果待核对”，前端禁止原批次重试并要求重新加载。
 
 | command | 参数 | 返回 |
 | --- | --- | --- |
@@ -18,7 +29,7 @@
 | `connect_database` | `{config:{host,port,database,user,password,sslMode}}` | `connectionId` |
 | `discover_layers` | `{connectionId}` | `Layer[]` |
 | `query_layer` | `{connectionId,schema,table,geometryColumn,geometryKind,srid?:number,limit,bbox?:number[]}` | `{features,srid,truncated}` |
-| `commit_changes` | `{connectionId,layer,changes}` | `{committed,reloadRequired:true}` |
+| `commit_changes` | `{connectionId,layer,changes,schemaChanges?}` | `{committed,reloadRequired:true}` |
 | `export_database` | `{connectionId,schema,table,features,newTable:true}` | `{inserted,schema,table}` |
 
 `Layer={schema,table,geometryColumn,geometryKind:'geometry'|'wkt',srid,keyColumns:string[],columns:{name,type,nullable,generated,hasDefault}[]}`。WKT 候选来自文本列，用户必须自行选择实际 WKT 字段及其 SRID。geometry 类型使用数据库发现的 SRID。

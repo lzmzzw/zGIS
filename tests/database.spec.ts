@@ -1,35 +1,18 @@
 import { test, expect, type Page } from "@playwright/test";
-import { installDesktopMock } from "./desktop.mock";
+import { installDesktopMock, openDatabaseManager, loadDatabaseTestLayer } from "./desktop.mock";
 test("PostGIS text WKT defaults to 4326 and passes all three source SRIDs", async ({
   page,
 }) => {
   await installDesktopMock(page);
   await page.goto("/");
-  await page
-    .locator(".app-header summary")
-    .filter({ hasText: /^数据$/ })
-    .click();
-  await page
-    .getByRole("button", { name: "PostGIS 数据源…", exact: true })
-    .filter({ visible: true })
-    .click();
-  await page.getByLabel("数据库", { exact: true }).fill("test");
-  await page.getByLabel("用户", { exact: true }).fill("tester");
-  await page.getByRole("button", { name: "连接", exact: true }).click();
   for (const srid of [4326, 4490, 3857]) {
-    if (srid !== 4326) {
-      await page
-        .locator(".app-header summary")
-        .filter({ hasText: /^数据$/ })
-        .click();
-      await page
-        .getByRole("button", { name: "PostGIS 数据源…", exact: true })
-        .click();
+    if (srid === 4326) await loadDatabaseTestLayer(page, "wkt_points");
+    else {
+      await openDatabaseManager(page);
+      const manager = page.getByRole("region", {name:"PostGIS 数据源管理",exact:true});
+      await manager.locator(".pg-table").filter({hasText:"wkt_points"}).click();
+      await manager.getByRole("button",{name:"从 WKT 列加载",exact:true}).click();
     }
-    await page
-      .locator(".source-table")
-      .filter({ hasText: "public.wkt_points" })
-      .dblclick();
     await expect(page.getByLabel("来源 SRID")).toHaveValue("4326");
     await page.getByLabel("WKT 文本列").selectOption("location");
     await page.getByLabel("来源 SRID").selectOption(String(srid));
@@ -48,24 +31,7 @@ test("PostGIS text WKT defaults to 4326 and passes all three source SRIDs", asyn
 async function loadSource(page: Page, table = "roads") {
   await installDesktopMock(page);
   await page.goto("/");
-  await page
-    .locator(".app-header summary")
-    .filter({ hasText: /^数据$/ })
-    .click();
-  await page
-    .getByRole("button", { name: "PostGIS 数据源…", exact: true })
-    .filter({ visible: true })
-    .click();
-  await page.getByLabel("数据库", { exact: true }).fill("test");
-  await page.getByLabel("用户", { exact: true }).fill("tester");
-  await expect(page.locator(".connection-advanced summary")).toContainText(
-    "TLS · 校验证书",
-  );
-  await page.getByRole("button", { name: "连接", exact: true }).click();
-  await page
-    .locator(".source-table")
-    .filter({ hasText: `public.${table}` })
-    .dblclick();
+  await loadDatabaseTestLayer(page,table);
   await expect(page.getByRole("dialog")).toContainText("加载摘要");
   await page.getByRole("button", { name: "载入", exact: true }).click();
   await page
@@ -91,19 +57,13 @@ test("PostGIS geometry with no SRID defaults to 4326", async ({ page }) => {
   expect(query?.srid).toBe(4326);
   expect(query?.geometryKind).toBe("geometry");
 });
-test("source loading, explicit submit counts and conflict details retain edits", async ({
+test("source loading and direct save conflicts retain edits without a submit dialog", async ({
   page,
 }) => {
   await loadSource(page);
   await editName(page);
   await page.getByLabel("属性 name", { exact: true }).fill("更新道路");
   await page.getByRole("button", { name: "应用", exact: true }).click();
-  await page
-    .locator(".app-header summary")
-    .filter({ hasText: /^文件$/ })
-    .click();
-  await page.getByRole("button", { name: "提交修改", exact: true }).click();
-  await expect(page.locator(".submit-counts")).toContainText("修改1");
   expect(
     await page.evaluate(
       () =>
@@ -115,17 +75,16 @@ test("source loading, explicit submit counts and conflict details retain edits",
   await page.evaluate(() => {
     window.__ZG_TEST__.commitError = "并发冲突：原记录已变化";
   });
-  await page.getByRole("button", { name: "提交到数据库", exact: true }).click();
-  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
-    "本地修改已保留",
-  );
-  await page.getByText("错误详情", { exact: true }).click();
-  await expect(page.getByRole("dialog")).toContainText("并发冲突");
+  await page.keyboard.press("Control+s");
+  await expect(page.getByRole("alert")).toContainText("并发冲突");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("button", {name:"保存并退出编辑",exact:true})).toBeEnabled();
+  await expect(page.locator(".attribute-panel tbody tr")).toContainText("更新道路");
   await page.screenshot({ path: "output/smoke/submit-conflict.png" });
   await page.evaluate(() => {
     window.__ZG_TEST__.commitError = "";
   });
-  await page.getByRole("button", { name: "提交到数据库", exact: true }).click();
+  await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator(".attribute-panel tbody tr")).toContainText(
     "更新道路",
@@ -148,17 +107,13 @@ test("uncertain commit disables repeat submission", async ({ page }) => {
   await editName(page);
   await page.getByLabel("属性 name", { exact: true }).fill("待核对");
   await page.getByRole("button", { name: "应用", exact: true }).click();
-  await page
-    .locator(".app-header summary")
-    .filter({ hasText: /^文件$/ })
-    .click();
-  await page.getByRole("button", { name: "提交修改", exact: true }).click();
   await page.evaluate(() => {
     window.__ZG_TEST__.commitError = "提交结果待核对";
   });
-  await page.getByRole("button", { name: "提交到数据库", exact: true }).click();
+  await page.keyboard.press("Control+s");
+  await expect(page.getByRole("alert")).toContainText("提交结果待核对");
   await expect(
-    page.getByRole("button", { name: "提交到数据库", exact: true }),
+    page.getByRole("button", { name: "保存并退出编辑", exact: true }),
   ).toBeDisabled();
   expect(
     await page.evaluate(
