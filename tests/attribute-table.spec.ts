@@ -36,6 +36,39 @@ async function setup(page: Page) {
 const cell = (page: Page, field: string) =>
   page.locator(`tbody tr.selected td[data-field="${field}"]`);
 
+for (const theme of ["dark", "light"]) {
+  test(`inline editing keeps row height, column positions and typography stable (${theme})`, async ({ page }) => {
+    await setup(page);
+    await page.evaluate((theme) => document.documentElement.dataset.theme = theme, theme);
+    const geometry = () => page.locator(".attribute-panel tbody tr").evaluateAll((rows) =>
+      rows.map((row) => [...row.children].map((cell) => {
+        const rect = cell.getBoundingClientRect();
+        return { x: rect.x, width: rect.width, height: rect.height };
+      })),
+    );
+    for (const field of ["code", "count", "enabled", "empty"]) {
+      const before = await geometry();
+      const font = await cell(page, field).evaluate((el) => getComputedStyle(el).font);
+      await cell(page, field).dblclick();
+      const input = page.getByLabel(`属性 ${field}`, { exact: true });
+      await expect(input).toBeFocused();
+      expect(await geometry()).toEqual(before);
+      expect(await input.evaluate((el) => getComputedStyle(el).font)).toBe(font);
+      if (field === "code") {
+        await input.fill("不会撑开列宽的较长编辑内容".repeat(8));
+        expect(await geometry()).toEqual(before);
+        await page.locator(".attribute-panel").screenshot({ path: `output/smoke/inline-cell-${theme}.png` });
+        await page.getByRole("button", { name: "展开单元格编辑", exact: true }).click();
+        await expect(page.getByRole("dialog")).toBeVisible();
+        await page.keyboard.press("Escape");
+      } else {
+        await input.press("Escape");
+      }
+      expect(await geometry()).toEqual(before);
+    }
+  });
+}
+
 test("cell validation, keyboard commit, cancellation and NULL retain correct types", async ({
   page,
 }) => {

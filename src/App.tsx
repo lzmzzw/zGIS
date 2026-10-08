@@ -1483,62 +1483,10 @@ export default function App() {
       setCellDraft((d) => (d ? { ...d, error: errorText(reason) } : null));
     }
   }
-  function renderCellInput(expanded = false) {
+  function renderCellActions(expanded = false) {
     if (!cellDraft) return null;
-    const label = `属性 ${cellDraft.field}`;
-    const update = (text: string) =>
-      setCellDraft((d) => (d ? { ...d, text, error: "" } : null));
     return (
-      <div
-        className="cell-editor"
-        onClick={(e) => e.stopPropagation()}
-        onDoubleClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            cancelCell();
-          } else if (
-            e.key === "Enter" &&
-            (!expanded || e.ctrlKey || e.metaKey)
-          ) {
-            e.preventDefault();
-            commitCell();
-          } else if (e.key === "Tab" && !expanded) {
-            e.preventDefault();
-            commitCell(e.shiftKey ? -1 : 1);
-          }
-        }}
-      >
-        {typeof cellDraft.original === "boolean" ? (
-          <select
-            autoFocus
-            aria-label={label}
-            value={cellDraft.text}
-            disabled={busy || cellDraft.isNull}
-            onChange={(e) => update(e.target.value)}
-          >
-            <option value="true">true</option>
-            <option value="false">false</option>
-          </select>
-        ) : expanded ? (
-          <textarea
-            autoFocus
-            aria-label={label}
-            value={cellDraft.text}
-            disabled={busy || cellDraft.isNull}
-            onChange={(e) => update(e.target.value)}
-          />
-        ) : (
-          <input
-            autoFocus
-            aria-label={label}
-            aria-invalid={Boolean(cellDraft.error)}
-            value={cellDraft.text}
-            disabled={busy || cellDraft.isNull}
-            onChange={(e) => update(e.target.value)}
-          />
-        )}
+      <>
         <label className="cell-null">
           <input
             type="checkbox"
@@ -1565,6 +1513,67 @@ export default function App() {
             <Square />
           </IconButton>
         )}
+      </>
+    );
+  }
+  function renderCellInput(expanded = false) {
+    if (!cellDraft) return null;
+    const label = `属性 ${cellDraft.field}`;
+    const update = (text: string) =>
+      setCellDraft((d) => (d ? { ...d, text, error: "" } : null));
+    return (
+      <div
+        className={expanded ? "cell-editor" : "cell-editor cell-editor-inline"}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelCell();
+          } else if (
+            e.key === "Enter" &&
+            (!expanded || e.ctrlKey || e.metaKey)
+          ) {
+            e.preventDefault();
+            commitCell();
+          } else if (e.key === "Tab" && !expanded) {
+            e.preventDefault();
+            commitCell(e.shiftKey ? -1 : 1);
+          }
+        }}
+      >
+        {typeof cellDraft.original === "boolean" ? (
+          <select
+            autoFocus
+            aria-label={label}
+            value={cellDraft.isNull ? "" : cellDraft.text}
+            disabled={busy || cellDraft.isNull}
+            onChange={(e) => update(e.target.value)}
+          >
+            {cellDraft.isNull && <option value="">NULL</option>}
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        ) : expanded ? (
+          <textarea
+            autoFocus
+            aria-label={label}
+            value={cellDraft.text}
+            disabled={busy || cellDraft.isNull}
+            onChange={(e) => update(e.target.value)}
+          />
+        ) : (
+          <input
+            autoFocus
+            aria-label={label}
+            aria-invalid={Boolean(cellDraft.error)}
+            value={cellDraft.isNull ? "NULL" : cellDraft.text}
+            disabled={busy || cellDraft.isNull}
+            onChange={(e) => update(e.target.value)}
+          />
+        )}
+        {expanded && renderCellActions(true)}
       </div>
     );
   }
@@ -3416,6 +3425,7 @@ export default function App() {
                     </IconButton>
                     {cellDraft && (
                       <>
+                        {!cellDraft.expanded && renderCellActions()}
                         <button
                           disabled={busy || !editable}
                           onClick={() => commitCell()}
@@ -3744,7 +3754,11 @@ export default function App() {
                               <td
                                 key={field}
                                 title={
-                                  value === null ? "NULL" : stringify(value)
+                                  draft
+                                    ? undefined
+                                    : value === null
+                                      ? "NULL"
+                                      : stringify(value)
                                 }
                                 className={
                                   draft
@@ -3772,7 +3786,17 @@ export default function App() {
                                 }}
                               >
                                 {draft && !draft.expanded ? (
-                                  renderCellInput()
+                                  <>
+                                    <span
+                                      className="cell-size-reference"
+                                      aria-hidden="true"
+                                    >
+                                      {value === null
+                                        ? "NULL"
+                                        : stringify(value) || "\u00a0"}
+                                    </span>
+                                    {renderCellInput()}
+                                  </>
                                 ) : value === null ? (
                                   <span className="null-value">NULL</span>
                                 ) : (
