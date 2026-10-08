@@ -14,7 +14,7 @@ async function layout(page: Page) {
   return sidebar!;
 }
 
-test("both docks resize by drag and keyboard, keep independent widths and never cover the workspace", async ({
+test("both docks share drag and keyboard widths across switching and reload without covering the workspace", async ({
   page,
 }) => {
   await installDesktopMock(page);
@@ -22,41 +22,73 @@ test("both docks resize by drag and keyboard, keep independent widths and never 
   await page.getByRole("button", { name: "展开属性表", exact: true }).click();
   await page.getByRole("button", { name: "工具", exact: true }).click();
   const resize = page.getByRole("separator", { name: "调整工具侧栏宽度" });
-  await expect(resize).toHaveAttribute("aria-valuenow", "368");
+  await expect(resize).toHaveAttribute("aria-valuenow", "400");
   const box = await resize.boundingBox();
   await page.mouse.move(box!.x + 2, box!.y + 100);
   await page.mouse.down();
   await page.mouse.move(box!.x - 130, box!.y + 100);
   await page.mouse.up();
-  await expect(resize).toHaveAttribute("aria-valuenow", "500");
+  await expect(resize).toHaveAttribute("aria-valuenow", "532");
   await layout(page);
   await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
   const agentResize = page.getByRole("separator", {
     name: "调整Agent侧栏宽度",
   });
-  await expect(agentResize).toHaveAttribute("aria-valuenow", "368");
+  await expect(agentResize).toHaveAttribute("aria-valuenow", "532");
   await agentResize.focus();
   await page.keyboard.press("ArrowLeft");
-  await expect(agentResize).toHaveAttribute("aria-valuenow", "388");
+  await expect(agentResize).toHaveAttribute("aria-valuenow", "552");
   const agentBox = await agentResize.boundingBox();
   await page.mouse.move(agentBox!.x + 2, agentBox!.y + 100);
   await page.mouse.down();
   await page.mouse.move(agentBox!.x - 58, agentBox!.y + 100);
   await page.mouse.up();
-  await expect(agentResize).toHaveAttribute("aria-valuenow", "448");
+  await expect(agentResize).toHaveAttribute("aria-valuenow", "612");
   await layout(page);
   await page.getByRole("button", { name: "设置", exact: true }).click();
   await expect(page.locator(".right-sidebar")).toBeHidden();
   await page.getByRole("button", { name: "返回地图", exact: true }).click();
-  await expect(agentResize).toHaveAttribute("aria-valuenow", "448");
+  await expect(agentResize).toHaveAttribute("aria-valuenow", "612");
   await page.reload();
   await page.getByRole("button", { name: "工具", exact: true }).click();
-  await expect(resize).toHaveAttribute("aria-valuenow", "500");
+  await expect(resize).toHaveAttribute("aria-valuenow", "612");
   await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
-  await expect(agentResize).toHaveAttribute("aria-valuenow", "448");
+  await expect(agentResize).toHaveAttribute("aria-valuenow", "612");
   await page.getByRole("button", { name: "隐藏助手侧栏" }).click();
   await expect(page.locator(".right-sidebar")).toBeHidden();
 });
+
+for (const preferences of [
+  { "zgis.toolboxWidth": "460", "zgis.agentWidth": "620", expected: "460" },
+  { "zgis.toolboxWidth": "bad", "zgis.agentWidth": "620", expected: "620" },
+  {
+    "zgis.rightSidebarWidth": "420",
+    "zgis.toolboxWidth": "460",
+    expected: "420",
+  },
+]) {
+  test(`shared width migrates valid preferences to ${preferences.expected}`, async ({
+    page,
+  }) => {
+    await installDesktopMock(page);
+    await page.addInitScript((values) => {
+      for (const [key, value] of Object.entries(values)) {
+        if (key !== "expected") localStorage.setItem(key, value);
+      }
+    }, preferences);
+    await page.goto("/");
+    await page.getByRole("button", { name: "工具", exact: true }).click();
+    await expect(
+      page.getByRole("separator", { name: "调整工具侧栏宽度" }),
+    ).toHaveAttribute("aria-valuenow", preferences.expected);
+    await page
+      .getByRole("button", { name: "Codex Agent", exact: true })
+      .click();
+    await expect(
+      page.getByRole("separator", { name: "调整Agent侧栏宽度" }),
+    ).toHaveAttribute("aria-valuenow", preferences.expected);
+  });
+}
 
 for (const theme of ["dark", "light"]) {
   test(`${theme} narrow window clamps widths and restores them when enlarged`, async ({

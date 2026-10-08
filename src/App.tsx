@@ -359,21 +359,22 @@ export default function App() {
   const [workspaceWidth, setWorkspaceWidth] = useState(window.innerWidth);
   const workspaceElement = useRef<HTMLElement>(null);
   const rightSidebarOpen = toolboxOpen || (agentOpen && desktop);
-  const [sidebarWidths, setSidebarWidths] = useState(() => {
-    const read = (key: string) => {
-      try {
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      // Prefer the shared preference, then migrate an existing dock width.
+      for (const key of [
+        "zgis.rightSidebarWidth",
+        "zgis.toolboxWidth",
+        "zgis.agentWidth",
+      ]) {
         const value = Number(localStorage.getItem(key));
-        return value >= 320 && value <= 720 ? Math.round(value) : 368;
-      } catch {
-        return 368;
+        if (value >= 320 && value <= 720) return Math.round(value);
       }
-    };
-    return {
-      toolbox: read("zgis.toolboxWidth"),
-      agent: read("zgis.agentWidth"),
-    };
+    } catch {
+      // Keep the dock usable when preferences are unavailable.
+    }
+    return 400;
   });
-  const sidebarKind = toolboxOpen ? "toolbox" : "agent";
   const layerPanelMaxWidth = Math.max(
     200,
     Math.min(480, workspaceWidth - 360 - (rightSidebarOpen ? 320 : 0)),
@@ -386,19 +387,15 @@ export default function App() {
       workspaceWidth - (layersOpen ? shownLayerPanelWidth : 0) - 360,
     ),
   );
-  const shownSidebarWidth = Math.min(
-    sidebarWidths[sidebarKind],
-    sidebarMaxWidth,
-  );
+  const shownSidebarWidth = Math.min(sidebarWidth, sidebarMaxWidth);
   useEffect(() => {
     try {
       localStorage.setItem("zgis.layerPanelWidth", String(layerPanelWidth));
-      localStorage.setItem("zgis.toolboxWidth", String(sidebarWidths.toolbox));
-      localStorage.setItem("zgis.agentWidth", String(sidebarWidths.agent));
+      localStorage.setItem("zgis.rightSidebarWidth", String(sidebarWidth));
     } catch {
       /* 当前窗口仍可调整宽度。 */
     }
-  }, [layerPanelWidth, sidebarWidths]);
+  }, [layerPanelWidth, sidebarWidth]);
   useEffect(() => {
     const workspace = workspaceElement.current;
     if (!workspace) return;
@@ -3574,9 +3571,7 @@ export default function App() {
               label={toolboxOpen ? "工具" : "Agent"}
               width={shownSidebarWidth}
               maxWidth={sidebarMaxWidth}
-              onWidthChange={(width) =>
-                setSidebarWidths((old) => ({ ...old, [sidebarKind]: width }))
-              }
+              onWidthChange={setSidebarWidth}
             >
               {toolboxMounted && (
                 <div className="processing-toolbox-host" hidden={!toolboxOpen}>

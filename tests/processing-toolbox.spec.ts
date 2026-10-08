@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
+import { sidebarDesignSmoke } from "../scripts/sidebar-design-smoke.mjs";
 
 const polygon = (id: string, x: number) => ({
   id,
@@ -67,6 +68,13 @@ const calls = (page: Page) =>
     ),
   );
 
+test("installed sidebar verification follows real settings and shared-width controls", async ({
+  page,
+}) => {
+  await start(page);
+  await sidebarDesignSmoke(page);
+});
+
 test("fixed tree and subtle boundary remain stable while selection toggles configuration and help", async ({
   page,
 }) => {
@@ -74,13 +82,15 @@ test("fixed tree and subtle boundary remain stable while selection toggles confi
   await expect(toolbox(page).locator(".processing-form")).toHaveCount(0);
   await expect(toolbox(page).locator(".processing-help")).toHaveCount(0);
   const tree = toolbox(page).locator(".processing-tool-list");
-  expect((await tree.boundingBox())!.height).toBe(200);
+  const browser = toolbox(page).locator(".processing-browser");
+  expect((await browser.boundingBox())!.height).toBe(288);
+  const treeHeight = (await tree.boundingBox())!.height;
   const border = await toolbox(page)
     .locator(".processing-browser")
-    .evaluate((element) => getComputedStyle(element).borderTopWidth);
+    .evaluate((element) => getComputedStyle(element).borderBottomWidth);
   expect(border).toBe("1px");
   await tool(page, "缓冲区");
-  expect((await tree.boundingBox())!.height).toBe(200);
+  expect((await tree.boundingBox())!.height).toBe(treeHeight);
   await toolbox(page).getByLabel("缓冲距离（米）").fill("350");
   await toolbox(page).getByLabel("结果图层名称").fill("保留草稿");
   const selected = toolbox(page).getByRole("button", {
@@ -102,7 +112,7 @@ test("fixed tree and subtle boundary remain stable while selection toggles confi
   await toolbox(page)
     .getByRole("button", { name: "叠加分析", exact: true })
     .click();
-  expect((await tree.boundingBox())!.height).toBe(200);
+  expect((await tree.boundingBox())!.height).toBe(treeHeight);
   await expect(toolbox(page).locator(".processing-form")).toBeVisible();
   await page.screenshot({ path: "output/tools-fixed-tree.png" });
 });
@@ -118,8 +128,9 @@ test("collapsed categories, search, keyboard and hiding preserve parameters with
   await expect(
     toolbox(page).locator(".processing-tool-option:visible"),
   ).toHaveCount(0);
-  await expect(toolbox(page).getByLabel("搜索分析工具")).not.toHaveAttribute(
+  await expect(toolbox(page).getByLabel("搜索分析工具")).toHaveAttribute(
     "placeholder",
+    "搜索工具…",
   );
   await expect(toolbox(page).getByLabel("分析工具分类")).toHaveCount(0);
   await expect(toolbox(page)).not.toContainText("选择工具");
@@ -196,7 +207,7 @@ test("two layer intersection creates an independent result usable as the next in
   expect(await calls(page)).toHaveLength(2);
 });
 
-test("text header entry and inline fields keep actions above bottom help at minimum width", async ({
+test("text header entry and inline fields keep help above fixed bottom actions at minimum width", async ({
   page,
 }) => {
   await start(page);
@@ -230,12 +241,17 @@ test("text header entry and inline fields keep actions above bottom help at mini
     .locator("option")
     .allTextContents();
   expect(options.join("")).not.toContain("个要素");
-  await expect(toolbox(page).locator(".processing-description")).toHaveCount(0);
+  await expect(toolbox(page).locator(".processing-description")).toHaveText(
+    "提取两个面图层的共同部分。",
+  );
   await expect(toolbox(page)).not.toContainText("参数已就绪");
   await expect(toolbox(page)).not.toContainText("生成独立图层，保留原图层。");
   const button = (await run(page).boundingBox())!;
+  await toolbox(page)
+    .locator(".processing-help summary")
+    .scrollIntoViewIfNeeded();
   const help = (await toolbox(page).locator(".processing-help").boundingBox())!;
-  expect(button.y + button.height).toBeLessThanOrEqual(help.y);
+  expect(help.y + help.height).toBeLessThanOrEqual(button.y);
   expect(help.y + help.height).toBeLessThanOrEqual(640);
   await page.screenshot({ path: "output/tools-workbench-compact.png" });
 });
@@ -394,3 +410,108 @@ test("browser version explains the desktop requirement", async ({ page }) => {
   await expect(toolbox(page)).toContainText("空间分析需要桌面版");
   await expect(run(page)).toBeDisabled();
 });
+
+test("empty-layer notices cannot push the fixed run button outside a minimum-height window", async ({
+  page,
+}) => {
+  await installDesktopMock(page);
+  await page.setViewportSize({ width: 960, height: 640 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "工具", exact: true }).click();
+  await tool(page, "缓冲区");
+  await expect(run(page)).toBeDisabled();
+  const button = (await run(page).boundingBox())!;
+  const panel = (await toolbox(page).boundingBox())!;
+  expect(button.y).toBeGreaterThanOrEqual(panel.y);
+  expect(button.y + button.height).toBeLessThanOrEqual(panel.y + panel.height);
+  expect(
+    await run(page).evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      return node.contains(
+        document.elementFromPoint(
+          box.x + box.width / 2,
+          box.y + box.height / 2,
+        ),
+      );
+    }),
+  ).toBe(true);
+});
+
+for (const theme of ["dark", "light"]) {
+  test(`${theme} neutral toolbox retains fixed directory, whitespace hierarchy and reachable actions`, async ({
+    page,
+  }) => {
+    await start(page);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+    }, theme);
+    await tool(page, "缓冲区");
+    const browser = toolbox(page).locator(".processing-browser");
+    const configuration = toolbox(page).locator(".processing-configuration");
+    const geometry = await toolbox(page).evaluate((element) => {
+      const region = element
+        .querySelector(".processing-browser")!
+        .getBoundingClientRect();
+      const heading = element
+        .querySelector(".processing-tool-title")!
+        .getBoundingClientRect();
+      const groups = element.querySelectorAll("fieldset");
+      const groupGap =
+        groups[1].getBoundingClientRect().top -
+        groups[0].getBoundingClientRect().bottom;
+      const selected = element.querySelector(
+        '.processing-tool-option[aria-pressed="true"]',
+      )!;
+      const run = element.querySelector(".processing-run")!;
+      const neutral = [element, selected, run].every((node) => {
+        const styles = getComputedStyle(node);
+        return [styles.backgroundColor, styles.color].every((value) => {
+          const channels = value
+            .match(/[\d.]+/g)!
+            .slice(0, 3)
+            .map(Number);
+          return Math.max(...channels) - Math.min(...channels) <= 8;
+        });
+      });
+      return {
+        regionHeight: region.height,
+        mainGap: heading.top - region.bottom,
+        groupGap,
+        neutral,
+      };
+    });
+    expect(geometry.regionHeight).toBe(288);
+    expect(geometry.mainGap).toBe(72);
+    expect(geometry.groupGap).toBe(32);
+    expect(geometry.mainGap).toBeGreaterThan(geometry.groupGap * 2);
+    expect(geometry.neutral).toBe(true);
+    await page.screenshot({ path: `output/toolbox-design-${theme}-1440.png` });
+    await page.setViewportSize({ width: 960, height: 640 });
+    expect((await browser.boundingBox())!.height).toBe(288);
+    const output = toolbox(page).getByLabel("结果图层名称", { exact: true });
+    await output.focus();
+    await output.fill("窄窗口中的长结果图层名称");
+    const outputBox = (await output.boundingBox())!;
+    const scrollBox = (await configuration.boundingBox())!;
+    expect(outputBox.y).toBeGreaterThanOrEqual(scrollBox.y);
+    expect(outputBox.y + outputBox.height).toBeLessThanOrEqual(
+      scrollBox.y + scrollBox.height,
+    );
+    const action = (await run(page).boundingBox())!;
+    expect(action.y + action.height).toBeLessThanOrEqual(640);
+    expect(action.y).toBeGreaterThanOrEqual(scrollBox.y + scrollBox.height);
+    expect(
+      await configuration.evaluate(
+        (node) => node.scrollWidth <= node.clientWidth,
+      ),
+    ).toBe(true);
+    await toolbox(page).locator(".processing-help summary").click();
+    await expect(toolbox(page).locator(".processing-help")).toHaveAttribute(
+      "open",
+      "",
+    );
+    await expect(run(page)).toBeVisible();
+    await page.screenshot({ path: `output/toolbox-design-${theme}-960.png` });
+  });
+}

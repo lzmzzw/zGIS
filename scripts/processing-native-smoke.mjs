@@ -134,7 +134,7 @@ try {
   await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
   await expect(agentResize).toHaveAttribute("aria-valuenow", agentWidth);
   await page.getByRole("button", { name: "工具", exact: true }).click();
-  await expect(toolboxResize).toHaveAttribute("aria-valuenow", "340");
+  await expect(toolboxResize).toHaveAttribute("aria-valuenow", agentWidth);
   await checkDock();
   const toolbox = page.locator(".processing-toolbox");
   const selectTool = async (name) => {
@@ -155,8 +155,8 @@ try {
   await expect(toolbox.locator(".processing-help")).toHaveCount(0);
   assert.ok(
     Math.abs(
-      (await toolbox.locator(".processing-tool-list").boundingBox()).height -
-        200,
+      (await toolbox.locator(".processing-browser").boundingBox()).height -
+        288,
     ) < 0.1,
   );
   await selectTool("缓冲区");
@@ -168,8 +168,8 @@ try {
   await expect(toolbox.getByLabel("缓冲距离（米）")).toHaveValue("125");
   assert.ok(
     Math.abs(
-      (await toolbox.locator(".processing-tool-list").boundingBox()).height -
-        200,
+      (await toolbox.locator(".processing-browser").boundingBox()).height -
+        288,
     ) < 0.1,
   );
   const snapshot = () =>
@@ -290,7 +290,7 @@ try {
           "XYZ centroid-buffer chain and recovery snapshot",
           "fixed tree and tool deselection hide configuration and help, retain drafts",
           "docked agent and toolbox do not cover map or attribute table",
-          "independent sidebar widths, native pointer drag and keyboard resize",
+          "shared sidebar width, native pointer drag and keyboard resize",
         ],
         errors,
       },

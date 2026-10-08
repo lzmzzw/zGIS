@@ -24,7 +24,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
       scrollback: 5000,
     });
     const syncTheme = () => {
-      const styles = getComputedStyle(document.documentElement);
+      const styles = getComputedStyle(host.current!);
       term.options.fontSize = parseFloat(
         styles.getPropertyValue("--font-size-sm"),
       );

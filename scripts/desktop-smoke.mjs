@@ -10,6 +10,7 @@ import { mcpNativeSmoke } from "./mcp-native-smoke.mjs";
 import { mcpConnectionSmoke } from "./mcp-connection-smoke.mjs";
 import { contextMenuSmoke } from "./context-menu-smoke.mjs";
 import { settingsInfoSmoke } from "./settings-info-smoke.mjs";
+import { sidebarDesignSmoke } from "./sidebar-design-smoke.mjs";
 const appPid = Number(process.argv[2]);
 if (!appPid) throw new Error("Pass the isolated zGIS test process ID");
 mkdirSync("output/desktop", { recursive: true });
@@ -285,7 +286,7 @@ await shpSaving;
 await page.waitForFunction(() =>
   document
     .querySelector(".operation-status")
-    ?.textContent?.includes("保存完成"),
+    ?.textContent?.includes("导出完成"),
 );
 const zip = readFileSync("output/desktop/edited-shp.zip");
 const roundtrip = await shp(
@@ -323,6 +324,7 @@ await editingOpening;
 await page.getByRole("button", { name: "导入", exact: true }).click();
 await page.waitForFunction(() => document.querySelectorAll(".attribute-panel tbody tr").length === 4);
 assert.equal(await page.locator("tbody tr").count(), 4);
+await sidebarDesignSmoke(page);
 await page.locator("tbody tr").first().click();
 await editCell("城市");
 await page
