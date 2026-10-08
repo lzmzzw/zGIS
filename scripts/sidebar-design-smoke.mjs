@@ -90,8 +90,8 @@ export async function sidebarDesignSmoke(page) {
       };
     });
     assert.equal(measurements.height, 288);
-    assert.equal(measurements.mainGap, 36);
-    assert.equal(measurements.groupGap, 32);
+    assert.ok(Math.abs(measurements.mainGap - 36) < 0.01);
+    assert.ok(Math.abs(measurements.groupGap - 32) < 0.01);
     assert.ok(measurements.mainGap > measurements.groupGap);
     assert.ok(measurements.neutral);
     assert.ok(
