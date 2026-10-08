@@ -422,6 +422,7 @@ await page.getByRole("dialog").getByRole("button", {name:"添加字段",exact:tr
 await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
 await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
 await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_field === "")).toBe(true);
+await expect(page.getByRole("button", {name:"新增记录",exact:true})).toBeEnabled();
 await page.locator(".attribute-panel th").filter({hasText:"native_field"}).click({button:"right"});
 await page.getByRole("menuitem",{name:"重命名字段…",exact:true}).click();
 await page.getByLabel("新字段名",{exact:true}).fill("native_renamed");
@@ -429,12 +430,14 @@ await page.getByRole("dialog").getByRole("button",{name:"重命名字段",exact:
 await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
 await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
 await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_renamed === "" && !Object.hasOwn(f.properties,"native_field"))).toBe(true);
+await expect(page.getByRole("button", {name:"新增记录",exact:true})).toBeEnabled();
 await page.locator(".attribute-panel th").filter({hasText:"native_renamed"}).click({button:"right"});
 await page.getByRole("menuitem",{name:"删除字段…",exact:true}).click();
 await page.getByRole("dialog").getByRole("button",{name:"删除字段",exact:true}).click();
 await page.getByRole("button", {name:"保存属性编辑",exact:true}).click();
 await expect(page.getByRole("button", {name:"保存属性编辑",exact:true})).toBeDisabled();
 await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => !Object.hasOwn(f.properties,"native_renamed"))).toBe(true);
+await expect(page.getByRole("button", {name:"新增记录",exact:true})).toBeEnabled();
 console.log("PASS: native shared attribute field add, rename, delete and source-file save");
 await sidebarDesignSmoke(page);
 await page.locator("tbody tr").first().click();
