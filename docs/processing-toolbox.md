@@ -52,7 +52,11 @@
 
 ## 适用范围
 
-当前为二维矢量工具箱，不包含栅格分析、批处理、模型构建器、网络分析或完整拓扑修复。含 Z/M 的图层明确拒绝；需要分析时先从导出入口生成二维副本并重新导入，不自动降维。
+支持 XY 和 XYZ 输入输出，不包含栅格分析、批处理、模型构建器、网络分析或完整拓扑修复；M/ZM 仍不支持。三分量 GeoJSON 坐标按 XYZ 解释，高程必须为有限数值。
+
+空间计算仍使用 XY，高程不参与拓扑、距离或面积计算。输入几何不变时完整保留 XYZ；拆部件、提取顶点和面转线直接保留原坐标；简化保留所选原顶点的高程。其他派生几何按本要素的 XY 匹配原顶点；面叠加使用与引擎一致的量化网格匹配，避免数值舍入造成高程丢失，高程无法确定的新点填 0，不插值、不换算垂直基准。裁剪、相交和差集以输出要素所属输入为高程来源，目标仅提供平面范围；对称差两侧分别使用各自来源。融合只匹配本分组的原顶点，同一 XY 对应多个不同高程时填 0。输入几何含 XYZ 时其派生几何全为 XYZ，二维顶点补 0；合并图层只要任一输入含 XYZ，结果全部升为 XYZ，已有高程保留。纯 XY 输入保持二维。完全重复几何检查包含 Z，面重叠检查按 XY。
+
+XYZ 结果通过 GeoJSON 或 WKT 保存，并在工作副本恢复中保留；XY CSV 和 SHP 导出仍只支持二维，不能静默丢弃高程。
 
 工作坐标统一 WGS84。空间关系、凸包、质心与面叠加使用经纬度平面，拒绝跨日期线。缓冲、简化、最近目标及量算使用局部等距圆柱近似，非测地算法；适用纬度 ±75°、经纬跨度均不超过 5°。缓冲距离和简化容差须大于 0，最多 100000 米。工程精度、大范围或高纬数据应使用适当投影与专业 GIS 引擎。
 
@@ -68,4 +72,4 @@
 
 执行 `pnpm test`、`pnpm build`、`pnpm exec playwright test tests/processing-toolbox.spec.ts`。载入 `scripts/msvc-environment.ps1` 后执行 `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`。
 
-原生隔离验证：创建 `output/processing-smoke.config.json`，内容为 `{"identifier":"com.personal.zgis.processing-smoke"}`；载入 MSVC 后执行 `pnpm tauri build --no-bundle --config output/processing-smoke.config.json`，再执行 `node scripts/processing-native-smoke.mjs`。脚本核对隔离标识，用生成数据验证面相交、属性保留、质心→缓冲→量算、拓扑报告和源图层保留；报告位于 `output/processing-native/report.json`。安装验证仍遵守 README 的包外安装流程。
+原生隔离验证：创建 `output/processing-smoke.config.json`，内容为 `{"identifier":"com.personal.zgis.processing-smoke"}`；载入 MSVC 后执行 `pnpm tauri build --no-bundle --config output/processing-smoke.config.json`，再执行 `node scripts/processing-native-smoke.mjs`。脚本核对隔离标识，用生成数据验证面相交、属性保留、质心→缓冲→量算、拓扑报告和源图层保留；同时核验 XYZ 输入、高程保留、新增点 Z=0 和恢复快照；报告位于 `output/processing-native/report.json`。安装验证仍遵守 README 的包外安装流程。

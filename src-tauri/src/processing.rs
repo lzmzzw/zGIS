@@ -103,7 +103,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     fn point() -> Value {
-        json!({"type":"Feature","id":"p","geometry":{"type":"Point","coordinates":[116.,40.]},"properties":{"name":"测试"}})
+        json!({"type":"Feature","id":"p","geometry":{"type":"Point","coordinates":[116.,40.,19.]},"properties":{"name":"测试"}})
     }
     #[test]
     fn direct_analysis_preserves_input_and_returns_geometry() {
@@ -113,6 +113,8 @@ mod tests {
         assert_eq!(source, original);
         assert_eq!(result["type"], "FeatureCollection");
         assert_eq!(result["features"][0]["properties"]["name"], "测试");
+        let ring = result["features"][0]["geometry"]["coordinates"][0][0].as_array().unwrap();
+        assert!(ring.iter().all(|c| c.as_array().unwrap().len() == 3 && c[2] == 0));
     }
     #[test]
     fn rejects_handles_paths_and_unknown_parameters() {

@@ -1,4 +1,4 @@
-//! Bounded, two-dimensional spatial operations. Relations use longitude/latitude
+//! Bounded planar spatial operations with XY/XYZ data preservation. Relations use longitude/latitude
 //! coordinates; metric operations use a local equirectangular approximation.
 use geo::{
     Area, BooleanOps, BoundingRect, Buffer, Centroid, ConvexHull, CoordsIter, Euclidean, Geometry,
@@ -128,11 +128,21 @@ fn decode(features: &[Value], allow_invalid: bool) -> Result<Vec<Geometry<f64>>,
         .collect()
 }
 fn validate_coordinates(v: &Value) -> Result<(), String> {
-    let a = v.as_array().ok_or("坐标必须为二维数组")?;
+    validate_coordinate_tree(v, &mut None)
+}
+fn validate_coordinate_tree(v: &Value, dimension: &mut Option<usize>) -> Result<(), String> {
+    let a = v.as_array().ok_or("坐标必须为 XY 或 XYZ 数组")?;
     if a.first().is_some_and(Value::is_number) {
-        if a.len() != 2 {
-            return Err("仅支持二维坐标，不支持 Z/M".into());
+        if !matches!(a.len(), 2 | 3) {
+            return Err("仅支持 XY/XYZ 坐标，不支持 M/ZM".into());
         }
+        if a.len() == 3 && !a[2].as_f64().is_some_and(f64::is_finite) {
+            return Err("高程 Z 必须为有限数值".into());
+        }
+        if dimension.is_some_and(|d| d != a.len()) {
+            return Err("同一几何不能混合 XY 与 XYZ 坐标".into());
+        }
+        *dimension = Some(a.len());
         let x = a[0].as_f64().ok_or("非法坐标")?;
         let y = a[1].as_f64().ok_or("非法坐标")?;
         if !x.is_finite() || !y.is_finite() || x.abs() > 180.0 || y.abs() > 90.0 {
@@ -140,7 +150,7 @@ fn validate_coordinates(v: &Value) -> Result<(), String> {
         }
     } else {
         for item in a {
-            validate_coordinates(item)?;
+            validate_coordinate_tree(item, dimension)?;
         }
     }
     Ok(())
@@ -154,7 +164,7 @@ fn validate_rings(geometry: &Value) -> Result<(), String> {
         for ring in rings {
             let points = ring.as_array().ok_or("面环坐标必须为数组")?;
             if points.len() < 4
-                || (0..2).any(|axis| {
+                || (0..points[0].as_array().map_or(0, Vec::len)).any(|axis| {
                     points.first().and_then(|p| p[axis].as_f64())
                         != points.last().and_then(|p| p[axis].as_f64())
                 })
@@ -189,6 +199,15 @@ fn feature(geometry: &Geometry<f64>, properties: Value) -> Value {
     json!({"type":"Feature","geometry":geojson::Geometry::new(geojson::Value::from(geometry)),"properties":properties})
 }
 fn derived_feature(source: &Value, geometry: Option<&Geometry<f64>>, properties: Value) -> Value {
+    let elevations = geometry.map(|_| Elevations::from_geometry(&source["geometry"]));
+    derived_with_elevations(source, geometry, properties, elevations.as_ref())
+}
+fn derived_with_elevations(
+    source: &Value,
+    geometry: Option<&Geometry<f64>>,
+    properties: Value,
+    elevations: Option<&Elevations>,
+) -> Value {
     // Splitting a large source must not clone its entire geometry for each output.
     let mut result = Value::Object(
         source
@@ -208,12 +227,139 @@ fn derived_feature(source: &Value, geometry: Option<&Geometry<f64>>, properties:
     result["properties"] = properties;
     if let Some(geometry) = geometry {
         result["geometry"] = json!(geojson::Geometry::new(geojson::Value::from(geometry)));
+        if let Some(elevations) = elevations {
+            elevations.apply(&mut result["geometry"]);
+        }
         // An old feature bbox no longer describes the transformed geometry.
         if let Some(object) = result.as_object_mut() {
             object.remove("bbox");
         }
     }
     result
+}
+
+// Indexed by exact XY within this output's sources, never by unrelated layer features.
+// Conflicting elevations at the same XY have no unique answer and become zero.
+#[derive(Default)]
+struct Elevations {
+    xyz: bool,
+    values: std::collections::HashMap<(u64, u64), Option<Value>>,
+}
+fn xy_key(x: f64, y: f64) -> (u64, u64) {
+    // Treat negative and positive zero as the same horizontal coordinate.
+    (
+        (if x == 0.0 { 0.0 } else { x }).to_bits(),
+        (if y == 0.0 { 0.0 } else { y }).to_bits(),
+    )
+}
+fn promote_xyz(coordinates: &mut Value) {
+    if let Some(a) = coordinates.as_array_mut() {
+        if a.first().is_some_and(Value::is_number) {
+            if a.len() == 2 {
+                a.push(json!(0));
+            }
+        } else {
+            for item in a {
+                promote_xyz(item);
+            }
+        }
+    }
+}
+impl Elevations {
+    fn for_overlay(source: &Value, a: &MultiPolygon<f64>, b: &MultiPolygon<f64>) -> Self {
+        let mut result = Self::from_geometry(&source["geometry"]);
+        if result.xyz {
+            result.quantize(a, b);
+        }
+        result
+    }
+    fn quantize(&mut self, a: &MultiPolygon<f64>, b: &MultiPolygon<f64>) {
+        // Use the same pinned i_float adapter as geo's BooleanOps. Original
+        // vertices may move to its integer grid; no arbitrary nearest-point Z lookup.
+        let points: Vec<_> = a
+            .coords_iter()
+            .chain(b.coords_iter())
+            .map(|c| [c.x, c.y])
+            .collect();
+        let adapter =
+            i_float::adapter::FloatPointAdapter::<[f64; 2], f64>::with_iter(points.iter());
+        let prior = std::mem::take(&mut self.values);
+        for ((x, y), z) in prior {
+            let raw = [f64::from_bits(x), f64::from_bits(y)];
+            let xy = adapter.int_to_float(&adapter.float_to_int(&raw));
+            self.values
+                .entry(xy_key(xy[0], xy[1]))
+                .and_modify(|v| {
+                    if v.as_ref().and_then(Value::as_f64) != z.as_ref().and_then(Value::as_f64) {
+                        *v = None;
+                    }
+                })
+                .or_insert(z);
+        }
+    }
+    fn from_geometry(geometry: &Value) -> Self {
+        fn has_z(v: &Value) -> bool {
+            v.as_array().is_some_and(|a| {
+                if a.first().is_some_and(Value::is_number) {
+                    a.len() == 3
+                } else {
+                    a.iter().any(has_z)
+                }
+            })
+        }
+        let mut result = Self::default();
+        if has_z(&geometry["coordinates"]) {
+            result.add(&geometry["coordinates"]);
+        }
+        result
+    }
+    fn add(&mut self, coordinates: &Value) {
+        let Some(a) = coordinates.as_array() else {
+            return;
+        };
+        if a.first().is_some_and(Value::is_number) {
+            self.xyz |= a.len() == 3;
+            if let (Some(x), Some(y)) = (a[0].as_f64(), a[1].as_f64()) {
+                let z = a.get(2).cloned().unwrap_or(json!(0));
+                self.values
+                    .entry(xy_key(x, y))
+                    .and_modify(|prior| {
+                        if prior.as_ref().and_then(Value::as_f64) != z.as_f64() {
+                            *prior = None;
+                        }
+                    })
+                    .or_insert(Some(z));
+            }
+        } else {
+            for item in a {
+                self.add(item);
+            }
+        }
+    }
+    fn apply(&self, geometry: &mut Value) {
+        if self.xyz {
+            self.apply_coordinates(&mut geometry["coordinates"]);
+        }
+    }
+    fn apply_coordinates(&self, coordinates: &mut Value) {
+        let Some(a) = coordinates.as_array_mut() else {
+            return;
+        };
+        if a.first().is_some_and(Value::is_number) {
+            let z = self
+                .values
+                .get(&xy_key(a[0].as_f64().unwrap(), a[1].as_f64().unwrap()))
+                .and_then(Option::as_ref)
+                .cloned()
+                .unwrap_or(json!(0));
+            a.truncate(2);
+            a.push(z);
+        } else {
+            for item in a {
+                self.apply_coordinates(item);
+            }
+        }
+    }
 }
 fn polygon(g: &Geometry<f64>) -> Result<MultiPolygon<f64>, String> {
     match g {
@@ -391,6 +537,7 @@ fn unary(
     let mut output_budget = OutputBudget::new(output_limit);
     for (i, g) in geometries.iter().enumerate() {
         let f = &source[i];
+        let elevations = Elevations::from_geometry(&f["geometry"]);
         let generated_count = match name {
             "multipart_to_singleparts" => match g {
                 Geometry::MultiPoint(p) => p.0.len(),
@@ -457,7 +604,15 @@ fn unary(
                     Geometry::MultiPolygon(p) => Geometry::MultiPolygon(p.simplify(tolerance)),
                     _ => return Err("简化仅支持线或面几何".into()),
                 };
-                parts.push(projection.map(&simplified, true));
+                // Simplification retains input vertices. Recover their exact XY rather
+                // than introducing round-trip projection noise that would lose their Z.
+                use geo::MapCoords;
+                let originals: std::collections::HashMap<_, _> = g
+                    .coords_iter()
+                    .zip(projection.map(g, false).coords_iter())
+                    .map(|(raw, projected)| (xy_key(projected.x, projected.y), raw))
+                    .collect();
+                parts.push(simplified.map_coords(|c| originals[&xy_key(c.x, c.y)]));
             }
             "geometry_attributes" => {
                 let projected = projection.as_ref().unwrap().map(g, false);
@@ -505,11 +660,23 @@ fn unary(
                 };
                 for (part, ring, coords) in rings {
                     for (vertex, coord) in coords.into_iter().enumerate() {
-                        let mut result = derived_feature(
+                        let mut result = derived_with_elevations(
                             f,
                             Some(&Geometry::Point(geo::Point(coord))),
                             properties(f, "_zgis_part", json!(part)),
+                            None,
                         );
+                        let raw = &f["geometry"]["coordinates"];
+                        let coordinates = match f["geometry"]["type"].as_str().unwrap() {
+                            "Point" => raw,
+                            "MultiPoint" => &raw[part],
+                            "LineString" => &raw[vertex],
+                            "MultiLineString" => &raw[part][vertex],
+                            "Polygon" => &raw[ring.unwrap()][vertex],
+                            "MultiPolygon" => &raw[part][ring.unwrap()][vertex],
+                            _ => unreachable!(),
+                        };
+                        result["geometry"]["coordinates"] = coordinates.clone();
                         result["properties"] = properties(&result, "_zgis_ring", json!(ring));
                         result["properties"] = properties(&result, "_zgis_vertex", json!(vertex));
                         push_bounded(&mut out, &mut output_budget, without_id(result))?;
@@ -519,8 +686,30 @@ fn unary(
             }
             _ => return Err("未知单层工具".into()),
         }
-        for part in parts {
-            let result = derived_feature(f, Some(&part), f["properties"].clone());
+        for (part_index, part) in parts.into_iter().enumerate() {
+            let mut result =
+                derived_with_elevations(f, Some(&part), f["properties"].clone(), Some(&elevations));
+            let raw = &f["geometry"]["coordinates"];
+            if name == "multipart_to_singleparts" {
+                result["geometry"]["coordinates"] =
+                    if f["geometry"]["type"].as_str().unwrap().starts_with("Multi") {
+                        raw[part_index].clone()
+                    } else {
+                        raw.clone()
+                    };
+            } else if name == "polygon_to_lines" {
+                result["geometry"]["coordinates"] = if f["geometry"]["type"] == "Polygon" {
+                    raw.clone()
+                } else {
+                    Value::Array(
+                        raw.as_array()
+                            .unwrap()
+                            .iter()
+                            .flat_map(|p| p.as_array().unwrap().iter().cloned())
+                            .collect(),
+                    )
+                };
+            }
             push_bounded(
                 &mut out,
                 &mut output_budget,
@@ -662,8 +851,10 @@ fn analyze_inner(
             ),
             None => None,
         };
-        let mut groups =
-            std::collections::BTreeMap::<String, (Value, MultiPolygon<f64>, usize)>::new();
+        let mut groups = std::collections::BTreeMap::<
+            String,
+            (Value, MultiPolygon<f64>, usize, Elevations),
+        >::new();
         for (i, g) in s.iter().enumerate() {
             let value = if let Some(field) = group_by {
                 source[i]["properties"]
@@ -676,19 +867,23 @@ fn analyze_inner(
             let key = group_key(&value)?;
             let group = groups
                 .entry(key)
-                .or_insert_with(|| (value, MultiPolygon(vec![]), 0));
-            group.1 = group.1.union(&polygon(g)?);
+                .or_insert_with(|| (value, MultiPolygon(vec![]), 0, Elevations::default()));
+            let next = polygon(g)?;
+            group.3.add(&source[i]["geometry"]["coordinates"]);
+            group.3.quantize(&group.1, &next);
+            group.1 = group.1.union(&next);
             group.2 += 1;
         }
         let mut out = Vec::new();
         let mut output_budget = OutputBudget::new(output_limit);
-        for (_, (value, union, count)) in groups {
+        for (_, (value, union, count, elevations)) in groups {
             if !union.0.is_empty() {
                 let mut p = serde_json::Map::new();
                 if let Some(field) = group_by {
                     p.insert(field.into(), value);
                 }
-                let f = feature(&Geometry::MultiPolygon(union), Value::Object(p));
+                let mut f = feature(&Geometry::MultiPolygon(union), Value::Object(p));
+                elevations.apply(&mut f["geometry"]);
                 let p = properties(&f, "sourceCount", json!(count));
                 push_bounded(&mut out, &mut output_budget, derived_feature(&f, None, p))?;
             }
@@ -705,9 +900,17 @@ fn analyze_inner(
         }
         let mut out = Vec::new();
         let mut output_budget = OutputBudget::new(output_limit);
+        let xyz = source
+            .iter()
+            .chain(target.unwrap().iter())
+            .any(|f| Elevations::from_geometry(&f["geometry"]).xyz);
         for f in source.iter().chain(target.unwrap().iter()) {
             output_budget.repeated_properties(f, 1)?;
-            push_bounded(&mut out, &mut output_budget, without_id(f.clone()))?;
+            let mut result = without_id(f.clone());
+            if xyz {
+                promote_xyz(&mut result["geometry"]["coordinates"]);
+            }
+            push_bounded(&mut out, &mut output_budget, result)?;
         }
         return Ok(collection(out, false));
     }
@@ -784,10 +987,12 @@ fn analyze_inner(
                     if result.0.is_empty() {
                         continue;
                     }
-                    let mut f = derived_feature(
+                    let elevations = Elevations::for_overlay(&source[i], a, b);
+                    let mut f = derived_with_elevations(
                         &source[i],
                         Some(&Geometry::MultiPolygon(result)),
                         source[i]["properties"].clone(),
+                        Some(&elevations),
                     );
                     if let Some(p) = target.unwrap()[j]["properties"].as_object() {
                         for (key, value) in p {
@@ -802,14 +1007,16 @@ fn analyze_inner(
             let target_union = tp.iter().fold(MultiPolygon(vec![]), |a, b| a.union(b));
             for (i, a) in sp.iter().enumerate() {
                 let result = a.difference(&target_union);
+                let elevations = Elevations::for_overlay(&source[i], a, &target_union);
                 if !result.0.is_empty() {
                     push_bounded(
                         &mut out,
                         &mut output_budget,
-                        derived_feature(
+                        derived_with_elevations(
                             &source[i],
                             Some(&Geometry::MultiPolygon(result)),
                             source[i]["properties"].clone(),
+                            Some(&elevations),
                         ),
                     )?;
                 }
@@ -818,14 +1025,16 @@ fn analyze_inner(
                 let source_union = sp.iter().fold(MultiPolygon(vec![]), |a, b| a.union(b));
                 for (i, b) in tp.iter().enumerate() {
                     let result = b.difference(&source_union);
+                    let elevations = Elevations::for_overlay(&target.unwrap()[i], b, &source_union);
                     if !result.0.is_empty() {
                         push_bounded(
                             &mut out,
                             &mut output_budget,
-                            without_id(derived_feature(
+                            without_id(derived_with_elevations(
                                 &target.unwrap()[i],
                                 Some(&Geometry::MultiPolygon(result)),
                                 target.unwrap()[i]["properties"].clone(),
+                                Some(&elevations),
                             )),
                         )?;
                     }
@@ -870,15 +1079,18 @@ fn analyze_inner(
             mask = mask.union(&polygon(g)?);
         }
         for (i, g) in s.iter().enumerate() {
-            let clipped = polygon(g)?.intersection(&mask);
+            let input = polygon(g)?;
+            let clipped = input.intersection(&mask);
+            let elevations = Elevations::for_overlay(&source[i], &input, &mask);
             if !clipped.0.is_empty() {
                 push_bounded(
                     &mut out,
                     &mut output_budget,
-                    derived_feature(
+                    derived_with_elevations(
                         &source[i],
                         Some(&Geometry::MultiPolygon(clipped)),
                         source[i]["properties"].clone(),
+                        Some(&elevations),
                     ),
                 )?;
             }
@@ -1014,8 +1226,11 @@ fn topology_preflight(source: &[Value], vertex_limit: usize) -> Result<(), Strin
     fn dimensions(v: &Value) -> Result<(), String> {
         if let Some(a) = v.as_array() {
             if !a.is_empty() && a.iter().all(|v| !v.is_array()) {
-                if a.len() > 2 {
-                    return Err("仅支持二维坐标，不支持 Z/M".into());
+                if a.len() > 3 {
+                    return Err("仅支持 XY/XYZ 坐标，不支持 M/ZM".into());
+                }
+                if a.len() == 3 && !a[2].as_f64().is_some_and(f64::is_finite) {
+                    return Err("高程 Z 必须为有限数值".into());
                 }
             } else {
                 for item in a {
@@ -1054,6 +1269,166 @@ fn topology_preflight(source: &[Value], vertex_limit: usize) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn add_z(f: &mut Value, z: f64) {
+        promote_xyz(&mut f["geometry"]["coordinates"]);
+        fn set(v: &mut Value, z: f64) {
+            let a = v.as_array_mut().unwrap();
+            if a[0].is_number() {
+                a[2] = json!(z);
+            } else {
+                for item in a {
+                    set(item, z);
+                }
+            }
+        }
+        set(&mut f["geometry"]["coordinates"], z);
+    }
+    fn all_xyz(v: &Value) -> bool {
+        let a = v.as_array().unwrap();
+        if a.is_empty() {
+            return true;
+        }
+        if a[0].is_number() {
+            a.len() == 3 && a[2].as_f64().is_some_and(f64::is_finite)
+        } else {
+            a.iter().all(all_xyz)
+        }
+    }
+    #[test]
+    fn every_analysis_accepts_xyz_and_preserves_output_dimension() {
+        let mut a = square(0., 0., 0.01);
+        let mut b = square(0.005, 0.005, 0.01);
+        add_z(&mut a, 17.);
+        add_z(&mut b, 91.);
+        let mut pt = point(0.007, 0.007);
+        add_z(&mut pt, 5.);
+        for tool in tool_definitions() {
+            let name = tool["name"].as_str().unwrap();
+            let args = match name {
+                "buffer" => json!({"distanceMeters":10}),
+                "simplify" => json!({"toleranceMeters":1}),
+                _ => json!({}),
+            };
+            let target = if name == "count_points" {
+                vec![pt.clone()]
+            } else {
+                vec![b.clone()]
+            };
+            let result = analyze(name, &args, &[a.clone()], Some(&target))
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            if let Some(features) = result["features"].as_array() {
+                assert!(!features.is_empty(), "{name}");
+                for f in features {
+                    assert!(all_xyz(&f["geometry"]["coordinates"]), "{name}: {f}");
+                }
+            }
+        }
+        let centroid = analyze("centroid", &json!({}), &[a.clone()], None).unwrap();
+        assert_eq!(centroid["features"][0]["geometry"]["coordinates"][2], 0);
+        let buffer = analyze("buffer", &json!({"distanceMeters":10}), &[pt], None).unwrap();
+        assert!(buffer["features"][0]["geometry"]["coordinates"][0][0]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c[2] == 0));
+        let overlay = analyze("intersection", &json!({}), &[a], Some(&[b])).unwrap();
+        let vertices = overlay["features"][0]["geometry"]["coordinates"][0][0]
+            .as_array()
+            .unwrap();
+        assert!(
+            vertices
+                .iter()
+                .any(|c| (c[0].as_f64().unwrap() - 0.01).abs() < 1e-10
+                    && (c[1].as_f64().unwrap() - 0.01).abs() < 1e-10
+                    && c[2] == 17.0),
+            "{vertices:?}"
+        );
+        assert!(vertices.iter().any(|c| c[2] == 0));
+    }
+    #[test]
+    fn structural_operations_keep_distinct_z_at_same_xy_and_holes() {
+        let f = json!({"type":"Feature","geometry":{"type":"MultiPoint","coordinates":[[0,0,11],[0,0,22]]},"properties":{}});
+        for name in ["extract_vertices", "multipart_to_singleparts"] {
+            let r = analyze(name, &json!({}), &[f.clone()], None).unwrap();
+            assert_eq!(
+                r["features"][0]["geometry"]["coordinates"],
+                json!([0, 0, 11])
+            );
+            assert_eq!(
+                r["features"][1]["geometry"]["coordinates"],
+                json!([0, 0, 22])
+            );
+        }
+        let mut hole = hole_polygon();
+        add_z(&mut hole, 47.);
+        let lines = analyze("polygon_to_lines", &json!({}), &[hole.clone()], None).unwrap();
+        assert_eq!(
+            lines["features"][0]["geometry"]["coordinates"],
+            hole["geometry"]["coordinates"]
+        );
+        let vertices = analyze("extract_vertices", &json!({}), &[hole], None).unwrap();
+        assert_eq!(vertices["features"].as_array().unwrap().len(), 8);
+        assert!(vertices["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|f| f["geometry"]["coordinates"][2] == 47.0));
+    }
+    #[test]
+    fn simplify_preserves_z_and_merge_promotes_only_missing_z() {
+        let line = json!({"type":"Feature","geometry":{"type":"LineString","coordinates":[[116.01,40.01,11],[116.015,40.015,22],[116.02,40.02,33]]},"properties":{}});
+        let result = analyze("simplify", &json!({"toleranceMeters":1}), &[line], None).unwrap();
+        assert_eq!(
+            result["features"][0]["geometry"]["coordinates"],
+            json!([[116.01, 40.01, 11], [116.02, 40.02, 33]])
+        );
+        let mut p = point(0., 0.);
+        add_z(&mut p, 12.);
+        let merged = analyze("merge", &json!({}), &[p.clone()], Some(&[point(1., 1.)])).unwrap();
+        assert_eq!(merged["features"][0]["geometry"], p["geometry"]);
+        assert_eq!(
+            merged["features"][1]["geometry"]["coordinates"],
+            json!([1., 1., 0])
+        );
+        let two_d = analyze("centroid", &json!({}), &[point(0., 0.)], None).unwrap();
+        assert_eq!(
+            two_d["features"][0]["geometry"]["coordinates"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+    }
+    #[test]
+    fn elevation_is_feature_local_and_conflicts_are_zero() {
+        let mut a = square(0., 0., 0.01);
+        let mut b = a.clone();
+        add_z(&mut a, 11.);
+        add_z(&mut b, 22.);
+        let hulls = analyze("convex_hull", &json!({}), &[a.clone(), b.clone()], None).unwrap();
+        for (i, z) in [11., 22.].into_iter().enumerate() {
+            assert!(hulls["features"][i]["geometry"]["coordinates"][0]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|c| c[2] == z));
+        }
+        let dissolved = analyze("dissolve", &json!({}), &[a, b], None).unwrap();
+        assert!(dissolved["features"][0]["geometry"]["coordinates"][0][0]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c[2] == 0));
+        let malformed = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[0,0,"bad"]},"properties":{}});
+        assert!(analyze("centroid", &json!({}), &[malformed.clone()], None).is_err());
+        assert!(analyze("topology_check", &json!({}), &[malformed], None).is_err());
+        let unclosed_z = json!({"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[0,0,1],[1,0,1],[1,1,1],[0,0,2]]]},"properties":{}});
+        assert!(analyze("layer_summary", &json!({}), &[unclosed_z], None).is_err());
+        let numeric_closed = json!({"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[0,0,1],[1,0,1],[1,1,1],[0.0,0.0,1.0]]]},"properties":{}});
+        assert!(analyze("layer_summary", &json!({}), &[numeric_closed], None).is_ok());
+        let mixed = json!({"type":"Feature","geometry":{"type":"LineString","coordinates":[[0,0,1],[1,1]]},"properties":{}});
+        assert!(analyze("centroid", &json!({}), &[mixed], None).is_err());
+    }
     #[test]
     fn output_byte_budget_checks_every_collection_algorithm() {
         let mut p = square(0., 0., 0.001);
@@ -1126,10 +1501,10 @@ mod tests {
         assert!(topology_preflight(&[invalid.clone(), invalid], 7)
             .unwrap_err()
             .contains("顶点总数"));
-        let z = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[0,0,5]},"properties":{}});
+        let z = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[0,0,5,1]},"properties":{}});
         assert!(analyze("topology_check", &json!({}), &[z], None)
             .unwrap_err()
-            .contains("Z/M"));
+            .contains("M/ZM"));
         let collection = json!({"type":"Feature","geometry":{"type":"GeometryCollection","geometries":[]},"properties":{}});
         assert!(analyze("topology_check", &json!({}), &[collection], None)
             .unwrap_err()
@@ -1438,7 +1813,7 @@ mod tests {
                 .contains("10000"));
         }
         let mut z = a;
-        z["geometry"]["coordinates"] = json!([0, 0, 5]);
+        z["geometry"]["coordinates"] = json!([0, 0, 5, 1]);
         for name in [
             "centroid",
             "geometry_attributes",
@@ -1447,7 +1822,7 @@ mod tests {
         ] {
             assert!(analyze(name, &json!({}), &[z.clone()], None)
                 .unwrap_err()
-                .contains("Z/M"));
+                .contains("M/ZM"));
         }
     }
     #[test]
@@ -1623,7 +1998,7 @@ mod tests {
     #[test]
     fn rejects_unsafe_dimension_and_parameters() {
         let mut p = point(0., 0.);
-        p["geometry"]["coordinates"] = json!([0, 0, 1]);
+        p["geometry"]["coordinates"] = json!([0, 0, 1, 2]);
         assert!(analyze("layer_summary", &json!({}), &[p], None).is_err());
         assert!(analyze("layer_summary", &json!({"unknown":true}), &[], None).is_err());
         assert!(analyze(

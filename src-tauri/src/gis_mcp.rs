@@ -368,7 +368,7 @@ pub fn definitions() -> Vec<Value> {
         ),
         def(
             "load_vector_file",
-            "读取外部矢量文件并缓存，访问授权由调用Agent负责；支持GeoJSON/CSV/SHP/ZIP；二维WGS84",
+            "读取外部矢量文件并缓存，访问授权由调用Agent负责；支持GeoJSON/CSV/SHP/ZIP；WGS84 XY/XYZ（高程保留，空间分析按 XY）",
             json!({"path":{"type":"string"},"crs":{"type":"string","enum":["EPSG:4326","EPSG:4490","EPSG:3857"]},"wktField":{"type":"string"},"xField":{"type":"string"},"yField":{"type":"string"}}),
             &["path"],
         ),
@@ -753,7 +753,7 @@ mod tests {
     #[test]
     fn new_algorithms_share_bounded_schema_cache_and_publication() {
         let m = GisMcp::default();
-        let layer = json!({"id":"test-polygons","name":"测试面","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[116.,40.],[116.01,40.],[116.01,40.01],[116.,40.01],[116.,40.]]]},"properties":{"group":"甲"}}]});
+        let layer = json!({"id":"test-polygons","name":"测试面","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[116.,40.,11.],[116.01,40.,22.],[116.01,40.01,33.],[116.,40.01,44.],[116.,40.,11.]]]},"properties":{"group":"甲"}}]});
         m.inner.lock().unwrap().layers.push(layer.clone());
         for name in ["intersection", "difference", "symmetric_difference", "centroid", "point_on_surface", "convex_hull", "envelope", "multipart_to_singleparts", "extract_vertices", "polygon_to_lines", "simplify", "geometry_attributes", "count_points", "merge"] {
             let definition = definitions().into_iter().find(|d| d["name"] == name).unwrap();
@@ -764,6 +764,7 @@ mod tests {
         let result = call(&m, "centroid", &json!({"source":{"layerId":"test-polygons"}})).unwrap();
         let read = call(&m, "read_result", &json!({"resultId":result["resultId"]})).unwrap();
         assert_eq!(read["features"][0]["geometry"]["type"], "Point");
+        assert_eq!(read["features"][0]["geometry"]["coordinates"][2], 0);
         assert!(call(&m, "simplify", &json!({"source":{"layerId":"test-polygons"},"toleranceMeters":0})).is_err());
         let next = call(&m, "buffer", &json!({"source":{"resultId":result["resultId"]},"distanceMeters":10})).unwrap();
         call(&m, "publish_result", &json!({"resultId":next["resultId"],"name":"缓冲结果"})).unwrap();
@@ -771,6 +772,7 @@ mod tests {
         assert_eq!(inner.layers[0], layer);
         assert_eq!(inner.queue.len(), 1);
         assert_eq!(inner.queue[0]["features"][0]["geometry"]["type"], "MultiPolygon");
+        assert!(inner.queue[0]["features"][0]["geometry"]["coordinates"][0][0].as_array().unwrap().iter().all(|c| c.as_array().unwrap().len() == 3 && c[2] == 0));
     }
     #[tokio::test]
     async fn shutdown_cancels_queued_enable_requests() {

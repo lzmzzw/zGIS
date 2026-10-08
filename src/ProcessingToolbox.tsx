@@ -76,13 +76,16 @@ function geometryKind(geometry: Geometry): AnalysisGeometryKind | undefined {
   if (geometry.type === "Polygon" || geometry.type === "MultiPolygon")
     return "polygon";
 }
-function hasElevation(geometry: Geometry): boolean {
+function hasUnsupportedCoordinates(geometry: Geometry): boolean {
   if (geometry.type === "GeometryCollection")
-    return geometry.geometries.some(hasElevation);
+    return geometry.geometries.some(hasUnsupportedCoordinates);
   const walk = (coordinates: unknown): boolean =>
     Array.isArray(coordinates) &&
     (typeof coordinates[0] === "number"
-      ? coordinates.length > 2
+      ? ![2, 3].includes(coordinates.length) ||
+        coordinates.some(
+          (value) => typeof value !== "number" || !Number.isFinite(value),
+        )
       : coordinates.some(walk));
   return walk(geometry.coordinates);
 }
@@ -102,8 +105,8 @@ function layerIssue(
     ? (tool.targetKinds ?? tool.sourceKinds)
     : tool.sourceKinds;
   for (const feature of layer.features) {
-    if (feature.geometry && hasElevation(feature.geometry))
-      return `${label}含高程。分析仅支持二维；含高程请先导出二维副本。`;
+    if (feature.geometry && hasUnsupportedCoordinates(feature.geometry))
+      return `${label}仅支持有限数值的 XY 或 XYZ 坐标，不支持 M/ZM。`;
   }
   for (const feature of layer.features) {
     if (!feature.geometry) {
@@ -843,7 +846,8 @@ export function ProcessingToolbox({
                 </p>
               )}
               <p>
-                分析仅支持二维。不修改输入数据；独立结果图层可通过正常保存入口保存。
+                按 XY 分析，保留原顶点高程；无法确定高程的新点 Z=0。结果可保存为
+                GeoJSON 或 WKT。
               </p>
             </details>
           </>

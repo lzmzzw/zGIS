@@ -6360,6 +6360,7 @@ dependencies = [
  "dbase",
  "geo",
  "geojson",
+ "i_float",
  "native-tls",
  "portable-pty",
  "postgres-native-tls",

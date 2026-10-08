@@ -58,11 +58,11 @@ try {
       type: "Polygon",
       coordinates: [
         [
-          [x, 40],
-          [x + 0.01, 40],
-          [x + 0.01, 40.01],
-          [x, 40.01],
-          [x, 40],
+          [x, 40, 10],
+          [x + 0.01, 40, 20],
+          [x + 0.01, 40.01, 30],
+          [x, 40.01, 40],
+          [x, 40, 10],
         ],
       ],
     },
@@ -207,6 +207,17 @@ try {
     intersection.features[0].properties.target_name,
     "square-116.005",
   );
+  const overlayVertices = intersection.features[0].geometry.coordinates.flat(2);
+  assert.ok(overlayVertices.every((c) => c.length === 3));
+  assert.ok(
+    overlayVertices.some(
+      (c) =>
+        Math.abs(c[0] - 116.01) < 1e-10 &&
+        Math.abs(c[1] - 40) < 1e-10 &&
+        c[2] === 20,
+    ),
+  );
+  assert.ok(overlayVertices.some((c) => c[2] === 0));
   const xs = intersection.features[0].geometry.coordinates
     .flat(2)
     .map((coordinate) => coordinate[0]);
@@ -214,6 +225,7 @@ try {
   assert.ok(Math.abs(Math.max(...xs) - 116.01) < 1e-10);
   const centroid = await analyze("质心", "native-centroid");
   assert.equal(centroid.features[0].geometry.type, "Point");
+  assert.equal(centroid.features[0].geometry.coordinates[2], 0);
   assert.ok(
     Math.abs(centroid.features[0].geometry.coordinates[0] - 116.0075) < 1e-8,
   );
@@ -224,6 +236,11 @@ try {
   await toolbox.getByLabel("缓冲距离（米）").fill("100");
   const buffer = await analyze("缓冲区", "native-buffer");
   assert.equal(buffer.features[0].geometry.type, "MultiPolygon");
+  assert.ok(
+    buffer.features[0].geometry.coordinates
+      .flat(2)
+      .every((c) => c.length === 3 && c[2] === 0),
+  );
   const measured = await analyze("添加几何属性", "native-area");
   assert.ok(
     Math.abs(measured.features[0].properties._zgis_area_m2 - Math.PI * 10000) <
@@ -239,6 +256,16 @@ try {
     square(116).geometry,
   );
   assert.equal(content.layers.length, 6);
+  await page.reload();
+  await expect(page.locator(".layer-text")).toHaveCount(6);
+  assert.deepEqual(
+    (await snapshot()).layers.find(
+      (layer) => layer.displayName === "native-intersection",
+    ).features,
+    intersection.features,
+  );
+  await page.getByRole("button", { name: "工具", exact: true }).click();
+  await selectTool("质心");
   await page.screenshot({ path: resolve(output, "toolbox-native.png") });
   assert.deepEqual(errors, []);
   const closed = page.waitForEvent("close");
@@ -259,6 +286,8 @@ try {
           "source preservation",
           "28 tool native catalog",
           "normal snapshot exit",
+          "XYZ overlay preserves source vertex Z and fills unknown Z with zero",
+          "XYZ centroid-buffer chain and recovery snapshot",
           "fixed tree and tool deselection hide configuration and help, retain drafts",
           "docked agent and toolbox do not cover map or attribute table",
           "independent sidebar widths, native pointer drag and keyboard resize",

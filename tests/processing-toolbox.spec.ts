@@ -312,7 +312,7 @@ test("topology and summary show readable reports without adding vector layers", 
   await expect(toolbox(page).getByLabel("分析结果")).toContainText("EPSG:4326");
 });
 
-test("editing and elevated geometry give explicit guidance and cannot run", async ({
+test("editing blocks analysis while XYZ coordinates can run", async ({
   page,
 }) => {
   await start(page);
@@ -336,8 +336,14 @@ test("editing and elevated geometry give explicit guidance and cannot run", asyn
   await next.goto("/");
   await next.getByRole("button", { name: "工具", exact: true }).click();
   await tool(next, "缓冲区");
-  await expect(run(next)).toBeDisabled();
-  await expect(toolbox(next)).toContainText("含高程");
+  await expect(run(next)).toBeEnabled();
+  await expect(toolbox(next)).toContainText("按 XY 分析");
+  await run(next).click();
+  await expect.poll(async () => (await calls(next)).length).toBe(1);
+  const request = (await calls(next))[0].args as {
+    source: { geometry: { coordinates: number[][][] } }[];
+  };
+  expect(request.source[0].geometry.coordinates[0][0][2]).toBe(8);
 });
 
 test("toolbox stays inside 960px dark and light windows with keyboard controls", async ({
