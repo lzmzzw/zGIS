@@ -183,7 +183,7 @@ await page.getByRole("button", { name: "保存并退出编辑", exact: true }).c
 await page.waitForFunction(() =>
   document
     .querySelector(".operation-status")
-    ?.textContent?.includes("保存完成"),
+    ?.textContent?.includes("源文件已保存"),
 );
 const source = JSON.parse(
   readFileSync("output/smoke/fixtures/native.geojson", "utf8"),
