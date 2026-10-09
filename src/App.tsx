@@ -178,6 +178,37 @@ function IconButton({
     </button>
   );
 }
+function ToolbarAction({
+  label,
+  accessibleLabel = label,
+  children,
+  onClick,
+  disabled,
+  active,
+  className = "",
+}: {
+  label: string;
+  accessibleLabel?: string;
+  children: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      className={`toolbar-action ${active ? "active" : ""} ${className}`}
+      title={accessibleLabel}
+      aria-label={accessibleLabel}
+      aria-pressed={active}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      {children}
+      <span>{label}</span>
+    </button>
+  );
+}
 function Modal({
   title,
   children,
@@ -2282,6 +2313,32 @@ export default function App() {
   const contextBlocked = busy || Boolean(cellDraft);
   const sketching =
     tool === "Point" || tool === "LineString" || tool === "Polygon";
+  const renderMapTool = (item: (typeof tools)[number]) => (
+    <IconButton
+      key={item.value}
+      label={item.label}
+      disabled={
+        !active ||
+        (item.value !== "select" && item.value !== "pan" && !editable) ||
+        Boolean(cellDraft) ||
+        gestureActive ||
+        busy ||
+        (active?.geometryType !== undefined &&
+          ["Point", "LineString", "Polygon"].includes(item.value) &&
+          item.value !== active.geometryType)
+      }
+      active={tool === item.value}
+      onClick={() => {
+        if (drawDraft && item.value !== tool) {
+          setError("请先完成或取消当前绘制");
+          return;
+        }
+        setTool(item.value);
+      }}
+    >
+      <item.icon />
+    </IconButton>
+  );
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (
@@ -3011,63 +3068,56 @@ export default function App() {
                 aria-orientation="vertical"
                 aria-label="地图工具"
               >
-                <div className="tool-group">
+                <div className="tool-group" role="group" aria-label="浏览">
                   {tools
-                    .filter(
-                      (item) =>
-                        editing ||
-                        item.value === "select" ||
-                        item.value === "pan",
-                    )
-                    .map((item) => (
-                      <IconButton
-                        key={item.value}
-                        label={item.label}
-                        disabled={
-                          !active ||
-                          (item.value !== "select" &&
-                            item.value !== "pan" &&
-                            !editable) ||
-                          Boolean(cellDraft) ||
-                          gestureActive ||
-                          busy ||
-                          (active?.geometryType !== undefined &&
-                            ["Point", "LineString", "Polygon"].includes(
-                              item.value,
-                            ) &&
-                            item.value !== active.geometryType)
-                        }
-                        active={tool === item.value}
-                        onClick={() => {
-                          if (drawDraft && item.value !== tool) {
-                            setError("请先完成或取消当前绘制");
-                            return;
-                          }
-                          setTool(item.value);
-                        }}
-                      >
-                        <item.icon />
-                      </IconButton>
-                    ))}
-                  {editing && (
-                    <IconButton
-                      label="删除选中要素"
-                      disabled={
-                        !selected ||
-                        !editable ||
-                        busy ||
-                        Boolean(cellDraft) ||
-                        Boolean(drawDraft) ||
-                        gestureActive
-                      }
-                      onClick={() => openModal("delete")}
-                    >
-                      <Trash2 />
-                    </IconButton>
-                  )}
+                    .filter((item) => item.value === "pan" || item.value === "select")
+                    .map(renderMapTool)}
                 </div>
-                <IconButton
-                  label={editing ? "保存并退出编辑" : "编辑"}
+                {editing && (
+                  <>
+                    <span className="toolbar-separator" role="separator" />
+                    <div className="tool-group" role="group" aria-label="几何编辑">
+                      {tools
+                        .filter(
+                          (item) =>
+                            item.value === "modify" || item.value === "move",
+                        )
+                        .map(renderMapTool)}
+                    </div>
+                    <span className="toolbar-separator" role="separator" />
+                    <div className="tool-group" role="group" aria-label="新增要素">
+                      {tools
+                        .filter(
+                          (item) =>
+                            item.value === "Point" ||
+                            item.value === "LineString" ||
+                            item.value === "Polygon",
+                        )
+                        .map(renderMapTool)}
+                    </div>
+                    <span className="toolbar-separator" role="separator" />
+                    <div className="tool-group" role="group" aria-label="记录操作">
+                      <IconButton
+                        label="删除选中要素"
+                        disabled={
+                          !selected ||
+                          !editable ||
+                          busy ||
+                          Boolean(cellDraft) ||
+                          Boolean(drawDraft) ||
+                          gestureActive
+                        }
+                        onClick={() => openModal("delete")}
+                      >
+                        <Trash2 />
+                      </IconButton>
+                    </div>
+                  </>
+                )}
+                <span className="toolbar-separator" role="separator" />
+                <ToolbarAction
+                  label={editing ? "保存并退出" : "编辑"}
+                  accessibleLabel={editing ? "保存并退出编辑" : "编辑"}
                   className="edit-toggle"
                   active={editing}
                   disabled={
@@ -3080,15 +3130,16 @@ export default function App() {
                     editing ? void save(false, true) : beginEditing()
                   }
                 >
-                  <Pencil />
-                </IconButton>
+                  {editing ? <Save /> : <Pencil />}
+                </ToolbarAction>
                 <span className="map-edit-state">
-                  {editing ? "结束" : "浏览"}
+                  {editing ? "编辑中" : "浏览"}
                 </span>
                 {editing && (
                   <>
-                    <IconButton
-                      label="保存编辑"
+                    <ToolbarAction
+                      label="保存"
+                      accessibleLabel="保存编辑"
                       disabled={
                         !canEdit ||
                         !active?.dirty ||
@@ -3100,7 +3151,8 @@ export default function App() {
                       onClick={() => void save()}
                     >
                       <Save />
-                    </IconButton>
+                    </ToolbarAction>
+                    <span className="toolbar-separator" role="separator" />
                     <div className="tool-group">
                       <IconButton
                         label="撤销"

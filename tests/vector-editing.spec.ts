@@ -61,6 +61,23 @@ async function newLayer(page: Page, kind: Kind) {
     page.getByRole("columnheader", { name: "名称", exact: true }),
   ).toBeVisible();
 }
+
+test("editing toolbar separates browsing, geometry, creation, records and saving", async ({
+  page,
+}) => {
+  await installDesktopMock(page);
+  await page.goto("/");
+  await newLayer(page, "Point");
+  const toolbar = page.getByRole("toolbar", { name: "地图工具", exact: true });
+  await expect(toolbar.getByRole("group", { name: "浏览", exact: true })).toBeVisible();
+  await expect(toolbar.getByRole("group", { name: "几何编辑", exact: true })).toBeVisible();
+  await expect(toolbar.getByRole("group", { name: "新增要素", exact: true })).toBeVisible();
+  await expect(toolbar.getByRole("group", { name: "记录操作", exact: true })).toBeVisible();
+  await expect(toolbar.locator('[role="separator"]')).toHaveCount(5);
+  await expect(toolbar.getByText("保存", { exact: true })).toBeVisible();
+  await expect(toolbar.getByText("保存并退出", { exact: true })).toBeVisible();
+});
+
 async function mapPoints(page: Page) {
   const bounds = (await page
     .getByLabel("地理数据地图", { exact: true })

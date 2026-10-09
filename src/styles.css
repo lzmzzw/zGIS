@@ -281,10 +281,38 @@ hr {
   padding: 0;
   border: 0;
 }
+.map-toolbar .toolbar-separator {
+  width: 24px;
+  height: 1px;
+  margin: 2px 0;
+  background: var(--border);
+  flex-shrink: 0;
+}
 .map-toolbar .tool-group + .tool-group,
 .map-toolbar .editing-tools {
   border-top: 1px solid var(--border);
   padding-top: 4px;
+}
+.toolbar-action {
+  min-height: 32px;
+  width: auto;
+  padding: 0 8px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-size-sm);
+}
+.toolbar-action svg {
+  width: var(--icon-size-tool);
+  height: var(--icon-size-tool);
+  flex-shrink: 0;
+}
+.toolbar-action:hover:not(:disabled) {
+  background: var(--hover);
+}
+.toolbar-action.active {
+  background: var(--selected);
+  color: var(--accent);
 }
 .editing-tools {
   color: var(--accent);
