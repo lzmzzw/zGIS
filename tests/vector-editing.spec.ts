@@ -78,6 +78,26 @@ test("editing toolbar separates browsing, geometry, creation, records and saving
   await expect(toolbar.getByText("保存并退出", { exact: true })).toBeVisible();
 });
 
+test("move and vertex modes explain how to select an element first", async ({
+  page,
+}) => {
+  await installDesktopMock(page);
+  await page.goto("/");
+  await newLayer(page, "Point");
+  await button(page, "取消绘制").click();
+  await button(page, "移动要素").click();
+  await expect(page.getByLabel("矢量编辑提示")).toContainText(
+    "请先单击要素或属性表记录",
+  );
+  await expect(page.getByLabel("矢量编辑提示")).toContainText("未选中要素");
+  await expect(page.locator(".map-surface")).toHaveClass(/move-mode/);
+  await button(page, "编辑顶点").click();
+  await expect(page.getByLabel("矢量编辑提示")).toContainText(
+    "请先单击要素或属性表记录",
+  );
+  await expect(page.locator(".map-surface")).toHaveClass(/vertex-mode/);
+});
+
 async function mapPoints(page: Page) {
   const bounds = (await page
     .getByLabel("地理数据地图", { exact: true })

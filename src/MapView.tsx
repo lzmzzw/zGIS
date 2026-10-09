@@ -180,9 +180,9 @@ export default function MapView(props: Props) {
                   )
                 : undefined,
               image: new Circle({
-                radius: 5,
+                radius: 6,
                 fill: new Fill({ color: "#ffffff" }),
-                stroke: new Stroke({ color: accent, width: 2 }),
+                stroke: new Stroke({ color: accent, width: 3 }),
               }),
             }),
           );

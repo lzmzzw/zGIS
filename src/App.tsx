@@ -3242,12 +3242,17 @@ export default function App() {
                   <strong>
                     {active?.displayName ?? active?.name} · 编辑中
                     {active?.dirty ? " · 未保存" : " · 已保存"}
+                    {selected ? " · 已选中 1 个要素" : " · 未选中要素"}
                   </strong>
                   <span>
                     {tool === "modify"
-                      ? "单击要素选择 · 拖动顶点修改 · 拖动边增加顶点 · Alt+单击顶点删除"
+                      ? selected
+                        ? "已选中要素 · 拖动顶点修改 · 拖动边增加顶点 · Alt+单击顶点删除"
+                        : "请先单击要素或属性表记录 · 选中后拖动顶点修改 · 拖动边增加顶点"
                       : tool === "move"
-                        ? "直接拖动要素移动 · 拖动空白处平移地图"
+                        ? selected
+                          ? "已选中要素 · 直接拖动要素移动 · 拖动空白处平移地图"
+                          : "请先单击要素或属性表记录 · 选中后直接拖动要素移动"
                         : sketching
                           ? tool === "Point"
                             ? "单击地图新增点 · Esc 返回选择"
