@@ -99,6 +99,23 @@ test("move and vertex modes explain how to select an element first", async ({
   await expect(page.locator(".map-surface")).toHaveClass(/vertex-mode/);
 });
 
+test("selected features expose direct property and geometry editors", async ({
+  page,
+}) => {
+  await installDesktopMock(page);
+  await page.goto("/");
+  await newLayer(page, "Point");
+  await button(page, "取消绘制").click();
+  await button(page, "新增点").click();
+  const at = await mapPoints(page);
+  await page.mouse.click(at(0.5, 0.45).x, at(0.5, 0.45).y);
+  await button(page, "选择").click();
+  await expect(page.locator("tbody tr")).toHaveCount(1);
+  await page.locator("tbody tr").click();
+  await expect(button(page, "编辑 JSON 属性")).toBeVisible();
+  await expect(button(page, "编辑 WKT 几何")).toBeVisible();
+});
+
 async function mapPoints(page: Page) {
   const bounds = (await page
     .getByLabel("地理数据地图", { exact: true })

@@ -1472,6 +1472,18 @@ button, summary, select { transition: background-color 120ms ease, border-color 
 .map-edit-help button {
   pointer-events: auto;
 }
+.map-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  pointer-events: auto;
+}
+.map-edit-actions button {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  color: var(--accent);
+}
 .map-surface.move-mode {
   cursor: move;
 }

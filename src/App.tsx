@@ -3273,6 +3273,24 @@ export default function App() {
                             : "单击添加节点 · Enter 或双击完成 · Backspace 撤节点 · Esc 取消"
                           : "选择要素后可移动、编辑顶点或修改属性 · 保存后退出编辑"}
                   </span>
+                  {selected && !sketching && (
+                    <div className="map-edit-actions">
+                      <button
+                        className="quiet"
+                        onClick={() => openModal("json")}
+                      >
+                        编辑 JSON 属性
+                      </button>
+                      {selected.geometry && (
+                        <button
+                          className="quiet"
+                          onClick={() => openModal("wkt")}
+                        >
+                          编辑 WKT 几何
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {drawDraft && (
                     <button
                       className="quiet"
