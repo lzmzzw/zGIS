@@ -248,6 +248,18 @@ hr {
   background: var(--warning);
   flex-shrink: 0;
 }
+.document-state {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  flex-shrink: 0;
+}
+.document-state-dirty {
+  color: var(--warning);
+  border-color: var(--warning);
+}
 .header-actions,
 .header-menus,
 .map-toolbar,

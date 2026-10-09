@@ -68,6 +68,7 @@ test("editing toolbar separates browsing, geometry, creation, records and saving
   await installDesktopMock(page);
   await page.goto("/");
   await newLayer(page, "Point");
+  await expect(page.locator(".document-state")).toHaveText("仅工作区副本");
   const toolbar = page.getByRole("toolbar", { name: "地图工具", exact: true });
   await expect(toolbar.getByRole("group", { name: "浏览", exact: true })).toBeVisible();
   await expect(toolbar.getByRole("group", { name: "几何编辑", exact: true })).toBeVisible();

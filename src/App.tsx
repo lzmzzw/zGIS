@@ -1728,7 +1728,7 @@ export default function App() {
     refreshHistory((n) => n + 1);
     if (sessionRef.current)
       sessionRef.current = { ...sessionRef.current, history: undefined };
-    setStatus("保存完成，可继续编辑");
+    setStatus("源文件已保存，可继续编辑");
   }
   function activateLayer(id: string) {
     if (cellDraft || gestureActive) return false;
@@ -1791,7 +1791,7 @@ export default function App() {
     currentLayers.current = currentLayers.current.map((layer) =>
       layer.id === doc.id ? updated : layer,
     );
-    setStatus("保存完成");
+    setStatus("源文件已保存");
     return updated;
   }
   async function processExit() {
@@ -2238,6 +2238,13 @@ export default function App() {
       (Boolean(active.db?.keyColumns.length) &&
         !uncertainDocs.has(active.id!)));
   const editable = canEdit && editing;
+  const sourceSaveState = active
+    ? active.restored || !active.sourceId
+      ? "仅工作区副本"
+      : active.dirty
+        ? "源文件未保存"
+        : "源文件已保存"
+    : "";
   let draftSummary = "";
   let draftError = "";
   if (modal === "json" || modal === "wkt") {
@@ -2707,7 +2714,14 @@ export default function App() {
             title={active?.displayName ?? active?.name}
           >
             {active?.displayName ?? active?.name ?? ""}
-            {active?.dirty && <span className="dirty-dot" title="未保存" />}
+            {active && (
+              <span
+                className={`document-state ${active.dirty ? "document-state-dirty" : ""}`}
+                title={sourceSaveState}
+              >
+                {sourceSaveState}
+              </span>
+            )}
           </div>
           <div className="header-actions">
             {desktop && modal !== "settings" && (
@@ -3241,7 +3255,7 @@ export default function App() {
                 >
                   <strong>
                     {active?.displayName ?? active?.name} · 编辑中
-                    {active?.dirty ? " · 未保存" : " · 已保存"}
+                    {sourceSaveState && ` · ${sourceSaveState}`}
                     {selected ? " · 已选中 1 个要素" : " · 未选中要素"}
                   </strong>
                   <span>

@@ -118,6 +118,7 @@ test("save exits a fresh session; cancellation and failure preserve edits", asyn
   await expect(
     page.getByRole("button", { name: "撤销", exact: true }),
   ).toHaveCount(0);
+  await expect(page.locator(".document-state")).toHaveText("源文件已保存");
   await expect(page.locator("tbody tr")).toContainText("changed");
   await page.locator('td[data-field="name"]').dblclick();
   await expect(page.getByLabel("属性 name", { exact: true })).toHaveCount(0);
