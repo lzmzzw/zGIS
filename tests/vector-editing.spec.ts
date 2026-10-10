@@ -34,7 +34,7 @@ async function recovery(page: Page, condition: (value: Recovery) => boolean) {
   await expect
     .poll(async () => {
       const value = await readRecovery(page);
-      return value !== null && condition(value);
+      return value !== null && value.layers.length > 0 && condition(value);
     })
     .toBe(true);
   return (await readRecovery(page))!;

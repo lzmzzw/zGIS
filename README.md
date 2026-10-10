@@ -2,7 +2,7 @@
 
 GitHub Actions 的检查、构建和发布流程见 [发布说明](docs/release.md)。
 
-Windows / macOS ARM64 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLayers 与 Rust。当前源码版本为 0.3.1，不包含 Python/GDAL 运行时。变更见 [0.3.1 说明](docs/releases/0.3.1.md) 和 [0.2.0 说明](docs/releases/0.2.0.md)，模块职责与维护边界见 [代码结构](docs/architecture.md)。
+Windows / macOS ARM64 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLayers 与 Rust。当前源码版本为 0.3.2，不包含 Python/GDAL 运行时。变更见 [0.3.2 说明](docs/releases/0.3.2.md) 和 [0.2.0 说明](docs/releases/0.2.0.md)，模块职责与维护边界见 [代码结构](docs/architecture.md)。
 
 ## 功能
 
@@ -17,7 +17,7 @@ Windows / macOS ARM64 轻量地理数据查看与编辑器，使用 Tauri 2、Re
 
 ## 运行与安装
 
-0.3.0 Windows 安装包名称为 `zGIS_0.3.0_x64-setup.exe`，本地构建位于 `src-tauri/target/release/bundle/nsis/`；正式发布入口为 [GitHub Releases](https://github.com/lzmzzw/zGIS/releases)。当前用户安装默认目录为 `%LOCALAPPDATA%\zGIS`，启动文件为 `zgis.exe`；可从开始菜单启动。卸载使用 Windows 应用管理或安装目录的 `uninstall.exe`。macOS ARM64 提供 DMG 和 app 压缩包，将 `zGIS.app` 放到 `/Applications` 后启动；构建及签名限制见 [发布说明](docs/release.md)。
+0.3.2 Windows 安装包名称为 `zGIS_0.3.2_x64-setup.exe`，本地构建位于 `src-tauri/target/release/bundle/nsis/`；正式发布入口为 [GitHub Releases](https://github.com/lzmzzw/zGIS/releases)。当前用户安装默认目录为 `%LOCALAPPDATA%\zGIS`，启动文件为 `zgis.exe`；可从开始菜单启动。卸载使用 Windows 应用管理或安装目录的 `uninstall.exe`。macOS ARM64 提供 DMG 和 app 压缩包，将 `zGIS.app` 放到 `/Applications` 后启动；构建及签名限制见 [发布说明](docs/release.md)。
 
 MCP 默认随应用启动，固定本机地址与令牌；外部文件直接按路径读取，访问权限由调用 Agent 判断。Codex 接入方法见 [空间分析说明](docs/spatial-mcp.md)。
 
