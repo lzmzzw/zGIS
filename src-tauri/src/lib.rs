@@ -508,7 +508,7 @@ fn publish_new(temp: &Path, path: &Path) -> Result<(), String> {
         }
     }
     #[cfg(not(windows))]
-    fs::hard_link(&temp, path).map_err(|e| format!("新文件保存失败（目标可能已存在）：{e}"))?;
+    fs::hard_link(temp, path).map_err(|e| format!("新文件保存失败（目标可能已存在）：{e}"))?;
     Ok(())
 }
 #[cfg(windows)]

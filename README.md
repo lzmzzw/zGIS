@@ -2,7 +2,7 @@
 
 GitHub Actions 的检查、构建和发布流程见 [发布说明](docs/release.md)。
 
-Windows / macOS ARM64 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLayers 与 Rust。当前源码版本为 0.3.0，不包含 Python/GDAL 运行时。变更见 [0.3.0 说明](docs/releases/0.3.0.md) 和 [0.2.0 说明](docs/releases/0.2.0.md)，模块职责与维护边界见 [代码结构](docs/architecture.md)。
+Windows / macOS ARM64 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLayers 与 Rust。当前源码版本为 0.3.1，不包含 Python/GDAL 运行时。变更见 [0.3.1 说明](docs/releases/0.3.1.md) 和 [0.2.0 说明](docs/releases/0.2.0.md)，模块职责与维护边界见 [代码结构](docs/architecture.md)。
 
 ## 功能
 
