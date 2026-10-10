@@ -115,6 +115,25 @@ test("restored CSV saves as GeoJSON from the main file menu", async ({
   expect(JSON.parse(String(save.args.content)).type).toBe("FeatureCollection");
 });
 
+test("恢复的已有文件编辑直接覆盖来源，不再弹出另存窗口", async ({ page }) => {
+  const [layer] = JSON.parse(snapshot);
+  layer.sourceKind = "geojson";
+  delete layer.db;
+  layer.sourcePath = "F:/data/existing.geojson";
+  layer.sourceHash = "original-hash";
+  layer.dirty = true;
+  await installDesktopMock(page, JSON.stringify([layer]));
+  await page.goto("/");
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await page.getByRole("button", { name: "保存编辑", exact: true }).click();
+  const call = await page.evaluate(() =>
+    window.__ZG_TEST__.calls.filter((item) => item.command === "save_file").at(-1),
+  );
+  expect(call?.args.overwrite).toBe(true);
+  expect(call?.args.sourcePath).toBe("F:/data/existing.geojson");
+  await expect(page.getByRole("button", { name: "保存编辑", exact: true })).toBeDisabled();
+});
+
 const savedLayers = (raw: string) => {
   const saved = JSON.parse(raw);
   return Array.isArray(saved) ? saved : saved.layers;

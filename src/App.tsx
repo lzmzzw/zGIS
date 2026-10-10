@@ -10,6 +10,7 @@ import {
   type CSSProperties,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isMacOS, primaryModifier } from "./platform";
 import {
   FolderOpen,
   Save,
@@ -38,9 +39,12 @@ import {
   Bot,
   Minus,
   Square,
+  Copy,
   Maximize2,
   Minimize2,
   Move,
+  LogOut,
+  Spline,
 } from "lucide-react";
 import BasemapControl from "./BasemapControl";
 import ContextMenu, {
@@ -114,7 +118,7 @@ import {
 const tools: { value: Tool; label: string; icon: typeof Pencil }[] = [
   { value: "pan", label: "手形", icon: Hand },
   { value: "select", label: "选择", icon: MousePointer2 },
-  { value: "modify", label: "编辑顶点", icon: Pencil },
+  { value: "modify", label: "编辑顶点", icon: Spline },
   { value: "move", label: "移动要素", icon: Move },
   { value: "Point", label: "新增点", icon: MapPin },
   { value: "LineString", label: "新增线", icon: Route },
@@ -175,37 +179,6 @@ function IconButton({
       disabled={disabled}
     >
       {children}
-    </button>
-  );
-}
-function ToolbarAction({
-  label,
-  accessibleLabel = label,
-  children,
-  onClick,
-  disabled,
-  active,
-  className = "",
-}: {
-  label: string;
-  accessibleLabel?: string;
-  children: ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
-  active?: boolean;
-  className?: string;
-}) {
-  return (
-    <button
-      className={`toolbar-action ${active ? "active" : ""} ${className}`}
-      title={accessibleLabel}
-      aria-label={accessibleLabel}
-      aria-pressed={active}
-      onClick={onClick}
-      disabled={disabled}
-    >
-      {children}
-      <span>{label}</span>
     </button>
   );
 }
@@ -357,6 +330,7 @@ export default function App() {
         features: GeoFeature[];
         dirty: boolean;
         fieldNames?: string[];
+        schemaChanges?: DocumentLayer["schemaChanges"];
       }
     | undefined
   >(undefined);
@@ -473,8 +447,12 @@ export default function App() {
   const [closingLayerId, setClosingLayerId] = useState<string>();
   const [featurePreview, setFeaturePreview] = useState(false);
   const [tableMaximized, setTableMaximized] = useState(false);
-  const [columnWidths, setColumnWidths] = useState<Record<string, Record<string, number>>>({});
-  const [columnOrders, setColumnOrders] = useState<Record<string, string[]>>({});
+  const [columnWidths, setColumnWidths] = useState<
+    Record<string, Record<string, number>>
+  >({});
+  const [columnOrders, setColumnOrders] = useState<Record<string, string[]>>(
+    {},
+  );
   const columnDrag = useRef<string | null>(null);
   const columnResize = useRef<{ x: number; width: number } | null>(null);
   const [cellDraft, setCellDraft] = useState<{
@@ -488,7 +466,9 @@ export default function App() {
   } | null>(null);
   const [tableHeight, setTableHeight] = useState(250);
   const [cellConfirmation, setCellConfirmation] = useState(false);
-  const cellDestination = useRef<{ featureId: string; field?: string } | null>(null);
+  const cellDestination = useRef<{ featureId: string; field?: string } | null>(
+    null,
+  );
   const [featureFitNonce, setFeatureFitNonce] = useState(0);
   const [finishNonce, setFinishNonce] = useState(0);
   const [nodeCount, setNodeCount] = useState(0);
@@ -501,6 +481,40 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [uncertainDocs, setUncertainDocs] = useState(new Set<string>());
   const [error, setError] = useState("");
+  const [windowMaximized, setWindowMaximized] = useState(false);
+  useEffect(() => {
+    if (!desktop) return;
+    const appWindow = getCurrentWindow();
+    let disposed = false;
+    let revision = 0;
+    let unlisten: (() => void) | undefined;
+    const refresh = async () => {
+      const currentRevision = ++revision;
+      try {
+        const maximized = await appWindow.isMaximized();
+        if (!disposed && currentRevision === revision)
+          setWindowMaximized(maximized);
+      } catch (reason) {
+        if (!disposed) setError(errorText(reason));
+      }
+    };
+    void appWindow
+      .onResized(() => void refresh())
+      .then((stop) => {
+        if (disposed) stop();
+        else {
+          unlisten = stop;
+          void refresh();
+        }
+      })
+      .catch((reason) => {
+        if (!disposed) setError(errorText(reason));
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
   const [modal, setModal] = useState<
     | "import"
     | "export"
@@ -513,6 +527,7 @@ export default function App() {
     | "delete-field"
     | "settings"
     | "close"
+    | "exit-edit"
     | "quit"
     | "json"
     | "wkt"
@@ -573,31 +588,37 @@ export default function App() {
             }
           : undefined,
         panelDraft:
-          !featurePreview && (draftModal === "json" || draftModal === "wkt") && selectedId
+          !featurePreview &&
+          (draftModal === "json" || draftModal === "wkt") &&
+          selectedId
             ? {
                 kind: draftModal,
                 featureId: selectedId,
                 text: draftModal === "json" ? propertyText : wktText,
               }
             : undefined,
-        history: sessionHistory
-          ? {
-              undo: sessionHistory.past,
-              redo: sessionHistory.future,
-              undoFieldNames: sessionHistory.pastFields,
-              redoFieldNames: sessionHistory.futureFields,
-              baseline: editingBaseline.current
-                ? {
-                    features: editingBaseline.current.features,
-                    dirty: editingBaseline.current.dirty,
-                    fieldNames: editingBaseline.current.fieldNames,
-                  }
-                : undefined,
-            }
-          : undefined,
+        history:
+          sessionHistory || editingBaseline.current
+            ? {
+                undo: sessionHistory?.past ?? [],
+                redo: sessionHistory?.future ?? [],
+                undoFieldNames: sessionHistory?.pastFields,
+                redoFieldNames: sessionHistory?.futureFields,
+                baseline: editingBaseline.current
+                  ? {
+                      features: editingBaseline.current.features,
+                      dirty: editingBaseline.current.dirty,
+                      fieldNames: editingBaseline.current.fieldNames,
+                    }
+                  : undefined,
+              }
+            : undefined,
       }
     : undefined;
-  const active = useMemo(() => layers.find((layer) => layer.id === activeId), [layers, activeId]);
+  const active = useMemo(
+    () => layers.find((layer) => layer.id === activeId),
+    [layers, activeId],
+  );
   const mcpSyncQueue = useRef<Promise<unknown>>(Promise.resolve());
   useEffect(() => {
     if (!desktop || !recoveryReady) return;
@@ -607,21 +628,26 @@ export default function App() {
       .then(() => {
         // IPC 进行中只保留最新待同步状态，避免积压大图层副本。
         if (disposed) return;
-        return api.mcpSync(layers.map((layer) => ({
-          id: layer.id,
-          name: layer.displayName ?? layer.name,
-          features: layer.features.map((feature) => ({
-            type: "Feature",
-            id: feature.id,
-            geometry: feature.geometry,
-            properties: feature.properties,
+        return api.mcpSync(
+          layers.map((layer) => ({
+            id: layer.id,
+            name: layer.displayName ?? layer.name,
+            features: layer.features.map((feature) => ({
+              type: "Feature",
+              id: feature.id,
+              geometry: feature.geometry,
+              properties: feature.properties,
+            })),
           })),
-        })), activeId);
+          activeId,
+        );
       })
       .catch((reason) => {
         if (!disposed) setError(`空间分析图层同步失败：${errorText(reason)}`);
       });
-    return () => { disposed = true; };
+    return () => {
+      disposed = true;
+    };
   }, [layers, activeId, recoveryReady]);
   const pendingAnalysis = useRef<AnalysisLayer[]>([]);
   const analysisInFlight = useRef<Promise<void> | null>(null);
@@ -740,7 +766,7 @@ export default function App() {
   }, [modal]);
   function selectFeature(id?: string, locateInTable = false) {
     if (cellDraft && id !== cellDraft.featureId) {
-      if (!leaveCell(id ? {featureId: id} : undefined)) return;
+      if (!leaveCell(id ? { featureId: id } : undefined)) return;
     }
     centerImmediately.current = locateInTable;
     setSelectedId(id);
@@ -883,7 +909,8 @@ export default function App() {
   }
   function writeSnapshot(documents: DocumentLayer[], omitEditSession = false) {
     if (
-      !omitEditSession && sessionRef.current?.selectedId &&
+      !omitEditSession &&
+      sessionRef.current?.selectedId &&
       !documents
         .find((l) => l.id === sessionRef.current?.layerId)
         ?.features.some((f) => f.id === sessionRef.current?.selectedId)
@@ -945,7 +972,9 @@ export default function App() {
         (layerStyleDraft.color !== active?.color ||
           layerStyleDraft.opacity !== (active?.opacity ?? 1) ||
           layerStyleDraft.strokeWidth !== (active?.strokeWidth ?? 2))) ||
-      (editable && !featurePreview && (modal === "json" || modal === "wkt" || modal === "field"))
+      (editable &&
+        !featurePreview &&
+        (modal === "json" || modal === "wkt" || modal === "field"))
     ) {
       exitPreviousModal.current = modal;
       setModal("quit");
@@ -1045,9 +1074,7 @@ export default function App() {
     const timer = setTimeout(() => {
       if (exitPending.current || busyRef.current) return;
       // 已写入的浏览器日志与原生备份使用同一版本，避免再次序列化整个工作区。
-      void persistSnapshot(content).catch(() =>
-        setStatus("恢复副本保存失败"),
-      );
+      void persistSnapshot(content).catch(() => setStatus("恢复副本保存失败"));
     }, 150);
     return () => clearTimeout(timer);
   }, [
@@ -1102,6 +1129,7 @@ export default function App() {
             dirty: session.history?.baseline?.dirty ?? true,
             fieldNames:
               session.history?.baseline?.fieldNames ?? layer.fieldNames,
+            schemaChanges: layer.schemaChanges,
           }
         : undefined;
       if (session.history)
@@ -1471,7 +1499,10 @@ export default function App() {
   }
   function leaveCell(destination?: { featureId: string; field?: string }) {
     if (!cellDraft) return true;
-    if (destination?.featureId === cellDraft.featureId && destination.field === cellDraft.field)
+    if (
+      destination?.featureId === cellDraft.featureId &&
+      destination.field === cellDraft.field
+    )
       return true;
     if (cellDraft.text === cellText(cellDraft.original) && !cellDraft.isNull) {
       setCellDraft(null);
@@ -1488,7 +1519,12 @@ export default function App() {
     cellDestination.current = null;
     setCellConfirmation(false);
     if (destination) setSelectedId(destination.featureId);
-    requestAnimationFrame(() => focusCell(destination?.featureId ?? featureId, destination?.field ?? field));
+    requestAnimationFrame(() =>
+      focusCell(
+        destination?.featureId ?? featureId,
+        destination?.field ?? field,
+      ),
+    );
   }
   function cancelCell() {
     const field = cellDraft?.field;
@@ -1512,12 +1548,15 @@ export default function App() {
     )
       return;
     try {
-      const unchanged = cellDraft.text === cellText(cellDraft.original) && !cellDraft.isNull;
-      const value = unchanged ? cellDraft.original : parseCellValue(
-        cellDraft.text,
-        cellDraft.original == null ? "" : cellDraft.original,
-        cellDraft.isNull,
-      );
+      const unchanged =
+        cellDraft.text === cellText(cellDraft.original) && !cellDraft.isNull;
+      const value = unchanged
+        ? cellDraft.original
+        : parseCellValue(
+            cellDraft.text,
+            cellDraft.original == null ? "" : cellDraft.original,
+            cellDraft.isNull,
+          );
       const feature = active.features.find((f) => f.id === cellDraft.featureId);
       if (!feature) throw new Error("要素已不存在，请取消编辑后重新选择");
       if (
@@ -1540,7 +1579,10 @@ export default function App() {
       setCellDraft(null);
       setError("");
       if (!unchanged) setStatus("属性已更新，源文件需保存");
-      finishCellFocus(feature.id, direction && nextField ? nextField : oldField);
+      finishCellFocus(
+        feature.id,
+        direction && nextField ? nextField : oldField,
+      );
     } catch (reason) {
       setCellDraft((d) => (d ? { ...d, error: errorText(reason) } : null));
     }
@@ -1548,28 +1590,48 @@ export default function App() {
   function renderCellInput() {
     if (!cellDraft) return null;
     return (
-      <div className="cell-editor cell-editor-inline"
+      <div
+        className="cell-editor cell-editor-inline"
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
-            e.preventDefault(); e.stopPropagation(); cancelCell();
+            e.preventDefault();
+            e.stopPropagation();
+            cancelCell();
           } else if (e.key === "Enter") {
-            e.preventDefault(); commitCell();
+            e.preventDefault();
+            commitCell();
           } else if (e.key === "Tab") {
-            e.preventDefault(); commitCell(e.shiftKey ? -1 : 1);
+            e.preventDefault();
+            commitCell(e.shiftKey ? -1 : 1);
           }
-        }}>
-        <input autoFocus aria-label={`属性 ${cellDraft.field}`}
-          aria-invalid={Boolean(cellDraft.error)} value={cellDraft.isNull ? "NULL" : cellDraft.text} disabled={busy}
-          onChange={(e) => setCellDraft((d) => d ? {...d, text: e.target.value, isNull: false, error: ""} : null)}
+        }}
+      >
+        <input
+          autoFocus
+          aria-label={`属性 ${cellDraft.field}`}
+          aria-invalid={Boolean(cellDraft.error)}
+          value={cellDraft.isNull ? "NULL" : cellDraft.text}
+          disabled={busy}
+          onChange={(e) =>
+            setCellDraft((d) =>
+              d
+                ? { ...d, text: e.target.value, isNull: false, error: "" }
+                : null,
+            )
+          }
           onBlur={(e) => {
             const target = e.relatedTarget as HTMLElement | null;
             if (target?.closest(".cell-editor, .cell-confirmation")) return;
             const cell = target?.closest<HTMLElement>("td[data-field]");
             if (cell?.dataset.feature)
-              leaveCell({featureId: cell.dataset.feature, field: cell.dataset.field});
-          }} />
+              leaveCell({
+                featureId: cell.dataset.feature,
+                field: cell.dataset.field,
+              });
+          }}
+        />
       </div>
     );
   }
@@ -1618,6 +1680,7 @@ export default function App() {
       features: active.features,
       dirty: active.dirty,
       fieldNames: active.fieldNames,
+      schemaChanges: active.schemaChanges,
     };
     setEditingLayerId(active.id);
     setTableEditing(true);
@@ -1633,6 +1696,57 @@ export default function App() {
     sessionRef.current = undefined;
     setDrawDraft(null);
     setNodeCount(0);
+    setCellDraft(null);
+    setCellConfirmation(false);
+    setCancelNonce((n) => n + 1);
+    setModal(null);
+    editingBaseline.current = undefined;
+  }
+  function hasEditingChanges() {
+    if (!active || !editingBaseline.current) return false;
+    const baseline = editingBaseline.current;
+    return (
+      JSON.stringify(active.features) !== JSON.stringify(baseline.features) ||
+      JSON.stringify(active.fieldNames ?? []) !==
+        JSON.stringify(baseline.fieldNames ?? []) ||
+      JSON.stringify(active.schemaChanges ?? []) !==
+        JSON.stringify(baseline.schemaChanges ?? []) ||
+      active.dirty !== baseline.dirty
+    );
+  }
+  function requestFinishEditing() {
+    if (!active || !editing || busy || gestureActive) return;
+    if (hasEditingChanges() || cellDraft || drawDraft) setModal("exit-edit");
+    else finishEditing(active.id);
+  }
+  async function discardEditingChanges() {
+    if (!active || !editingBaseline.current) return;
+    const baseline = editingBaseline.current;
+    const restored = layers.map((layer) =>
+      layer.id === active.id
+        ? {
+            ...layer,
+            features: baseline.features,
+            dirty: baseline.dirty,
+            fieldNames: baseline.fieldNames,
+            schemaChanges: baseline.schemaChanges,
+          }
+        : layer,
+    );
+    setLayers(restored);
+    currentLayers.current = restored;
+    histories.current.delete(active.id);
+    setSelectedId((id) =>
+      restored
+        .find((layer) => layer.id === active.id)
+        ?.features.some((feature) => feature.id === id)
+        ? id
+        : undefined,
+    );
+    setModal(null);
+    finishEditing(active.id);
+    if (desktop) await writeSnapshot(restored, true);
+    setStatus("已退出编辑，未保存修改已丢弃");
   }
   async function save(asNew = false, stopEditing = false) {
     if (
@@ -1723,6 +1837,7 @@ export default function App() {
         features: layer.features,
         dirty: false,
         fieldNames: layer.fieldNames,
+        schemaChanges: layer.schemaChanges,
       };
     histories.current.delete(id);
     refreshHistory((n) => n + 1);
@@ -1779,11 +1894,19 @@ export default function App() {
         content,
         filename,
         asNew ? undefined : doc.sourceId,
-        !asNew && Boolean(doc.sourceId),
+        asNew ? undefined : doc.sourcePath,
+        asNew ? undefined : doc.sourceHash,
+        !asNew && Boolean(doc.sourceId || doc.sourcePath),
         asNew ? filename.split(".").pop()?.toLowerCase() : undefined,
       );
       if (!result) return null;
-      updated = { ...updated, sourceId: result.sourceId, name: result.name };
+      updated = {
+        ...updated,
+        sourceId: result.sourceId,
+        sourcePath: result.path,
+        sourceHash: result.sourceHash,
+        name: result.name,
+      };
     } else download(content, filename);
     setLayers((old) =>
       old.map((layer) => (layer.id === doc.id ? updated : layer)),
@@ -1791,7 +1914,7 @@ export default function App() {
     currentLayers.current = currentLayers.current.map((layer) =>
       layer.id === doc.id ? updated : layer,
     );
-    setStatus("源文件已保存");
+    setStatus(asNew ? "保存完成" : "源文件已保存");
     return updated;
   }
   async function processExit() {
@@ -2055,7 +2178,8 @@ export default function App() {
     if (!targetId || !layers.some((layer) => layer.id === targetId)) return;
     await task(async () => {
       const next = layers.filter((l) => l.id !== targetId);
-      if (desktop) await writeSnapshot(next, sessionRef.current?.layerId === targetId);
+      if (desktop)
+        await writeSnapshot(next, sessionRef.current?.layerId === targetId);
       if (targetId === editingLayerId) {
         finishEditing(targetId);
         editingBaseline.current = undefined;
@@ -2087,7 +2211,11 @@ export default function App() {
     ...savedOrder.filter((field) => fields.includes(field)),
     ...fields.filter((field) => !savedOrder.includes(field)),
   ];
-  const columnKeys = ["index", "geometry", ...displayFields.map((field) => `field:${field}`)];
+  const columnKeys = [
+    "index",
+    "geometry",
+    ...displayFields.map((field) => `field:${field}`),
+  ];
   const widths = columnWidths[activeId ?? ""];
   function resetColumnWidths() {
     if (!activeId) return;
@@ -2100,7 +2228,10 @@ export default function App() {
   function resizeColumn(key: string, width: number, header: HTMLElement) {
     if (!activeId) return;
     const measured = Object.fromEntries(
-      [...header.parentElement!.children].map((el, index) => [columnKeys[index], el.getBoundingClientRect().width]),
+      [...header.parentElement!.children].map((el, index) => [
+        columnKeys[index],
+        el.getBoundingClientRect().width,
+      ]),
     );
     setColumnWidths((old) => ({
       ...old,
@@ -2115,33 +2246,60 @@ export default function App() {
         aria-label={`调整 ${label} 列宽`}
         aria-orientation="vertical"
         aria-valuemin={48}
-        aria-valuenow={widths?.[key] == null ? undefined : Math.round(widths[key])}
+        aria-valuenow={
+          widths?.[key] == null ? undefined : Math.round(widths[key])
+        }
         tabIndex={0}
         onClick={(e) => e.stopPropagation()}
-        onDoubleClick={(e) => { e.stopPropagation(); resetColumnWidths(); }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          resetColumnWidths();
+        }}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           e.preventDefault();
           e.stopPropagation();
           e.currentTarget.focus();
-          columnResize.current = { x: e.clientX, width: e.currentTarget.parentElement!.getBoundingClientRect().width };
+          columnResize.current = {
+            x: e.clientX,
+            width: e.currentTarget.parentElement!.getBoundingClientRect().width,
+          };
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
         onPointerMove={(e) => {
-          if (!columnResize.current || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
-          resizeColumn(key, columnResize.current.width + e.clientX - columnResize.current.x, e.currentTarget.parentElement!);
+          if (
+            !columnResize.current ||
+            !e.currentTarget.hasPointerCapture(e.pointerId)
+          )
+            return;
+          resizeColumn(
+            key,
+            columnResize.current.width + e.clientX - columnResize.current.x,
+            e.currentTarget.parentElement!,
+          );
         }}
-        onLostPointerCapture={() => { columnResize.current = null; }}
+        onLostPointerCapture={() => {
+          columnResize.current = null;
+        }}
         onPointerUp={(e) => {
-          if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+          if (e.currentTarget.hasPointerCapture(e.pointerId))
+            e.currentTarget.releasePointerCapture(e.pointerId);
         }}
         onKeyDown={(e) => {
-          if (e.key === "Home") { e.preventDefault(); resetColumnWidths(); }
+          if (e.key === "Home") {
+            e.preventDefault();
+            resetColumnWidths();
+          }
           if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
           e.preventDefault();
           e.stopPropagation();
           const header = e.currentTarget.parentElement!;
-          resizeColumn(key, header.getBoundingClientRect().width + (e.key === "ArrowRight" ? 16 : -16), header);
+          resizeColumn(
+            key,
+            header.getBoundingClientRect().width +
+              (e.key === "ArrowRight" ? 16 : -16),
+            header,
+          );
         }}
       />
     );
@@ -2150,8 +2308,11 @@ export default function App() {
     const features = active?.features ?? [];
     if (!search) return features;
     const query = search.toLowerCase();
-    return features.filter((feature) => Object.values(feature.properties)
-      .some((value) => stringify(value).toLowerCase().includes(query)));
+    return features.filter((feature) =>
+      Object.values(feature.properties).some((value) =>
+        stringify(value).toLowerCase().includes(query),
+      ),
+    );
   }, [active?.features, search]);
   const pageSize = 100;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -2239,7 +2400,7 @@ export default function App() {
         !uncertainDocs.has(active.id!)));
   const editable = canEdit && editing;
   const sourceSaveState = active
-    ? active.restored || !active.sourceId
+    ? !(active.sourceId || (active.sourcePath && active.sourceHash))
       ? "仅工作区副本"
       : active.dirty
         ? "源文件未保存"
@@ -2269,10 +2430,17 @@ export default function App() {
         const value = feature.properties[field];
         if (value == null || value === "") empty++;
         if (value != null)
-          types.add(Array.isArray(value) ? "数组"
-            : typeof value === "object" ? "对象"
-            : typeof value === "number" ? "数值"
-            : typeof value === "boolean" ? "布尔" : "文本");
+          types.add(
+            Array.isArray(value)
+              ? "数组"
+              : typeof value === "object"
+                ? "对象"
+                : typeof value === "number"
+                  ? "数值"
+                  : typeof value === "boolean"
+                    ? "布尔"
+                    : "文本",
+          );
       }
       const summary = `${[...types].join(" / ") || "空值"} · ${features.length} 条 · ${empty} 空值`;
       summaries.set(field, summary);
@@ -2357,7 +2525,7 @@ export default function App() {
         gestureActive
       )
         return;
-      if (event.ctrlKey || event.metaKey) {
+      if (primaryModifier(event)) {
         if (event.key.toLowerCase() === "z") {
           event.preventDefault();
           if (drawDraft && !event.shiftKey) setUndoNodeNonce((n) => n + 1);
@@ -2370,7 +2538,10 @@ export default function App() {
           void save();
         }
       } else if (
-        event.key === "Delete" &&
+        (event.key === "Delete" || (isMacOS && event.key === "Backspace")) &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
         editable &&
         selected &&
         !drawDraft &&
@@ -2455,19 +2626,63 @@ export default function App() {
   } else if (context?.kind === "record" && contextFeature) {
     const feature = contextFeature;
     const blocked = contextBlocked || sketching || feature.id !== selectedId;
-    contextAction("fit-feature", "定位到要素", () => setFeatureFitNonce((n) => n + 1), blocked || !feature.geometry);
+    contextAction(
+      "fit-feature",
+      "定位到要素",
+      () => setFeatureFitNonce((n) => n + 1),
+      blocked || !feature.geometry,
+    );
     contextItems.push({ id: "locate-separator", separator: true });
-    contextAction("json-preview", "JSON属性预览", () => { openModal("json"); setFeaturePreview(true); }, blocked);
-    contextAction("wkt-preview", "WKT几何预览", () => { openModal("wkt"); setFeaturePreview(true); }, blocked || !feature.geometry);
+    contextAction(
+      "json-preview",
+      "JSON属性预览",
+      () => {
+        openModal("json");
+        setFeaturePreview(true);
+      },
+      blocked,
+    );
+    contextAction(
+      "wkt-preview",
+      "WKT几何预览",
+      () => {
+        openModal("wkt");
+        setFeaturePreview(true);
+      },
+      blocked || !feature.geometry,
+    );
     contextItems.push({ id: "copy-separator", separator: true });
-    contextAction("copy-value", "复制单元格", () => {
-      if (context.field !== undefined) copyText(feature.properties[context.field] === null ? "NULL" : stringify(feature.properties[context.field]));
-    }, context.field === undefined);
-    contextAction("copy-properties", "复制JSON属性", () => copyText(JSON.stringify(feature.properties, null, 2)));
-    contextAction("copy-wkt", "复制WKT几何", () => copyText(geometryToWkt(feature.geometry!)), !feature.geometry);
+    contextAction(
+      "copy-value",
+      "复制单元格",
+      () => {
+        if (context.field !== undefined)
+          copyText(
+            feature.properties[context.field] === null
+              ? "NULL"
+              : stringify(feature.properties[context.field]),
+          );
+      },
+      context.field === undefined,
+    );
+    contextAction("copy-properties", "复制JSON属性", () =>
+      copyText(JSON.stringify(feature.properties, null, 2)),
+    );
+    contextAction(
+      "copy-wkt",
+      "复制WKT几何",
+      () => copyText(geometryToWkt(feature.geometry!)),
+      !feature.geometry,
+    );
     if (tableEditing) {
       contextItems.push({ id: "delete-separator", separator: true });
-      contextAction("delete-feature", "删除要素", () => openModal("delete"), blocked || !editable, true);
+      contextAction(
+        "delete-feature",
+        "删除要素",
+        () => openModal("delete"),
+        blocked || !editable,
+        true,
+      );
     }
   } else if (context) {
     if (context.kind === "map") {
@@ -2740,7 +2955,7 @@ export default function App() {
               </>
             )}
           </div>
-          {desktop && (
+          {desktop && !isMacOS && (
             <div className="window-controls">
               <IconButton
                 label="最小化"
@@ -2753,14 +2968,14 @@ export default function App() {
                 <Minus />
               </IconButton>
               <IconButton
-                label="最大化 / 还原"
+                label={windowMaximized ? "还原窗口" : "最大化"}
                 onClick={() =>
                   void getCurrentWindow()
                     .toggleMaximize()
                     .catch((reason) => setError(errorText(reason)))
                 }
               >
-                <Square />
+                {windowMaximized ? <Copy /> : <Square />}
               </IconButton>
               <IconButton
                 label="关闭窗口"
@@ -2930,7 +3145,12 @@ export default function App() {
                   );
                   const next = currentLayers.current.map((l) =>
                     l.sourceId === layer.sourceId
-                      ? { ...l, name: renamed.name }
+                      ? {
+                          ...l,
+                          name: renamed.name,
+                          sourcePath: renamed.path,
+                          sourceHash: renamed.sourceHash,
+                        }
                       : l,
                   );
                   setLayers(next);
@@ -3062,11 +3282,14 @@ export default function App() {
                 const layer = layers.find((item) => item.id === id);
                 if (!layer) return;
                 setError("");
-                if (layer.dirty || editingLayerId === id || cellDraft?.layerId === id) {
+                if (
+                  layer.dirty ||
+                  editingLayerId === id ||
+                  cellDraft?.layerId === id
+                ) {
                   setClosingLayerId(id);
                   setModal("close");
-                }
-                else void closeLayer(id);
+                } else void closeLayer(id);
               }}
               onDissolveGroup={(id) => {
                 if (busy || cellDraft) return;
@@ -3084,22 +3307,33 @@ export default function App() {
               >
                 <div className="tool-group" role="group" aria-label="浏览">
                   {tools
-                    .filter((item) => item.value === "pan" || item.value === "select")
+                    .filter(
+                      (item) => item.value === "pan" || item.value === "select",
+                    )
                     .map(renderMapTool)}
+                </div>
+                <span className="toolbar-separator" role="separator" />
+                <div className="tool-group" role="group" aria-label="编辑会话">
+                  <IconButton
+                    label={editing ? "退出编辑" : "编辑"}
+                    className="edit-toggle"
+                    active={editing}
+                    disabled={!canEdit || busy || gestureActive}
+                    onClick={() =>
+                      editing ? requestFinishEditing() : beginEditing()
+                    }
+                  >
+                    {editing ? <LogOut /> : <Pencil />}
+                  </IconButton>
                 </div>
                 {editing && (
                   <>
                     <span className="toolbar-separator" role="separator" />
-                    <div className="tool-group" role="group" aria-label="几何编辑">
-                      {tools
-                        .filter(
-                          (item) =>
-                            item.value === "modify" || item.value === "move",
-                        )
-                        .map(renderMapTool)}
-                    </div>
-                    <span className="toolbar-separator" role="separator" />
-                    <div className="tool-group" role="group" aria-label="新增要素">
+                    <div
+                      className="tool-group"
+                      role="group"
+                      aria-label="新增要素"
+                    >
                       {tools
                         .filter(
                           (item) =>
@@ -3108,66 +3342,77 @@ export default function App() {
                             item.value === "Polygon",
                         )
                         .map(renderMapTool)}
+                      {sketching && (
+                        <div className="editing-tools">
+                          {sketching && (
+                            <IconButton
+                              label="完成绘制"
+                              disabled={
+                                nodeCount <
+                                (tool === "Polygon"
+                                  ? 3
+                                  : tool === "LineString"
+                                    ? 2
+                                    : 1)
+                              }
+                              onClick={() => setFinishNonce((n) => n + 1)}
+                            >
+                              <Check />
+                            </IconButton>
+                          )}
+                          <IconButton
+                            label={
+                              sketching
+                                ? "取消绘制"
+                                : tool === "modify"
+                                  ? "结束顶点编辑"
+                                  : "结束移动"
+                            }
+                            onClick={() => {
+                              if (sketching) cancelDrawing();
+                              else setTool("select");
+                            }}
+                          >
+                            <X />
+                          </IconButton>
+                        </div>
+                      )}
                     </div>
                     <span className="toolbar-separator" role="separator" />
-                    <div className="tool-group" role="group" aria-label="记录操作">
-                      <IconButton
-                        label="删除选中要素"
-                        disabled={
-                          !selected ||
-                          !editable ||
-                          busy ||
-                          Boolean(cellDraft) ||
-                          Boolean(drawDraft) ||
-                          gestureActive
-                        }
-                        onClick={() => openModal("delete")}
-                      >
-                        <Trash2 />
-                      </IconButton>
-                    </div>
-                  </>
-                )}
-                <span className="toolbar-separator" role="separator" />
-                <ToolbarAction
-                  label={editing ? "保存并退出" : "编辑"}
-                  accessibleLabel={editing ? "保存并退出编辑" : "编辑"}
-                  className="edit-toggle"
-                  active={editing}
-                  disabled={
-                    !canEdit ||
-                    busy ||
-                    Boolean(cellDraft) ||
-                    (editing && (Boolean(drawDraft) || gestureActive))
-                  }
-                  onClick={() =>
-                    editing ? void save(false, true) : beginEditing()
-                  }
-                >
-                  {editing ? <Save /> : <Pencil />}
-                </ToolbarAction>
-                <span className="map-edit-state">
-                  {editing ? "编辑中" : "浏览"}
-                </span>
-                {editing && (
-                  <>
-                    <ToolbarAction
-                      label="保存"
-                      accessibleLabel="保存编辑"
-                      disabled={
-                        !canEdit ||
-                        !active?.dirty ||
-                        busy ||
-                        Boolean(cellDraft) ||
-                        Boolean(drawDraft) ||
-                        gestureActive
-                      }
-                      onClick={() => void save()}
+                    <div
+                      className="tool-group"
+                      role="group"
+                      aria-label="几何编辑"
                     >
-                      <Save />
-                    </ToolbarAction>
+                      {tools
+                        .filter(
+                          (item) =>
+                            item.value === "modify" || item.value === "move",
+                        )
+                        .map(renderMapTool)}
+                      <IconButton
+                        label="捕捉当前图层顶点和边"
+                        active={snapping}
+                        disabled={!editable || busy}
+                        onClick={() => setSnapping((v) => !v)}
+                      >
+                        <Magnet />
+                      </IconButton>
+                      {(tool === "modify" || tool === "move") && (
+                        <div className="editing-tools">
+                          <IconButton
+                            label={
+                              tool === "modify" ? "结束顶点编辑" : "结束移动"
+                            }
+                            onClick={() => setTool("select")}
+                          >
+                            <X />
+                          </IconButton>
+                        </div>
+                      )}
+                    </div>
                     <span className="toolbar-separator" role="separator" />
-                    <div className="tool-group">
+                    <div className="tool-group" role="group" aria-label="历史">
                       <IconButton
                         label="撤销"
                         disabled={
@@ -3197,53 +3442,44 @@ export default function App() {
                         <Redo2 />
                       </IconButton>
                     </div>
-                    <IconButton
-                      label="捕捉当前图层顶点和边"
-                      active={snapping}
-                      disabled={!editable || busy}
-                      onClick={() => setSnapping((v) => !v)}
+                    <span className="toolbar-separator" role="separator" />
+                    <div
+                      className="tool-group"
+                      role="group"
+                      aria-label="记录操作"
                     >
-                      <Magnet />
-                    </IconButton>
-                    {tool !== "select" && tool !== "pan" && (
-                      <div className="editing-tools">
-                        <span>
-                          {tools.find((item) => item.value === tool)?.label}
-                          {sketching && <span>{nodeCount} 个节点</span>}
-                        </span>
-                        {sketching && (
-                          <IconButton
-                            label="完成绘制"
-                            disabled={
-                              nodeCount <
-                              (tool === "Polygon"
-                                ? 3
-                                : tool === "LineString"
-                                  ? 2
-                                  : 1)
-                            }
-                            onClick={() => setFinishNonce((n) => n + 1)}
-                          >
-                            <Check />
-                          </IconButton>
-                        )}
-                        <IconButton
-                          label={
-                            sketching
-                              ? "取消绘制"
-                              : tool === "modify"
-                                ? "结束顶点编辑"
-                                : "结束移动"
-                          }
-                          onClick={() => {
-                            if (sketching) cancelDrawing();
-                            else setTool("select");
-                          }}
-                        >
-                          <X />
-                        </IconButton>
-                      </div>
-                    )}
+                      <IconButton
+                        label="删除选中要素"
+                        disabled={
+                          !selected ||
+                          !editable ||
+                          busy ||
+                          Boolean(cellDraft) ||
+                          Boolean(drawDraft) ||
+                          gestureActive
+                        }
+                        onClick={() => openModal("delete")}
+                      >
+                        <Trash2 />
+                      </IconButton>
+                    </div>
+                    <span className="toolbar-separator" role="separator" />
+                    <div className="tool-group" role="group" aria-label="保存">
+                      <IconButton
+                        label="保存编辑"
+                        disabled={
+                          !canEdit ||
+                          !active?.dirty ||
+                          busy ||
+                          Boolean(cellDraft) ||
+                          Boolean(drawDraft) ||
+                          gestureActive
+                        }
+                        onClick={() => void save()}
+                      >
+                        <Save />
+                      </IconButton>
+                    </div>
                   </>
                 )}
               </div>
@@ -3460,11 +3696,15 @@ export default function App() {
                       />
                     </div>
                     <IconButton
-                      label="编辑属性" active={tableEditing}
+                      label="编辑属性"
+                      active={tableEditing}
                       className="edit-toggle"
                       disabled={!canEdit || busy || Boolean(cellDraft)}
                       onClick={() => {
-                        if (!editing) { beginEditing(); return; }
+                        if (!editing) {
+                          beginEditing();
+                          return;
+                        }
                         setTableEditing((v) => !v);
                         setTool("select");
                       }}
@@ -3583,16 +3823,32 @@ export default function App() {
                 <div className="table-scroll">
                   <table
                     className={widths ? "resized-columns" : undefined}
-                    style={widths ? { width: columnKeys.reduce((sum, key) => sum + (widths[key] ?? 140), 0) } : undefined}
+                    style={
+                      widths
+                        ? {
+                            width: columnKeys.reduce(
+                              (sum, key) => sum + (widths[key] ?? 140),
+                              0,
+                            ),
+                          }
+                        : undefined
+                    }
                   >
                     {widths && (
                       <colgroup>
-                        {columnKeys.map((key) => <col key={key} style={{ width: widths[key] ?? 140 }} />)}
+                        {columnKeys.map((key) => (
+                          <col
+                            key={key}
+                            style={{ width: widths[key] ?? 140 }}
+                          />
+                        ))}
                       </colgroup>
                     )}
                     <thead>
                       <tr>
-                        <th className="index-cell">#{renderColumnResizer("index", "序号")}</th>
+                        <th className="index-cell">
+                          #{renderColumnResizer("index", "序号")}
+                        </th>
                         <th>
                           几何{" "}
                           <button
@@ -3612,12 +3868,21 @@ export default function App() {
                             aria-label={field}
                             draggable={!cellDraft}
                             onDragStart={(e) => {
-                              if ((e.target as HTMLElement).closest(".column-resizer")) { e.preventDefault(); return; }
+                              if (
+                                (e.target as HTMLElement).closest(
+                                  ".column-resizer",
+                                )
+                              ) {
+                                e.preventDefault();
+                                return;
+                              }
                               columnDrag.current = field;
                               e.dataTransfer.setData("text/plain", field);
                               e.dataTransfer.effectAllowed = "move";
                             }}
-                            onDragEnd={() => { columnDrag.current = null; }}
+                            onDragEnd={() => {
+                              columnDrag.current = null;
+                            }}
                             onDragOver={(e) => {
                               if (!columnDrag.current) return;
                               e.preventDefault();
@@ -3628,10 +3893,23 @@ export default function App() {
                               if (!from || !activeId || from === field) return;
                               e.preventDefault();
                               e.stopPropagation();
-                              const next = displayFields.filter((name) => name !== from);
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              next.splice(next.indexOf(field) + (e.clientX > rect.left + rect.width / 2 ? 1 : 0), 0, from);
-                              setColumnOrders((old) => ({ ...old, [activeId]: next }));
+                              const next = displayFields.filter(
+                                (name) => name !== from,
+                              );
+                              const rect =
+                                e.currentTarget.getBoundingClientRect();
+                              next.splice(
+                                next.indexOf(field) +
+                                  (e.clientX > rect.left + rect.width / 2
+                                    ? 1
+                                    : 0),
+                                0,
+                                from,
+                              );
+                              setColumnOrders((old) => ({
+                                ...old,
+                                [activeId]: next,
+                              }));
                               columnDrag.current = null;
                             }}
                             onContextMenu={(event) => {
@@ -3656,16 +3934,28 @@ export default function App() {
                                 });
                             }}
                             onKeyDown={(event) => {
-                              if (event.altKey && !cellDraft && activeId &&
-                                  (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+                              if (
+                                event.altKey &&
+                                !cellDraft &&
+                                activeId &&
+                                (event.key === "ArrowLeft" ||
+                                  event.key === "ArrowRight")
+                              ) {
                                 event.preventDefault();
                                 event.stopPropagation();
                                 const next = [...displayFields];
                                 const from = next.indexOf(field);
-                                const to = from + (event.key === "ArrowLeft" ? -1 : 1);
+                                const to =
+                                  from + (event.key === "ArrowLeft" ? -1 : 1);
                                 if (to >= 0 && to < next.length) {
-                                  [next[from], next[to]] = [next[to], next[from]];
-                                  setColumnOrders((old) => ({ ...old, [activeId]: next }));
+                                  [next[from], next[to]] = [
+                                    next[to],
+                                    next[from],
+                                  ];
+                                  setColumnOrders((old) => ({
+                                    ...old,
+                                    [activeId]: next,
+                                  }));
                                 }
                                 return;
                               }
@@ -3787,7 +4077,8 @@ export default function App() {
                             );
                           }}
                           onClick={() => {
-                            if (leaveCell({featureId: f.id})) selectFeature(f.id);
+                            if (leaveCell({ featureId: f.id }))
+                              selectFeature(f.id);
                           }}
                           onDoubleClick={() => {
                             if (cellDraft || tableEditing) return;
@@ -3831,7 +4122,8 @@ export default function App() {
                                 }
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  if (leaveCell({featureId: f.id, field})) selectFeature(f.id);
+                                  if (leaveCell({ featureId: f.id, field }))
+                                    selectFeature(f.id);
                                 }}
                                 onDoubleClick={(e) => {
                                   if (!tableEditing) return;
@@ -4241,21 +4533,40 @@ export default function App() {
           </Modal>
         )}
         {cellConfirmation && cellDraft && (
-          <div className="cell-confirmation" role="alertdialog" aria-label="单元格修改确认"
-            aria-modal="false" aria-describedby="cell-confirmation-message"
+          <div
+            className="cell-confirmation"
+            role="alertdialog"
+            aria-label="单元格修改确认"
+            aria-modal="false"
+            aria-describedby="cell-confirmation-message"
             onKeyDown={(e) => {
               if (e.key === "Escape") {
-                e.preventDefault(); e.stopPropagation(); cancelCell();
+                e.preventDefault();
+                e.stopPropagation();
+                cancelCell();
               }
-            }}>
+            }}
+          >
             <span id="cell-confirmation-message">应用单元格修改？</span>
-            <button disabled={busy || !editable} onClick={() => commitCell()}>应用</button>
-            <button className="quiet" disabled={busy} onClick={cancelCell}>取消</button>
+            <button disabled={busy || !editable} onClick={() => commitCell()}>
+              应用
+            </button>
+            <button className="quiet" disabled={busy} onClick={cancelCell}>
+              取消
+            </button>
           </div>
         )}
         {(modal === "json" || modal === "wkt") && selected && (
           <Modal
-            title={featurePreview ? (modal === "json" ? "JSON属性预览" : "WKT几何预览") : (modal === "json" ? "JSON 属性" : "WKT 几何")}
+            title={
+              featurePreview
+                ? modal === "json"
+                  ? "JSON属性预览"
+                  : "WKT几何预览"
+                : modal === "json"
+                  ? "JSON 属性"
+                  : "WKT 几何"
+            }
             onClose={() => openModal(null)}
           >
             <div className="editor-layout">
@@ -4281,7 +4592,15 @@ export default function App() {
                   <dd>{active?.displayName ?? active?.name}</dd>
                   <dt>要素</dt>
                   <dd>{selected.id}</dd>
-                  <dt>{featurePreview ? (modal === "json" ? "字段" : "类型") : (modal === "json" ? "草稿字段" : "草稿类型")}</dt>
+                  <dt>
+                    {featurePreview
+                      ? modal === "json"
+                        ? "字段"
+                        : "类型"
+                      : modal === "json"
+                        ? "草稿字段"
+                        : "草稿类型"}
+                  </dt>
                   <dd>{draftError ? "未通过校验" : draftSummary}</dd>
                   <dt>工作坐标</dt>
                   <dd>WGS84</dd>
@@ -4296,13 +4615,15 @@ export default function App() {
             </div>
             <div className="modal-actions">
               <button onClick={() => openModal(null)}>关闭</button>
-              {!featurePreview && <button
-                disabled={!editable || busy || Boolean(draftError)}
-                onClick={modal === "json" ? applyProperties : applyWkt}
-              >
-                <Check />
-                {modal === "json" ? "应用属性" : "应用几何"}
-              </button>}
+              {!featurePreview && (
+                <button
+                  disabled={!editable || busy || Boolean(draftError)}
+                  onClick={modal === "json" ? applyProperties : applyWkt}
+                >
+                  <Check />
+                  {modal === "json" ? "应用属性" : "应用几何"}
+                </button>
+              )}
             </div>
           </Modal>
         )}
@@ -4479,7 +4800,7 @@ export default function App() {
                 />
               </label>
               <p className="form-note">
-                工作坐标为 WGS84。创建后进入编辑模式，保存为
+                工作坐标为 WGS84。创建后点击编辑按钮开始编辑，保存为
                 GeoJSON；需要其他格式可导出。
               </p>
             </div>
@@ -4510,17 +4831,12 @@ export default function App() {
                     "geojson",
                     { dirty: true, geometryType: newGeometryType, fieldNames },
                   );
-                  restoringSession.current = {
-                    layerId: layer.id,
-                    tool: newGeometryType,
-                    snapping,
-                  };
                   addLayers([layer]);
                   setModal(null);
                 }}
               >
                 <Plus />
-                创建并编辑
+                创建
               </button>
             </div>
           </Modal>
@@ -4627,11 +4943,50 @@ export default function App() {
         )}
         {modal === "close" && (
           <Modal title="移除未保存图层" onClose={() => setModal(null)}>
-            <p>将移除“{layers.find((layer) => layer.id === closingLayerId)?.displayName ?? layers.find((layer) => layer.id === closingLayerId)?.name}”，并丢弃该图层的全部未保存修改及未完成编辑。源文件或数据库不会写入这些修改。</p>
+            <p>
+              将移除“
+              {layers.find((layer) => layer.id === closingLayerId)
+                ?.displayName ??
+                layers.find((layer) => layer.id === closingLayerId)?.name}
+              ”，并丢弃该图层的全部未保存修改及未完成编辑。源文件或数据库不会写入这些修改。
+            </p>
             <div className="modal-actions">
-              <button disabled={busy} onClick={() => setModal(null)}>取消</button>
-              <button className="danger" disabled={busy} onClick={() => void closeLayer(closingLayerId)}>
+              <button disabled={busy} onClick={() => setModal(null)}>
+                取消
+              </button>
+              <button
+                className="danger"
+                disabled={busy}
+                onClick={() => void closeLayer(closingLayerId)}
+              >
                 放弃并移除
+              </button>
+            </div>
+          </Modal>
+        )}
+        {modal === "exit-edit" && (
+          <Modal title="退出编辑" onClose={() => setModal(null)}>
+            <p>当前图层有未保存的编辑，是否保存后退出？</p>
+            {(cellDraft || drawDraft) && (
+              <p className="form-note">
+                请先完成或取消当前草稿，再保存并退出。
+              </p>
+            )}
+            <div className="modal-actions">
+              <button disabled={busy} onClick={() => setModal(null)}>
+                取消
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => void task(discardEditingChanges)}
+              >
+                不保存退出
+              </button>
+              <button
+                disabled={busy || Boolean(cellDraft) || Boolean(drawDraft)}
+                onClick={() => void save(false, true)}
+              >
+                保存并退出
               </button>
             </div>
           </Modal>

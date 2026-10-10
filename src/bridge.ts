@@ -6,6 +6,8 @@ export interface InputFile {
   name: string;
   bytes: number[];
   sourceId?: string;
+  sourcePath?: string;
+  sourceHash?: string;
 }
 export interface DroppedFiles {
   files: InputFile[];
@@ -164,7 +166,7 @@ export const api = {
     }),
   mcpResults: () => invoke<AnalysisLayer[]>("gis_results_drain"),
   renameSourceFile: (sourceId: string, newName: string) =>
-    invoke<{ sourceId: string; name: string; path: string }>(
+    invoke<{ sourceId: string; name: string; path: string; sourceHash: string }>(
       "rename_source_file",
       { sourceId, newName },
     ),
@@ -173,12 +175,14 @@ export const api = {
     content: string,
     suggestedName: string,
     sourceId?: string,
+    sourcePath?: string,
+    sourceHash?: string,
     overwrite = false,
     preserveExtension?: string,
   ) =>
-    invoke<{ sourceId: string; name: string; path: string } | null>(
+    invoke<{ sourceId: string; name: string; path: string; sourceHash: string } | null>(
       "save_file",
-      { content, suggestedName, sourceId, overwrite, preserveExtension },
+      { content, suggestedName, sourceId, sourcePath, sourceHash, overwrite, preserveExtension },
     ),
   exportShapefile: (
     features: GeoFeature[],

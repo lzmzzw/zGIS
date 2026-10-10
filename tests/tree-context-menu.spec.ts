@@ -128,6 +128,8 @@ test("creating children expands the parent; dissolving confirms and preserves ne
   await page.getByRole("menuitem", { name: "新建子分组", exact: true }).click();
   await page.getByLabel("分组名称", { exact: true }).fill("新增子组");
   await page.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(page.getByRole("button", { name: "编辑", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(row(page, "父组")).toHaveAttribute("aria-expanded", "true");
   await expect(row(page, "新增子组")).toHaveAttribute("aria-level", "2");
   await row(page, "子组").click({ button: "right" });
@@ -280,7 +282,9 @@ test("new file from a group is inserted into that group", async ({ page }) => {
   await setup(page);
   await row(page, "子组").click({ button: "right" });
   await page.getByRole("menuitem", { name: "新建文件", exact: true }).click();
-  await page.getByRole("button", { name: "创建并编辑", exact: true }).click();
+  await page.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(page.getByRole("button", { name: "编辑", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(page.locator('[data-node-kind="layer"]').last()).toHaveAttribute(
     "aria-level",
     "3",

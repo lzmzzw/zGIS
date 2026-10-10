@@ -31,19 +31,19 @@ try {
   }
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9226'
   $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path (Get-Location) 'output\desktop\installed-webview'
-  & node scripts/create-fixtures.mjs
+  & node (Join-Path $PSScriptRoot 'create-fixtures.mjs')
   if ($LASTEXITCODE -ne 0) { throw 'Fixture generation failed.' }
   $testProcess = Start-Process -FilePath $Executable -WindowStyle Hidden -PassThru
   if ([ZgisInstallNative]::FinalPath($testProcess.Path) -ne [ZgisInstallNative]::FinalPath($Executable)) { throw 'Running process differs from the physical installation.' }
   $smokeArguments = @(if ($InstallationOnly) { '--installation-only' })
-  & node scripts/desktop-smoke.mjs $testProcess.Id @smokeArguments
+  & node (Join-Path $PSScriptRoot 'desktop-smoke.mjs') $testProcess.Id @smokeArguments
   if ($LASTEXITCODE -ne 0) { throw 'Native file smoke failed.' }
   if (-not $testProcess.WaitForExit(10000)) { throw 'Test instance did not exit.' }
   $authHelper = Join-Path (Split-Path $Executable -Parent) 'mcp-headers.ps1'
   $firstAuth = & pwsh -NoProfile -ExecutionPolicy Bypass -File $authHelper 2>$null
   if ($LASTEXITCODE -ne 0) { throw 'Fixed MCP credential was not retained after exit.' }
   $testProcess = Start-Process -FilePath $Executable -WindowStyle Hidden -PassThru
-  & node scripts/desktop-smoke.mjs $testProcess.Id --recovery-only
+  & node (Join-Path $PSScriptRoot 'desktop-smoke.mjs') $testProcess.Id --recovery-only
   if ($LASTEXITCODE -ne 0) { throw 'Native restart recovery smoke failed.' }
   if (-not $testProcess.WaitForExit(10000)) { throw 'Recovery test instance did not exit.' }
   $secondAuth = & pwsh -NoProfile -ExecutionPolicy Bypass -File $authHelper 2>$null

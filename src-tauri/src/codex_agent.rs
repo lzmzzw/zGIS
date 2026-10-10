@@ -162,6 +162,24 @@ fn preserve_cli_resolution(command: &mut CommandBuilder) {
             command.env(key, value);
         }
     }
+    #[cfg(target_os = "macos")]
+    if let Some(path) = macos_cli_path() {
+        command.env("PATH", path);
+    }
+}
+#[cfg(target_os = "macos")]
+fn macos_cli_path() -> Option<std::ffi::OsString> {
+    // Finder 启动的进程不读取 shell 配置；补充常见 CLI 安装目录而不执行配置脚本。
+    let mut paths: Vec<std::path::PathBuf> = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect()).unwrap_or_default();
+    let mut extras = vec![std::path::PathBuf::from("/opt/homebrew/bin"), std::path::PathBuf::from("/usr/local/bin")];
+    if let Some(home) = std::env::var_os("HOME") {
+        extras.push(std::path::PathBuf::from(home).join(".cargo/bin"));
+    }
+    for path in extras {
+        if !paths.contains(&path) { paths.push(path); }
+    }
+    std::env::join_paths(paths).ok()
 }
 fn parse_servers(text: &str) -> Result<Vec<String>, String> {
     let mut names = Vec::new();
@@ -196,6 +214,10 @@ async fn probe(root: &std::path::Path) -> Result<Vec<String>, String> {
     };
     #[cfg(windows)]
     command.creation_flags(0x08000000);
+    #[cfg(target_os = "macos")]
+    if let Some(path) = macos_cli_path() {
+        command.env("PATH", path);
+    }
     command
         .args(["--disable", "apps", "--disable", "plugins", "mcp", "list"])
         .current_dir(root)
@@ -513,7 +535,7 @@ fn dispose_session(mut session: Session) {
         .child
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    // cmd.exe may own a Node/Codex descendant; close the entire owned tree.
+    // 关闭本次 PTY 所属的进程组/树，避免 Node/Codex 子进程保持终端句柄。
     #[cfg(windows)]
     if let Some(pid) = child
         .process_id()
@@ -524,6 +546,14 @@ fn dispose_session(mut session: Session) {
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .creation_flags(0x08000000)
             .output();
+    }
+    #[cfg(unix)]
+    if let Some(pid) = child.process_id() {
+        // portable-pty 在 Unix 启动时 setsid，子进程 PID 即所属进程组。
+        // 只终止仍属于这个 PTY 的组，不能误杀应用自身或其他终端。
+        if session.master.process_group_leader() == Some(pid as libc::pid_t) {
+            unsafe { libc::killpg(pid as libc::pid_t, libc::SIGKILL); }
+        }
     }
     let _ = child.kill();
     let _ = child.wait();
@@ -599,6 +629,15 @@ mod tests {
         preserve_cli_resolution(&mut command);
         for key in ["PATH", "PATHEXT"] {
             if let Some(expected) = std::env::var_os(key) {
+                #[cfg(target_os = "macos")]
+                if key == "PATH" {
+                    let actual: Vec<_> = std::env::split_paths(command.get_env(key).unwrap()).collect();
+                    let original: Vec<_> = std::env::split_paths(&expected).collect();
+                    assert!(actual.starts_with(&original));
+                    assert!(actual.contains(&std::path::PathBuf::from("/opt/homebrew/bin")));
+                    assert!(actual.contains(&std::path::PathBuf::from("/usr/local/bin")));
+                    continue;
+                }
                 assert_eq!(command.get_env(key), Some(expected.as_os_str()));
             }
         }

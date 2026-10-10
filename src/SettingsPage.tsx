@@ -430,7 +430,7 @@ export default function SettingsPage(props: Props) {
             (desktop ? (
               <McpPanel />
             ) : (
-              <p className="form-note">MCP 仅在 Windows 桌面版中提供。</p>
+              <p className="form-note">MCP 仅在桌面版中提供。</p>
             ))}
           {props.category === "about" && <AboutSettings />}
         </section>

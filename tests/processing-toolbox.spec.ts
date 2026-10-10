@@ -337,9 +337,9 @@ test("editing blocks analysis while XYZ coordinates can run", async ({
   await tool(page, "缓冲区");
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await expect(run(page)).toBeDisabled();
-  await expect(toolbox(page)).toContainText("保存并退出编辑");
+  await expect(toolbox(page)).toContainText("退出编辑");
   await page
-    .getByRole("button", { name: "保存并退出编辑", exact: true })
+    .getByRole("button", { name: "退出编辑", exact: true })
     .click();
   await expect(run(page)).toBeEnabled();
   const elevated = JSON.parse(fixture());

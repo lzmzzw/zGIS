@@ -86,7 +86,9 @@ async function newLayer(kind) {
   await page.getByLabel("矢量图层名称", { exact: true }).fill(`native-${kind}`);
   await page.getByLabel("矢量几何类型", { exact: true }).selectOption(kind);
   await page.getByLabel("矢量属性字段", { exact: true }).fill("name");
-  await button("创建并编辑").click();
+  await button("创建").click();
+  await button("编辑").click();
+  await button(kind === "Point" ? "新增点" : kind === "LineString" ? "新增线" : "新增面").click();
   await expect(page.getByLabel("矢量编辑提示")).toContainText("编辑中");
 }
 async function nativeSave(name, cancel = false) {
@@ -100,7 +102,10 @@ async function nativeSave(name, cancel = false) {
       ? ["-Cancel"]
       : ["-FilePath", resolve(output, `${runName}-${name}`)]),
   ]);
-  await button("保存并退出编辑").click();
+  if (!(await page.getByRole("dialog", {name:"退出编辑",exact:true}).count()))
+    await button("退出编辑").click();
+  if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
+    await button("保存并退出").click();
   await dialog;
 }
 try {

@@ -204,6 +204,8 @@ export async function installDesktopMock(
                 {
                   name: "native.geojson",
                   sourceId: "test-open",
+                  sourcePath: "test-native.geojson",
+                  sourceHash: "test-native-hash",
                   bytes: Array.from(
                     new TextEncoder().encode(
                       JSON.stringify({
@@ -227,7 +229,7 @@ export async function installDesktopMock(
             }
             if (command === "rename_source_file") {
               if (state.saveError) throw Error(state.saveError);
-              return {sourceId: args.sourceId, name: String(args.newName).replace(/\.geojson$/i, "") + ".geojson", path: "test-renamed"};
+              return {sourceId: args.sourceId, name: String(args.newName).replace(/\.geojson$/i, "") + ".geojson", path: "test-renamed", sourceHash: "test-renamed-hash"};
             }
             if (command === "save_file" || command === "export_shapefile" || command === "save_shapefile_folder") {
               if (state.saveError) throw Error(state.saveError);
@@ -236,6 +238,7 @@ export async function installDesktopMock(
                 sourceId: "test-saved",
                 name: String(args.suggestedName),
                 path: "test-file",
+                sourceHash: "test-hash",
               };
             }
             if (command === "load_database_sources" || command === "load_mysql_sources") return structuredClone(command === "load_database_sources" ? state.databaseSources : state.mysqlSources);

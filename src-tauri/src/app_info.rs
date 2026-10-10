@@ -144,7 +144,14 @@ fn open_link(url: &str) -> Result<(), String> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn open_link(url: &str) -> Result<(), String> {
+    let status = std::process::Command::new("/usr/bin/open")
+        .arg(url).status().map_err(|_| "无法打开系统浏览器")?;
+    if status.success() { Ok(()) } else { Err("无法打开系统浏览器".into()) }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn open_link(_url: &str) -> Result<(), String> {
     Err("当前系统不支持打开项目链接".into())
 }

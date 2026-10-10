@@ -73,12 +73,20 @@ for (const theme of ["dark", "light"]) {
     await setup(page);
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
     const edit = page.getByRole("button", {name:"编辑属性",exact:true});
-    const mapEdit = page.getByRole("button", {name:"保存并退出编辑",exact:true});
+    const mapEdit = page.getByRole("button", {name:"退出编辑",exact:true});
     await expect(edit).toHaveText("");
     await expect(edit).toHaveAttribute("aria-pressed", "true");
     const border = theme === "dark" ? "rgb(120, 168, 255)" : "rgb(50, 100, 193)";
     await expect(edit).toHaveCSS("border-color", border);
     await expect(mapEdit).toHaveCSS("border-color", border);
+    await page.mouse.move(1, 1);
+    await expect(edit).toHaveCSS("background-color", theme === "dark" ? "rgb(36, 60, 98)" : "rgb(216, 231, 255)");
+    for (const property of ["width", "height", "background-color", "color", "border-radius"])
+      await expect(mapEdit).toHaveCSS(property, await edit.evaluate((el, property) => getComputedStyle(el).getPropertyValue(property), property));
+    for (const button of [edit, mapEdit]) {
+      await expect(button.locator("svg")).toHaveCSS("width", "18px");
+      await expect(button.locator("svg")).toHaveCSS("height", "18px");
+    }
     const activeColor = await edit.evaluate(el => getComputedStyle(el).color);
     await edit.click();
     await expect(edit).toHaveAttribute("aria-pressed", "false");
@@ -326,7 +334,9 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
   ).toHaveValue("#123456");
   await page.getByRole("button", { name: "应用样式", exact: true }).click();
   await expect(page.locator(".layer-text").filter({ hasText: "分析结果" })).toHaveCount(0);
-  await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
+  await page.getByRole("button", { name: "退出编辑", exact: true }).click();
+  if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
+    await page.getByRole("button", {name:"保存并退出",exact:true}).click();
   await expect(
     page.locator(".layer-text").filter({ hasText: "分析结果" }),
   ).toBeVisible();

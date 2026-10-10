@@ -78,13 +78,15 @@ test("source loading and direct save conflicts retain edits without a submit dia
   await page.keyboard.press("Control+s");
   await expect(page.getByRole("alert")).toContainText("并发冲突");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("button", {name:"保存并退出编辑",exact:true})).toBeEnabled();
+  await expect(page.getByRole("button", {name:"退出编辑",exact:true})).toBeEnabled();
   await expect(page.locator(".attribute-panel tbody tr")).toContainText("更新道路");
   await page.screenshot({ path: "output/smoke/submit-conflict.png" });
   await page.evaluate(() => {
     window.__ZG_TEST__.commitError = "";
   });
-  await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
+  await page.getByRole("button", { name: "退出编辑", exact: true }).click();
+  if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
+    await page.getByRole("button", {name:"保存并退出",exact:true}).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator(".attribute-panel tbody tr")).toContainText(
     "更新道路",
@@ -113,7 +115,7 @@ test("uncertain commit disables repeat submission", async ({ page }) => {
   await page.keyboard.press("Control+s");
   await expect(page.getByRole("alert")).toContainText("提交结果待核对");
   await expect(
-    page.getByRole("button", { name: "保存并退出编辑", exact: true }),
+    page.getByRole("button", { name: "退出编辑", exact: true }),
   ).toBeDisabled();
   expect(
     await page.evaluate(

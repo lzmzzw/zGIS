@@ -224,7 +224,9 @@ test("file field menus add, rename and delete with undo and redo preserving valu
   await expect(cell(page, 0, "label")).toHaveText("第一条");
   await page.getByRole("button", {name:"重做",exact:true}).click();
   await expect(cell(page, 0, "label")).toHaveCount(0);
-  await page.getByRole("button", {name:"保存并退出编辑",exact:true}).click();
+  await page.getByRole("button", {name:"退出编辑",exact:true}).click();
+  if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
+    await page.getByRole("button", {name:"保存并退出",exact:true}).click();
   expect(await page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "save_file"))).toHaveLength(1);
   expect(await page.evaluate(() => window.__ZG_TEST__.calls.some(c => c.command === "commit_changes" || c.command === "commit_mysql_changes"))).toBe(false);
 });

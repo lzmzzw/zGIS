@@ -14,7 +14,11 @@ pub(crate) fn crypt(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
     unsafe { LocalFree(output.pbData as *mut _); }
     Ok(result)
 }
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+pub(crate) fn crypt(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
+    super::macos_security::crypt(bytes, encrypt)
+}
+#[cfg(not(any(windows, target_os = "macos")))]
 pub(crate) fn crypt(_: &[u8], _: bool) -> Result<Vec<u8>, String> { Err("底图配置安全存储仅支持 Windows".into()) }
 
 #[tauri::command]

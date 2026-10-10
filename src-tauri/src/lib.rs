@@ -25,6 +25,10 @@ mod app_info;
 mod postgis_catalog;
 mod mysql_catalog;
 mod database_passwords;
+#[cfg(any(target_os = "macos", test))]
+mod macos_security;
+#[cfg(any(target_os = "macos", test))]
+mod macos_menu;
 
 #[tauri::command]
 async fn export_shapefile(
@@ -79,6 +83,7 @@ async fn export_shapefile(
                 .to_string_lossy()
                 .into(),
             path: path.to_string_lossy().into(),
+            source_hash: hash_text(&fingerprint(&path)?),
         }))
     })
     .await
@@ -108,7 +113,7 @@ async fn save_shapefile_folder(
         let path = write_shapefile_group(&directory, &stem, &components)?;
         let id = uuid::Uuid::new_v4().to_string();
         handles.insert(id.clone(), FileHandle { path: path.clone(), hash: fingerprint(&path)? });
-        Ok(Some(SavedFile { source_id: id, name: format!("{stem}.shp"), path: path.to_string_lossy().into_owned() }))
+        Ok(Some(SavedFile { source_id: id, name: format!("{stem}.shp"), path: path.to_string_lossy().into_owned(), source_hash: hash_text(&fingerprint(&path)?) }))
     }).await.map_err(io_error)?
 }
 
@@ -168,6 +173,9 @@ struct FileHandle {
     path: PathBuf,
     hash: Vec<u8>,
 }
+fn hash_text(hash: &[u8]) -> String {
+    hash.iter().map(|byte| format!("{byte:02x}")).collect()
+}
 fn fingerprint(path: &Path) -> Result<Vec<u8>, String> {
     Ok(Sha256::digest(fs::read(path).map_err(|e| e.to_string())?).to_vec())
 }
@@ -216,6 +224,8 @@ struct OpenFile {
     name: String,
     bytes: Vec<u8>,
     source_id: String,
+    source_path: String,
+    source_hash: String,
 }
 #[tauri::command]
 async fn open_files(state: State<'_, Backend>) -> Result<Vec<OpenFile>, String> {
@@ -299,11 +309,14 @@ fn read_selected_files(
             return Err("读取时文件发生变化，请重试".into());
         }
         let id = uuid::Uuid::new_v4().to_string();
+        let source_hash = hash_text(&Sha256::digest(&bytes));
         pending.push((id.clone(), FileHandle { path: path.clone(), hash: Sha256::digest(&bytes).to_vec() }));
         out.push(OpenFile {
             name: path.file_name().unwrap_or_default().to_string_lossy().into(),
             bytes,
             source_id: id,
+            source_path: path.to_string_lossy().into_owned(),
+            source_hash,
         });
     }
     files.lock().map_err(io_error)?.extend(pending);
@@ -335,6 +348,7 @@ struct SavedFile {
     source_id: String,
     name: String,
     path: String,
+    source_hash: String,
 }
 #[tauri::command]
 async fn rename_source_file(state: State<'_, Backend>, source_id: String, new_name: String) -> Result<SavedFile, String> {
@@ -378,7 +392,7 @@ fn rename_source_file_blocking(files: &Mutex<HashMap<String, FileHandle>>, sourc
         }
     }
     let target = &pairs[0].1;
-    Ok(SavedFile { source_id: source_id.into(), name: target.file_name().unwrap_or_default().to_string_lossy().into_owned(), path: target.to_string_lossy().into_owned() })
+    Ok(SavedFile { source_id: source_id.into(), name: target.file_name().unwrap_or_default().to_string_lossy().into_owned(), path: target.to_string_lossy().into_owned(), source_hash: hash_text(&fingerprint(target)?) })
 }
 
 fn move_file_new(source: &Path, target: &Path) -> Result<(), String> {
@@ -526,9 +540,12 @@ fn replace_file(temp: &Path, path: &Path) -> Result<(), String> {
     fs::rename(temp, path).map_err(io_error)
 }
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // 保持现有 Tauri IPC 的独立参数与恢复来源兼容。
 fn save_file(
     state: State<Backend>,
     source_id: Option<String>,
+    source_path: Option<String>,
+    source_hash: Option<String>,
     suggested_name: String,
     content: String,
     overwrite: bool,
@@ -539,13 +556,17 @@ fn save_file(
     }
     let mut handles = state.files.lock().map_err(io_error)?;
     let path = if overwrite {
-        let handle = handles
-            .get(source_id.as_deref().unwrap_or(""))
-            .ok_or("文件句柄失效")?;
-        if fingerprint(&handle.path)? != handle.hash {
+        let (path, expected_hash) = if let Some(handle) = handles.get(source_id.as_deref().unwrap_or("")) {
+            (handle.path.clone(), hash_text(&handle.hash))
+        } else {
+            let path = source_path.ok_or("文件句柄失效，请重新打开图层")?;
+            let expected = source_hash.ok_or("来源指纹缺失，请重新打开图层")?;
+            (PathBuf::from(path), expected)
+        };
+        if hash_text(&fingerprint(&path)?) != expected_hash {
             return Err("源文件已被外部修改，请另存或重新打开".into());
         }
-        handle.path.clone()
+        path
     } else {
         let selection = rfd::FileDialog::new()
             .set_file_name(
@@ -584,6 +605,7 @@ fn save_file(
             hash: fingerprint(&path)?,
         },
     );
+    let current_hash = hash_text(&fingerprint(&path)?);
     Ok(Some(SavedFile {
         source_id: id,
         name: path
@@ -592,6 +614,7 @@ fn save_file(
             .to_string_lossy()
             .into(),
         path: path.to_string_lossy().into(),
+        source_hash: current_hash,
     }))
 }
 #[tauri::command]
@@ -1366,6 +1389,8 @@ pub fn run() {
         .manage(gis_mcp::GisMcp::default())
         .manage(codex_agent::CodexAgent::default())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            macos_menu::install(app)?;
             // 完成启动尝试后再显示前端；失败详情由设置页状态呈现，不阻止地图工作区。
             let mcp = app.state::<gis_mcp::GisMcp>().inner().clone();
             let _ = tauri::async_runtime::block_on(mcp.enable());
@@ -1422,6 +1447,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("zGIS 启动失败")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = &event {
+                // 最后一个窗口已关闭时允许退出；尚有窗口的运行时请求继续经过确认。
+                if let Some(window) = app.get_webview_window("main") {
+                    api.prevent_exit();
+                    let _ = window.close();
+                }
+            }
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<codex_agent::CodexAgent>().shutdown();
                 app.state::<gis_mcp::GisMcp>().shutdown();

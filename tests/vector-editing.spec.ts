@@ -51,7 +51,11 @@ async function newLayer(page: Page, kind: Kind) {
   await page.getByLabel("矢量图层名称", { exact: true }).fill(`手绘${kind}`);
   await page.getByLabel("矢量几何类型", { exact: true }).selectOption(kind);
   await page.getByLabel("矢量属性字段", { exact: true }).fill("名称,备注");
-  await button(page, "创建并编辑").click();
+  await button(page, "创建").click();
+  await expect(button(page, "编辑")).toBeVisible();
+  await expect(page.getByLabel("矢量编辑提示")).toHaveCount(0);
+  await button(page, "编辑").click();
+  await button(page, kind === "Point" ? "新增点" : kind === "LineString" ? "新增线" : "新增面").click();
   await expect(page.getByLabel("矢量编辑提示")).toContainText("编辑中");
   await page
     .locator(".attribute-panel")
@@ -74,9 +78,18 @@ test("editing toolbar separates browsing, geometry, creation, records and saving
   await expect(toolbar.getByRole("group", { name: "几何编辑", exact: true })).toBeVisible();
   await expect(toolbar.getByRole("group", { name: "新增要素", exact: true })).toBeVisible();
   await expect(toolbar.getByRole("group", { name: "记录操作", exact: true })).toBeVisible();
-  await expect(toolbar.locator('[role="separator"]')).toHaveCount(5);
-  await expect(toolbar.getByText("保存", { exact: true })).toBeVisible();
-  await expect(toolbar.getByText("保存并退出", { exact: true })).toBeVisible();
+  await expect(toolbar.locator('[role="separator"]')).toHaveCount(6);
+  await expect(
+    toolbar.getByRole("button", { name: "保存编辑", exact: true }),
+  ).toBeVisible();
+  await button(page, "取消绘制").click();
+  expect(await toolbar.locator("button").evaluateAll(buttons => buttons.map(button => button.getAttribute("aria-label")))).toEqual([
+    "手形", "选择", "退出编辑", "新增点", "新增线", "新增面", "编辑顶点", "移动要素", "捕捉当前图层顶点和边", "撤销", "重做", "删除选中要素", "保存编辑",
+  ]);
+  await page.screenshot({ path: "output/workflow-toolbar/ordering.png" });
+  await expect(
+    toolbar.getByRole("button", { name: "退出编辑", exact: true }),
+  ).toBeVisible();
 });
 
 test("move and vertex modes explain how to select an element first", async ({
@@ -275,7 +288,7 @@ for (const kind of ["Point", "LineString", "Polygon"] as const) {
     const final = (await readRecovery(page))!.layers[0].features;
     await button(page, "保存编辑").click();
     await expect(page.getByLabel("矢量编辑提示")).toContainText("已保存");
-    await expect(button(page, "保存并退出编辑")).toBeEnabled();
+    await expect(button(page, "退出编辑")).toBeEnabled();
     await expect(button(page, "编辑顶点")).toBeVisible();
     const saved = await page.evaluate(() =>
       window.__ZG_TEST__.calls
@@ -288,7 +301,9 @@ for (const kind of ["Point", "LineString", "Polygon"] as const) {
       ),
     ).toEqual(final.map((feature) => feature.geometry));
     await page.screenshot({ path: `output/vector-editing/${kind}.png` });
-    await button(page, "保存并退出编辑").click();
+    await button(page, "退出编辑").click();
+  if (await page.getByRole("dialog", { name: "退出编辑", exact: true }).count())
+    await button(page, "保存并退出").click();
     await expect(button(page, "编辑")).toBeVisible();
     await expect(page.getByLabel("矢量编辑提示")).toHaveCount(0);
   });
@@ -304,10 +319,10 @@ test("drawing keyboard actions remove fixed nodes, complete continuously and can
   await page.mouse.click(at(0.3, 0.35).x, at(0.3, 0.35).y);
   await page.mouse.click(at(0.5, 0.35).x, at(0.5, 0.35).y);
   await page.mouse.click(at(0.7, 0.5).x, at(0.7, 0.5).y);
-  await expect(page.locator(".editing-tools")).toContainText("3 个节点");
+  await recovery(page, (value) => value.session?.drawDraft?.coordinates.length === 3);
   await page.getByLabel("地理数据地图", { exact: true }).focus();
   await page.keyboard.press("Backspace");
-  await expect(page.locator(".editing-tools")).toContainText("2 个节点");
+  await recovery(page, (value) => value.session?.drawDraft?.coordinates.length === 2);
   await page.keyboard.press("Enter");
   await expect(page.locator("tbody tr")).toHaveCount(1);
   await expect(button(page, "新增线")).toHaveAttribute("aria-pressed", "true");
@@ -318,12 +333,12 @@ test("drawing keyboard actions remove fixed nodes, complete continuously and can
   );
   expect(positions(saved.layers[0].features[0])).toHaveLength(2);
   await page.mouse.click(at(0.6, 0.6).x, at(0.6, 0.6).y);
-  await expect(page.locator(".editing-tools")).toContainText("1 个节点");
+  await recovery(page, (value) => value.session?.drawDraft?.coordinates.length === 1);
   await page.getByLabel("地理数据地图", { exact: true }).focus();
   await page.keyboard.press("Escape");
-  await expect(page.locator(".editing-tools")).toContainText("0 个节点");
+  await recovery(page, (value) => !value.session?.drawDraft);
   await expect(page.locator("tbody tr")).toHaveCount(1);
-  await expect(button(page, "保存并退出编辑")).toBeEnabled();
+  await expect(button(page, "退出编辑")).toBeEnabled();
 });
 
 test("Escape cancels an active move and consecutive drags remain editable", async ({
@@ -398,7 +413,10 @@ test("unfinished drawing persists only fixed nodes and resumes after forced rest
   await page.mouse.click(at(0.35, 0.4).x, at(0.35, 0.4).y);
   await page.mouse.click(at(0.55, 0.4).x, at(0.55, 0.4).y);
   await page.mouse.move(at(0.75, 0.6).x, at(0.75, 0.6).y);
-  await expect(button(page, "保存并退出编辑")).toBeDisabled();
+  await expect(button(page, "退出编辑")).toBeEnabled();
+  await button(page, "退出编辑").click();
+  await expect(button(page, "保存并退出")).toBeDisabled();
+  await button(page, "取消").click();
   const draft = await recovery(
     page,
     (value) => value.session?.drawDraft?.coordinates.length === 2,
@@ -412,7 +430,7 @@ test("unfinished drawing persists only fixed nodes and resumes after forced rest
   await restarted.goto("/");
   await expect(restarted.getByLabel("矢量编辑提示")).toContainText("编辑中");
   await expect(button(restarted, "完成绘制")).toBeEnabled();
-  await expect(restarted.locator(".editing-tools")).toContainText("2 个节点");
+  await expect(restarted.locator(".editing-tools")).not.toContainText("个节点");
   await button(restarted, "完成绘制").click();
   const restored = await recovery(
     restarted,
@@ -536,7 +554,9 @@ test("entering edit mode without changes prompts on close and blocks switching l
     page.getByRole("heading", { name: "退出 zGIS", exact: true }),
   ).toBeVisible();
   await button(page, "返回编辑").click();
-  await button(page, "保存并退出编辑").click();
+  await button(page, "退出编辑").click();
+  if (await page.getByRole("dialog", { name: "退出编辑", exact: true }).count())
+    await button(page, "保存并退出").click();
   await page.locator(".layer-row").last().click();
   await expect(button(page, "编辑")).toBeEnabled();
 });

@@ -159,6 +159,9 @@ impl GisMcp {
     fn client_status(&self, app: &tauri::AppHandle) -> McpStatus {
         let mut status = self.status();
         status.headers_helper = app.path().resource_dir().ok().map(|dir| {
+            #[cfg(target_os = "macos")]
+            { macos_headers_helper(&dir.join("mcp-headers-macos.sh")) }
+            #[cfg(not(target_os = "macos"))]
             format!("pwsh -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\"", dir.join("mcp-headers.ps1").display())
         });
         status
@@ -246,6 +249,20 @@ struct HttpState {
     mcp: GisMcp,
     limit: Arc<Semaphore>,
     generation: u64,
+}
+#[cfg(any(target_os = "macos", test))]
+fn macos_headers_helper(path: &std::path::Path) -> String {
+    // 命令供外部客户端执行；单引号保护空格、$、反引号和其他 shell 元字符。
+    let quoted = path.to_string_lossy().replace('\'', "'\"'\"'");
+    format!("/bin/sh '{quoted}'")
+}
+#[cfg(test)]
+mod macos_helper_tests {
+    #[test]
+    fn helper_path_is_quoted_without_shell_expansion() {
+        let command = super::macos_headers_helper(std::path::Path::new("/Applications/zGIS user's $(touch test) `id`/helper.sh"));
+        assert_eq!(command, "/bin/sh '/Applications/zGIS user'\"'\"'s $(touch test) `id`/helper.sh'");
+    }
 }
 fn router(mcp: GisMcp, generation: u64) -> Router {
     Router::new()

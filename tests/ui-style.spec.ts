@@ -69,7 +69,7 @@ for (const theme of ["dark", "light"]) {
         page
           .getByRole("button", { name: "编辑属性", exact: true })
           .locator(".lucide"),
-        16,
+        18,
       );
       await iconSize(page.locator(".search-field .lucide"), 14);
       await iconSize(

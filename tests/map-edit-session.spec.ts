@@ -77,7 +77,7 @@ test("save exits a fresh session; cancellation and failure preserve edits", asyn
   await page.locator("tbody tr").click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   const save = page.getByRole("button", {
-    name: "保存并退出编辑",
+    name: "退出编辑",
     exact: true,
   });
   await expect(save).toBeEnabled();
@@ -92,23 +92,25 @@ test("save exits a fresh session; cancellation and failure preserve edits", asyn
   await expect(save).toBeEnabled();
   await page.getByRole("button", { name: "重做", exact: true }).click();
   await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.getByRole("dialog")).toHaveAccessibleName("退出编辑");
   await page.evaluate(() => {
     window.__ZG_TEST__.saveCancelled = true;
   });
-  await save.click();
+  await page.getByRole("button", {name:"保存并退出",exact:true}).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(save).toBeEnabled();
   await page.evaluate(() => {
     window.__ZG_TEST__.saveCancelled = false;
     window.__ZG_TEST__.saveError = "test save failed";
   });
-  await save.click();
+  await page.getByRole("button", {name:"保存并退出",exact:true}).click();
   await expect(page.getByRole("alert")).toContainText("test save failed");
   await expect(save).toBeEnabled();
   await page.evaluate(() => {
     window.__ZG_TEST__.saveError = "";
   });
-  await save.click();
+  await page.getByRole("button", {name:"保存并退出",exact:true}).click();
   await expect(
     page.getByRole("button", { name: "编辑", exact: true }),
   ).toBeVisible();
@@ -128,4 +130,69 @@ test("save exits a fresh session; cancellation and failure preserve edits", asyn
   await expect(
     page.getByRole("button", { name: "编辑", exact: true }),
   ).toBeVisible();
+});
+
+test("exit without edits does not save; cancelled exit retains changes and discard restores baseline", async ({ page }) => {
+  await installDesktopMock(page);
+  await open(page);
+  const toolbar = page.getByRole("toolbar", { name: "地图工具", exact: true });
+  await toolbar.getByRole("button", { name: "编辑", exact: true }).click();
+  await toolbar.getByRole("button", { name: "退出编辑", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(toolbar.getByRole("button", { name: "编辑", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.__ZG_TEST__.calls.filter(call => call.command === "save_file").length)).toBe(0);
+  await toolbar.getByRole("button", { name: "编辑", exact: true }).click();
+  await expect(toolbar.getByRole("button", { name: "保存编辑", exact: true })).toHaveCount(1);
+  await expect(toolbar.getByRole("button", { name: "保存并退出编辑", exact: true })).toHaveCount(0);
+  await expect(toolbar).toHaveText("");
+  await expect(toolbar.getByRole("button", { name: "编辑顶点", exact: true }).locator("svg")).toHaveClass(/lucide-spline/);
+  await page.locator("tbody tr").click();
+  await page.locator('td[data-field="name"]').dblclick();
+  await page.getByLabel("属性 name", { exact: true }).fill("discard me");
+  await page.keyboard.press("Enter");
+  await toolbar.getByRole("button", { name: "退出编辑", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "退出编辑", exact: true });
+  await page.screenshot({ path: "output/edit-toolbar-adjustment/unsaved-exit.png" });
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(page.locator("tbody tr")).toContainText("discard me");
+  await toolbar.getByRole("button", { name: "退出编辑", exact: true }).click();
+  await dialog.getByRole("button", { name: "不保存退出", exact: true }).click();
+  await expect(toolbar.getByRole("button", { name: "编辑", exact: true })).toBeVisible();
+  await expect(page.locator("tbody tr")).toContainText("original");
+  await expect.poll(async () => {
+    const raw = await page.evaluate(() => window.__ZG_TEST__.snapshot);
+    if (!raw) return false;
+    const snapshot = JSON.parse(raw);
+    return !snapshot.session && snapshot.layers[0].features[0].properties.name === "original";
+  }).toBe(true);
+});
+
+test("discard after saving restores the latest saved values and fields", async ({ page }) => {
+  await installDesktopMock(page);
+  await open(page);
+  const toolbar = page.getByRole("toolbar", { name: "地图工具", exact: true });
+  await toolbar.getByRole("button", { name: "编辑", exact: true }).click();
+  await page.locator("tbody tr").click();
+  const changeName = async (name: string) => {
+    await page.locator('td[data-field="name"]').dblclick();
+    await page.getByLabel("属性 name", { exact: true }).fill(name);
+    await page.keyboard.press("Enter");
+  };
+  await changeName("saved value");
+  await toolbar.getByRole("button", { name: "保存编辑", exact: true }).click();
+  await expect(page.locator(".document-state")).toHaveText("源文件已保存");
+  await toolbar.getByRole("button", { name: "退出编辑", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await toolbar.getByRole("button", { name: "编辑", exact: true }).click();
+  await changeName("unsaved value");
+  await page.locator(".attribute-panel thead th").filter({has: page.locator('summary:text-is("name")')}).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "添加字段", exact: true }).click();
+  await page.getByLabel("新字段名", { exact: true }).fill("discard_field");
+  await page.getByRole("dialog").getByRole("button", { name: "添加字段", exact: true }).click();
+  await expect(page.locator(".attribute-panel thead summary").filter({hasText: /^discard_field$/})).toBeVisible();
+  await toolbar.getByRole("button", { name: "退出编辑", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "不保存退出", exact: true }).click();
+  await expect(page.locator("tbody tr")).toContainText("saved value");
+  await expect(page.locator(".attribute-panel thead summary").filter({hasText: /^discard_field$/})).toHaveCount(0);
+  await expect(page.locator(".document-state")).toHaveText("源文件已保存");
 });

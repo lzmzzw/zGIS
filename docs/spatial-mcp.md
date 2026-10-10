@@ -6,14 +6,23 @@
 
 桌面应用启动时自动启用 MCP，固定监听 `http://127.0.0.1:9420/mcp`，仅本机访问。「设置 → MCP」可查看状态、停止或重新启用；手动停止仅影响本次运行，下次启动应用仍自动启用。端口占用或凭据读取失败时保留地图工作区，并在设置页显示原因。
 
-Bearer token 首次启动时生成并保存到当前用户的 Windows 凭据管理器 `zGIS/MCP`，以后启动和启停均复用，不自动轮换。令牌不写入配置、恢复文件或日志。停止服务和退出应用关闭监听；固定令牌继续保留。
+Bearer token 首次启动时生成；Windows 保存到当前用户凭据管理器 `zGIS/MCP`，macOS 保存到当前用户钥匙串（service 为 `zGIS`、account 为 `zGIS/MCP`）。以后启动和启停均复用，不自动轮换。令牌不写入配置、恢复文件或日志。停止服务和退出应用关闭监听；固定令牌继续保留。
 
-Codex 使用固定地址与安装包中的 `mcp-headers.ps1` 认证助手。助手只在客户端取得认证请求头时读取 Windows 凭据管理器，不需要手动设置令牌环境变量。当前用户默认安装路径的配置如下；修改安装目录时同步助手路径。
+Codex 使用固定地址与安装包中的认证助手，不需要手动设置令牌环境变量。Windows 的 `mcp-headers.ps1` 只在客户端取得认证请求头时读取凭据管理器。当前用户默认安装路径的配置如下；修改安装目录时同步助手路径。
 
 ```toml
 [mcp_servers.zgis]
 url = "http://127.0.0.1:9420/mcp"
 http_headers_helper = 'pwsh -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Users\PKUWHAI\AppData\Local\zGIS\mcp-headers.ps1"'
+enabled = true
+```
+
+macOS 将 `zGIS.app` 放到 `/Applications` 后使用以下配置；放到其他目录时同步助手路径。`/bin/sh` 执行 app 内的 `mcp-headers-macos.sh`，助手按需从钥匙串读取固定令牌并返回认证请求头，钥匙串不可访问或令牌无效时失败，不回退到配置文件。不要手动执行助手或记录其标准输出。
+
+```toml
+[mcp_servers.zgis]
+url = "http://127.0.0.1:9420/mcp"
+http_headers_helper = "/bin/sh '/Applications/zGIS.app/Contents/Resources/mcp-headers-macos.sh'"
 enabled = true
 ```
 

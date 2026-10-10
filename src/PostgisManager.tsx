@@ -23,6 +23,7 @@ import {
   type DbLayer,
 } from "./bridge";
 import "./postgis-manager.css";
+import { isMacOS } from "./platform";
 
 const defaults: DbConnection = {
   host: "",
@@ -957,7 +958,9 @@ export default function PostgisManager({
                 </div>
               </div>
               <p className="pg-note">
-                密码使用 Windows 当前用户加密存储，可点击显示。
+                {isMacOS
+                  ? "密码使用 macOS 钥匙串保护的密钥加密存储，可点击显示。"
+                  : "密码使用 Windows 当前用户加密存储，可点击显示。"}
               </p>
               {dialogError && (
                 <p className="inline-error" role="alert">

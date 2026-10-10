@@ -1,7 +1,8 @@
 import { chromium, expect } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import shp from "shpjs";
@@ -12,6 +13,9 @@ import { mcpConnectionSmoke } from "./mcp-connection-smoke.mjs";
 import { contextMenuSmoke } from "./context-menu-smoke.mjs";
 import { settingsInfoSmoke } from "./settings-info-smoke.mjs";
 import { sidebarDesignSmoke } from "./sidebar-design-smoke.mjs";
+// PowerShell can pass a CJK working directory to Node with a legacy code page.
+// Anchor relative smoke fixtures to this UTF-8 module path instead.
+process.chdir(dirname(fileURLToPath(import.meta.url)) + "\\..");
 const appPid = Number(process.argv[2]);
 if (!appPid) throw new Error("Pass the isolated zGIS test process ID");
 mkdirSync("output/desktop", { recursive: true });
@@ -176,10 +180,12 @@ const handMap = await page.getByLabel("地理数据地图").boundingBox();
 await page.mouse.click(handMap.x + handMap.width / 2, handMap.y + handMap.height / 2);
 assert.equal(await page.locator("tbody tr.selected").count(), 1);
 await page.getByRole("button", { name: "编辑", exact: true }).click();
-assert.equal(await page.getByRole("button", { name: "保存并退出编辑", exact: true }).isEnabled(), true);
+assert.equal(await page.getByRole("button", { name: "退出编辑", exact: true }).isEnabled(), true);
 await setName("已原生保存");
-assert.equal(await page.getByRole("button", { name: "保存并退出编辑", exact: true }).isEnabled(), true);
-await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
+assert.equal(await page.getByRole("button", { name: "退出编辑", exact: true }).isEnabled(), true);
+await page.getByRole("button", { name: "退出编辑", exact: true }).click();
+  if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
+    await page.getByRole("button", {name:"保存并退出",exact:true}).click();
 await page.waitForFunction(() =>
   document
     .querySelector(".operation-status")
@@ -233,7 +239,9 @@ rmSync("output/desktop/resolved-conflict.geojson", { force: true });
 const resolvedSave = nativeDialog("output/desktop/resolved-conflict.geojson");
 await fileAction("另存为");
 await resolvedSave;
-await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
+await page.getByRole("button", { name: "退出编辑", exact: true }).click();
+  if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
+    await page.getByRole("button", {name:"保存并退出",exact:true}).click();
 await page.getByRole("button", { name: "编辑", exact: true }).waitFor();
 await fileAction("移除图层");
 if (await page.getByRole("button", { name: "放弃并移除", exact: true }).count()) await page.getByRole("button", { name: "放弃并移除", exact: true }).click();
@@ -272,7 +280,9 @@ await page
   .getByRole("button", { name: "关闭", exact: true })
   .first()
   .click();
-await page.getByRole("button", { name: "保存并退出编辑", exact: true }).click();
+await page.getByRole("button", { name: "退出编辑", exact: true }).click();
+  if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
+    await page.getByRole("button", {name:"保存并退出",exact:true}).click();
 await page.getByLabel("输出格式").selectOption("shp");
 const shpCancelling = nativeDialog("", true);
 await page.getByRole("button", { name: "导出", exact: true }).click();
@@ -420,7 +430,7 @@ for (const name of ["新增记录", "删除记录", "保存属性编辑", "展�
 const inactiveColor = await tableEditToggle.evaluate(el => getComputedStyle(el).color);
 await editCell("城市");
 assert.notEqual(await tableEditToggle.evaluate(el => getComputedStyle(el).color), inactiveColor);
-await expect.poll(async () => await tableEditToggle.evaluate(el => getComputedStyle(el).borderColor) === await page.getByRole("button", {name:"保存并退出编辑",exact:true}).evaluate(el => getComputedStyle(el).borderColor)).toBe(true);
+await expect.poll(async () => await tableEditToggle.evaluate(el => getComputedStyle(el).borderColor) === await page.getByRole("button", {name:"退出编辑",exact:true}).evaluate(el => getComputedStyle(el).borderColor)).toBe(true);
 await page.locator('tbody tr.selected td[data-field="资料"]').click();
 await expect(page.getByLabel("属性 城市", {exact:true})).toHaveCount(0);
 await expect(page.getByRole("alertdialog")).toHaveCount(0);

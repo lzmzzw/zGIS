@@ -287,7 +287,7 @@ function safeSession(
   return result;
 }
 
-// 恢复只保存文档与显示配置，排除来源句柄和数据库身份。
+// 恢复只保存文档、显示配置及可用于冲突检测的来源定位信息，排除数据库身份。
 function snapshotLayerData(layers: DocumentLayer[]) {
   return layers.map((layer) => ({
     id: layer.id,
@@ -307,6 +307,8 @@ function snapshotLayerData(layers: DocumentLayer[]) {
     strokeWidth: layer.strokeWidth,
     sourceKind: "geojson",
     restoredFrom: layer.restoredFrom ?? layer.sourceKind,
+    sourcePath: layer.sourcePath,
+    sourceHash: layer.sourceHash,
     crs: "EPSG:4326",
     dirty: layer.dirty,
     geometryType: layer.geometryType,
@@ -326,7 +328,8 @@ export function restoreLayers(raw: string): DocumentLayer[] {
       !value ||
       typeof value !== "object" ||
       typeof value.name !== "string" ||
-      !Array.isArray(value.features)
+      !Array.isArray(value.features) ||
+      (value.dirty !== undefined && typeof value.dirty !== "boolean")
     )
       throw new Error("恢复图层结构无效");
     if (
@@ -371,7 +374,11 @@ export function restoreLayers(raw: string): DocumentLayer[] {
         value.strokeWidth <= 8
           ? value.strokeWidth
           : 2,
-      dirty: true,
+      dirty: value.dirty ?? true,
+      sourcePath:
+        typeof value.sourcePath === "string" ? value.sourcePath : undefined,
+      sourceHash:
+        typeof value.sourceHash === "string" ? value.sourceHash : undefined,
       restored: true,
       restoredFrom:
         typeof value.restoredFrom === "string"

@@ -38,6 +38,8 @@ export interface DocumentLayer {
   restoredFrom?: string;
   sourceKind: "geojson" | "csv" | "shp" | "postgis" | "mysql";
   sourceId?: string;
+  sourcePath?: string;
+  sourceHash?: string;
   crs: string;
   originalCrs?: string;
   dirty: boolean;
@@ -65,4 +67,6 @@ export interface InputFile {
   name: string;
   bytes: number[] | Uint8Array;
   sourceId?: string;
+  sourcePath?: string;
+  sourceHash?: string;
 }

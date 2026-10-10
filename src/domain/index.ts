@@ -406,6 +406,8 @@ export async function importFiles(
     layers.push(
       makeLayer(base, importGeoJSON(JSON.stringify(result)), "shp", {
         sourceId: pick("shp")?.sourceId,
+        sourcePath: pick("shp")?.sourcePath,
+        sourceHash: pick("shp")?.sourceHash,
         originalCrs: decoder.decode(new Uint8Array(pick("prj")!.bytes)),
         warnings: ["SHP 可编辑；编辑结果另存新文件，不覆盖原 SHP 文件组"],
       }),
@@ -422,6 +424,8 @@ export async function importFiles(
         makeLayer(fileOptions.geoJsonXYCopy ? file.name.replace(/\.(geojson|json)$/i, "-二维副本.geojson") : file.name, importGeoJSON(text(), fileOptions.crs, fileOptions.geoJsonXYCopy), "geojson", {
           originalCrs: geoJsonCrs(text(), fileOptions.crs),
           sourceId: fileOptions.geoJsonXYCopy ? undefined : file.sourceId,
+          sourcePath: fileOptions.geoJsonXYCopy ? undefined : file.sourcePath,
+          sourceHash: fileOptions.geoJsonXYCopy ? undefined : file.sourceHash,
           dirty: Boolean(fileOptions.geoJsonXYCopy),
           warnings: ["高精度数值属性以文本保存，导出时保持文本类型", ...(fileOptions.geoJsonXYCopy ? ["已明确选择二维副本；仅载入 X/Y，Z/M 未载入。原文件未修改，保存需另存新文件。"] : [])],
         }),
@@ -443,6 +447,8 @@ export async function importFiles(
       layers.push(
         makeLayer(file.name, importCsv(text(), config), "csv", {
           sourceId: file.sourceId,
+          sourcePath: file.sourcePath,
+          sourceHash: file.sourceHash,
           csvConfig: config,
           originalCrs: fileOptions.crs ?? "EPSG:4326",
         }),
@@ -473,7 +479,14 @@ export async function importFiles(
         })),
         options,
       );
-      layers.push(...imported.map((layer) => ({...layer, sourceId: file.sourceId})));
+      layers.push(
+        ...imported.map((layer) => ({
+          ...layer,
+          sourceId: file.sourceId,
+          sourcePath: file.sourcePath,
+          sourceHash: file.sourceHash,
+        })),
+      );
     } else if (!/\.(shp|dbf|shx|prj|cpg)$/i.test(file.name))
       throw new Error(`不支持文件：${file.name}`);
   }

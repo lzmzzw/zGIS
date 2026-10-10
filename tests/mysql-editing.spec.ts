@@ -28,7 +28,9 @@ test("MySQL attribute-table edits retain precise keys, save directly, and reload
   await loadMysql(page);
   const value = "90071992547409931234567890.000001 '修改道路'";
   await changeName(page, value);
-  await page.getByRole("button", {name:"保存并退出编辑",exact:true}).click();
+  await page.getByRole("button", {name:"退出编辑",exact:true}).click();
+  if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
+    await page.getByRole("button", {name:"保存并退出",exact:true}).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator(".attribute-panel tbody tr")).toContainText(value);
   const calls = await mysqlCommits(page);
@@ -46,10 +48,12 @@ test("MySQL conflicts preserve the attribute draft and allow an explicit retry",
   await page.keyboard.press("Control+s");
   await expect(page.getByRole("alert")).toContainText("并发冲突");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("button", {name:"保存并退出编辑",exact:true})).toBeEnabled();
+  await expect(page.getByRole("button", {name:"退出编辑",exact:true})).toBeEnabled();
   await expect(page.locator(".attribute-panel tbody tr")).toContainText("保留的 MySQL 草稿");
   await page.evaluate(() => { window.__ZG_TEST__.commitError = ""; });
-  await page.getByRole("button", {name:"保存并退出编辑",exact:true}).click();
+  await page.getByRole("button", {name:"退出编辑",exact:true}).click();
+  if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
+    await page.getByRole("button", {name:"保存并退出",exact:true}).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   expect(await mysqlCommits(page)).toHaveLength(2);
 });
@@ -84,7 +88,7 @@ test("MySQL uncertain saves retain edits and disable repeat submission", async (
   await page.evaluate(() => { window.__ZG_TEST__.commitError = "提交结果待核对"; });
   await page.keyboard.press("Control+s");
   await expect(page.getByRole("alert")).toContainText("提交结果待核对");
-  await expect(page.getByRole("button", {name:"保存并退出编辑",exact:true})).toBeDisabled();
+  await expect(page.getByRole("button", {name:"退出编辑",exact:true})).toBeDisabled();
   await expect(page.getByRole("button", {name:"保存编辑",exact:true})).toBeDisabled();
   await expect(page.locator(".attribute-panel tbody tr")).toContainText("待核实 MySQL 修改");
   await page.keyboard.press("Control+s");
@@ -109,7 +113,7 @@ test("MySQL partially committed DDL preserves the schema draft and blocks every 
   await page.getByRole("button", {name:"保存编辑",exact:true}).click();
   await expect(page.getByRole("alert")).toContainText("字段结构已提交");
   await expect(fieldHeader(page, "partial_field")).toHaveCount(1);
-  for (const name of ["保存编辑", "保存并退出编辑"])
+  for (const name of ["保存编辑", "退出编辑"])
     await expect(page.getByRole("button", {name,exact:true})).toBeDisabled();
   await page.keyboard.press("Control+s");
   const commits = await mysqlCommits(page);
@@ -197,7 +201,9 @@ for (const engine of ["PostGIS", "Mysql"] as const) {
     expect(commits[1].args.schemaChanges).toEqual(schemaChanges);
     await expect(fieldHeader(page, "label")).toHaveCount(1);
     await expect(fieldHeader(page, "extra")).toHaveCount(0);
-    await page.getByRole("button", {name:"保存并退出编辑",exact:true}).click();
+    await page.getByRole("button", {name:"退出编辑",exact:true}).click();
+  if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
+    await page.getByRole("button", {name:"保存并退出",exact:true}).click();
     expect(await page.evaluate(command => window.__ZG_TEST__.calls.filter(c => c.command === command).length, command)).toBe(2);
   });
 }

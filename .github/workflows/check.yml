@@ -105,3 +105,66 @@ jobs:
           path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
           retention-days: 14
+  check-macos:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.10.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: 核对 ARM64 runner 与版本
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          test "$(uname -m)" = arm64
+          pnpm install --frozen-lockfile
+          node scripts/check-version.mjs "$RELEASE_TAG"
+      - name: 检查类型与未使用代码
+        run: pnpm exec tsc --noEmit --noUnusedLocals --noUnusedParameters
+      - name: 前端测试
+        run: pnpm test
+      - name: Rust 测试
+        run: cargo test --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin --lib --locked
+      - name: Rust 静态检查
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin --lib --locked -- -D warnings
+      - name: 构建前端
+        run: pnpm build
+      - name: 构建 macOS ARM64 应用与磁盘镜像
+        if: inputs.build-installer || inputs.tag == ''
+        uses: tauri-apps/tauri-action@v1
+        with:
+          args: --target aarch64-apple-darwin --bundles app,dmg -- --locked
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+      - name: 核验 macOS 应用架构与签名
+        if: inputs.build-installer || inputs.tag == ''
+        run: |
+          app="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/zGIS.app"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+          test "$(lipo -archs "$app/Contents/MacOS/$executable")" = arm64
+          codesign --verify --deep --strict "$app"
+      - name: 整理 macOS 产物
+        if: inputs.build-installer || inputs.tag == ''
+        run: node scripts/release-assets.mjs macos
+      - name: 保存构建产物
+        if: inputs.build-installer || inputs.tag == ''
+        uses: actions/upload-artifact@v6
+        with:
+          name: zGIS-macos-arm64
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14

@@ -10,6 +10,13 @@ import { makeLayer, type GeoFeature } from "./domain";
 import { restoreLayers, snapshotLayers } from "./workspace";
 import { boundedRecoveryHistory } from "./workspace";
 
+it("旧副本缺少 dirty 时保留未保存状态，显式非法 dirty 仍拒绝", () => {
+  const legacy = { name: "legacy.geojson", features: [] };
+  expect(restoreLayers(JSON.stringify([legacy]))[0].dirty).toBe(true);
+  expect(restoreLayers(JSON.stringify([{ ...legacy, dirty: false }]))[0].dirty).toBe(false);
+  expect(() => restoreLayers(JSON.stringify([{ ...legacy, dirty: "false" }]))).toThrow("恢复图层结构无效");
+});
+
 it("恢复采用较新副本，避免强退后旧浏览器日志覆盖原生保存", () => {
   const old = JSON.stringify({
     version: 3,
@@ -73,6 +80,13 @@ it("图层显示名与来源名分别恢复，旧快照仍可读取", () => {
   }
 });
 
+it("恢复工作区时保留图层的已保存状态", () => {
+  const saved = makeLayer("saved.geojson", [], "geojson", { dirty: false });
+  const dirty = makeLayer("dirty.geojson", [], "geojson", { dirty: true });
+  const restored = restoreLayers(snapshotLayers([saved, dirty]));
+  expect(restored.map((layer) => layer.dirty)).toEqual([false, true]);
+});
+
 it("外部 JSON 空字段名的属性草稿可以恢复", () => {
   const layer = makeLayer(
     "empty-key",
@@ -120,7 +134,7 @@ it("恢复只保留内容和样式，数据库身份及基线不进入快照", (
   const [restored] = restoreLayers(snapshot);
   expect(restored).toMatchObject({
     sourceKind: "geojson",
-    dirty: true,
+    dirty: false,
     restored: true,
     opacity: 0.5,
     strokeWidth: 4,
@@ -133,7 +147,7 @@ it("无效恢复内容被拒绝，不静默跳过或降低维度", () => {
   expect(() => restoreLayers("{}")).toThrow("图层列表");
   expect(() =>
     restoreLayers(
-      '[{"name":"bad","features":[{"geometry":{"type":"Point","coordinates":[1,2,3,4]},"properties":{}}]}]',
+      '[{"name":"bad","dirty":false,"features":[{"geometry":{"type":"Point","coordinates":[1,2,3,4]},"properties":{}}]}]',
     ),
   ).toThrow("XYZ");
 });

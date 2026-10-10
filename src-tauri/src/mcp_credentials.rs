@@ -1,4 +1,4 @@
-//! 外部客户端从当前用户的 Windows Credential Manager 取得固定 MCP 令牌。
+//! 固定 MCP 令牌保存在 Windows Credential Manager 或 macOS Keychain。
 pub const TARGET: &str = "zGIS/MCP";
 
 #[cfg(windows)]
@@ -43,5 +43,8 @@ pub fn load_or_create() -> Result<String, String> {
     if ok == 0 { Err("MCP 固定令牌无法保存到 Windows 凭据管理器".into()) } else { Ok(token) }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+pub fn load_or_create() -> Result<String, String> { super::macos_security::mcp_token() }
+
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn load_or_create() -> Result<String, String> { Err("MCP 外部客户端鉴权仅支持 Windows".into()) }

@@ -3,14 +3,14 @@
 ## 应用信息与项目链接
 
 - `check_app_update`：读取当前运行版本并查询固定公开 GitHub Releases API，返回 `{currentVersion,status,latestVersion?}`。status 为 current、available 或 unpublished；404 表示暂无可用公开发行版，HTTP 错误或无效版本返回错误，不当作已是最新。SemVer 比较包含预发布优先级、忽略构建元数据。请求 10 秒超时、256 KB 上限，不附带令牌，也不下载安装或重启。
-- `open_project_link {target}`：target 仅允许 github、license、releases，分别映射项目仓库、GNU GPL 3.0 和项目发布页；Windows 使用 ShellExecuteW 在系统浏览器打开，不接受任意 URL 或 shell。
+- `open_project_link {target}`：target 仅允许 github、license、releases，分别映射项目仓库、GNU GPL 3.0 和项目发布页；Windows 使用 ShellExecuteW，macOS 使用系统 `/usr/bin/open` 在默认浏览器打开，不接受任意 URL 或 shell。
 
-前端参数使用 camelCase。错误返回中文字符串；数据库密码按用户授权使用 Windows 当前用户 DPAPI 加密持久化，普通配置与恢复文件不含密码。
+前端参数使用 camelCase。错误返回中文字符串；数据库密码按用户授权加密持久化：Windows 使用当前用户 DPAPI，macOS 使用 AES-256-GCM，密钥保存在当前用户钥匙串。普通配置与恢复文件不含密码。
 
 ## 数据源管理
 
 - `load_database_sources` / `save_database_sources {sources}`：PostGIS 安全源配置；MySQL 对应 `load_mysql_sources` / `save_mysql_sources`。源为 `{id,name,host,port,database,user,sslMode}`，不接受 password 或未知字段。
-- `load_database_source_password {engine,sourceId}`：返回密码或 null；`save_database_source_password {engine,sourceId,password}` 与 `delete_database_source_password {engine,sourceId}` 保存/删除密码。engine 仅 postgis/mysql，两引擎隔离。固定私有文件 `database-passwords.dat`，DPAPI 加密、原子写入，密码最大 4096 bytes、存储最大 1 MiB；错误不含密码。
+- `load_database_source_password {engine,sourceId}`：返回密码或 null；`save_database_source_password {engine,sourceId,password}` 与 `delete_database_source_password {engine,sourceId}` 保存/删除密码。engine 仅 postgis/mysql，两引擎隔离。固定私有文件 `database-passwords.dat`，使用对应平台的上述加密方式并原子写入，密码最大 4096 bytes、存储最大 1 MiB；错误不含密码。
 - `discover_database_tables {connectionId}` / `discover_mysql_tables {connectionId}`：返回 `{schemas,tables}`，表包含 schema/table、columns、keyColumns、geometryColumns（name/srid/type）。MySQL schemas 为空，表属于连接指定数据库。
 - `preview_database_table {connectionId,schema,table,limit}` / `preview_mysql_table {connectionId,table,limit}`：返回 `{columns,rows,truncated}`，limit 为 10 或 20，单次最多 128 列/1 MiB，15 秒超时；非空值以字符串保留精度，复杂/大字段摘要。
 - `connect_mysql_database {config}` / `disconnect_mysql_database {connectionId}`：MySQL 独立会话，TLS require/prefer 均验证证书且不降级，disable 明确启用明文。
@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | `rename_source_file` | `{sourceId:string,newName:string}` | `{sourceId,name,path}`；只重命名已打开文件，保留扩展名，SHP 同步组件，检测外部修改且拒绝覆盖；失败回滚 |
 | `open_files` | 无 | `[{name,bytes:number[],sourceId}]`，取消返回空数组 |
-| `save_file` | `{sourceId?:string,suggestedName,content,overwrite}` | `{sourceId,name,path}|null`，取消返回 null |
+| `save_file` | `{sourceId?:string,sourcePath?:string,sourceHash?:string,suggestedName,content,overwrite}` | `{sourceId,name,path,sourceHash}|null`，覆盖保存按来源指纹校验，取消返回 null |
 | `export_shapefile` | `{features:Feature[],suggestedName:string,crs?:string}` | `{sourceId,name,path}\|null`，取消返回 null；只保存新的 ZIP |
 | `save_recovery` | `{content:string}`，合法 JSON | 无 |
 | `load_recovery` | 无 | `string|null` |
@@ -44,13 +44,13 @@ TLS `require` 和 `prefer` 均验证系统受信证书并要求加密；prefer �
 
 PostGIS 通过 `query_raw` 逐行构造要素，查询与遍历共用 30 秒期限；完整响应（含 geometry、properties、dbKey、baseline）最多 100 MiB，超限报错且不返回部分记录。单行网络解码和服务端缓冲峰值不受该预算保护。连接握手及会话初始化分别最多 10 秒。PostGIS/MySQL 各最多 8 连接，耗时请求只锁对应连接，同连接队列等待最多 35 秒；断开移除注册项并使排队请求失效，已经执行的操作允许按原有事务和超时边界结束。
 
-文件单个读写上限 100 MB；打开在阻塞任务线程执行，选择单个 SHP 自动带同目录同名 DBF/SHX/PRJ/CPG。路径只在后端句柄表管理，仅 csv/json/geojson 可保存和覆盖。覆盖前比较 SHA-256 指纹；同目录临时写入、sync、内容核验后调用 Windows ReplaceFileW。恢复数据保存在应用私有目录 recovery.json，首版只存最近一次快照。
+文件单个读写上限 100 MB；打开在阻塞任务线程执行，选择单个 SHP 自动带同目录同名 DBF/SHX/PRJ/CPG。路径只在后端句柄表管理，仅 csv/json/geojson 可保存和覆盖。覆盖前比较 SHA-256 指纹；同目录临时写入、sync、内容核验后，Windows 调用 ReplaceFileW，macOS 使用同目录 rename 原子替换。恢复数据保存在应用私有目录 recovery.json，首版只存最近一次快照。
 
 `export_shapefile` 将 WGS84 二维工作要素转换并写成 SHP/SHX/DBF/PRJ/CPG ZIP。`crs` 可选 EPSG:4326（省略时默认）、EPSG:4490、EPSG:3857，其他值拒绝；PRJ 与输出坐标一致，3857 拒绝超出有效纬度的输入。4490 采用近似经纬度转换，不含测绘级基准改正。输出前检查单一几何类别、字段命名、类型、长度与数值精度；不静默截断或填充缺失属性。原生对话框选择 ZIP，拒绝已存在目标，临时写入与核验后以不覆盖方式提交单个 ZIP；不提供原 SHP 文件组覆盖接口。返回身份仅表示导出文件，不绑定到编辑图层的覆盖句柄。字段和几何限制见根 README 的“SHP 编辑与另存”。
 
 ## 空间分析与 Agent
 
-- `gis_mcp_status` / `gis_mcp_set_enabled {enabled}`：返回 `{enabled,endpoint?,token?,startupError?,headersHelper?}`；应用启动自动启用，地址固定为 `http://127.0.0.1:9420/mcp`。token 首次生成后保存到当前用户 Windows 凭据管理器并复用，停止和重启不轮换；不写配置或日志。headersHelper 为安装目录中的认证助手命令；startupError 展示启动失败原因。
+- `gis_mcp_status` / `gis_mcp_set_enabled {enabled}`：返回 `{enabled,endpoint?,token?,startupError?,headersHelper?}`；应用启动自动启用，地址固定为 `http://127.0.0.1:9420/mcp`。token 首次生成后保存到当前用户 Windows 凭据管理器或 macOS 钥匙串并复用，停止和重启不轮换；不写配置或日志。headersHelper 为安装资源目录中的平台认证助手命令，Windows 使用 PowerShell，macOS 使用 `/bin/sh`；startupError 展示启动失败原因。
 - `gis_workspace_sync {layers,activeLayerId}`：layers 为 `{id,name,features}`，只接受标准 GeoJSON Feature 快照。
 - `gis_results_drain`：消费待导入的 `{id,name,features}` 结果；前端暂存队列避免退出或繁忙期间丢失。
 - MCP 缓存与待导入结果各有独立 100 MiB 大小预算，队列最多 20 个结果；缓存预算检查采用流式计数。HTTP 连接绑定启动代次，服务停止重启后旧连接不能继承新服务。初始化版本取自 Cargo 包版本。
@@ -69,7 +69,7 @@ MCP 工具及计算边界见 [空间分析说明](../docs/spatial-mcp.md)。zGIS
 
 ### 底图配置
 
-- `save_preferences {content}`：保存 JSON 字符串，Windows 使用当前用户 DPAPI 加密，最大 1 MB。
+- `save_preferences {content}`：保存 JSON 字符串，Windows 使用当前用户 DPAPI 加密，macOS 使用 AES-256-GCM 加密并将密钥保存到当前用户钥匙串，最大 1 MB。
 - `load_preferences`：返回解密后的 JSON 字符串或 null；读取失败不覆盖旧配置。
 - 当前配置为 `{version:2, services, selected, visible}`。服务包含 `id/name/type/preview/url/attribution/enabled`，可选 `previewImage` 为不超过 128 KB 的 PNG data URL，`enabled` 缺省为 true；可选 `maxZoom` 为 0–42 的整数，预置 OpenStreetMap 为 19。`url` 为包含 `{z}`、`{x}`、`{y}` 的 HTTP(S) 地址。
 - 前端兼容旧配置：补齐 OSM 地址，移除无自定义地址的旧天地图预置，保留自定义服务和顺序；不再保存全局注记或 tk。空服务列表合法，隐藏服务不参与当前选择；没有可显示服务时 `selected` 为 `none`。服务内容校验失败时保留旧文件并显示错误。
