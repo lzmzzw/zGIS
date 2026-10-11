@@ -5,7 +5,7 @@ use geo::{
     Area, BooleanOps, BoundingRect, Buffer, Centroid, ConvexHull, CoordsIter, Euclidean, Geometry,
     InteriorPoint, Length, MultiPolygon, Relate, Simplify, Validation,
 };
-use rstar::{RTree, RTreeObject, AABB};
+use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use serde_json::{json, Value};
 
 const MAX_FEATURES: usize = 10_000;
@@ -28,6 +28,7 @@ impl RTreeObject for IndexedBounds {
 struct PairBudget(usize);
 impl PairBudget {
     fn consume(&mut self) -> Result<(), String> {
+        crate::analysis_runtime::checkpoint()?;
         self.0 += 1;
         if self.0 > MAX_PAIRS {
             return Err("实际空间候选对超过 1000000，请缩小输入范围；未返回截断结果".into());
@@ -101,9 +102,11 @@ fn clean_geometries(source: &[Value], output_limit: usize) -> Result<Value, Stri
     let mut removed = Vec::new();
     let mut removed_count = 0;
     for (i, f) in source.iter().enumerate() {
+        crate::analysis_runtime::checkpoint()?;
         match decode(std::slice::from_ref(f), false) {
             Ok(_) => push_bounded(&mut out, &mut budget, f.clone())?,
             Err(reason) => {
+                crate::analysis_runtime::checkpoint()?;
                 if reason.contains("跨日期变更线") {
                     return Err(format!("要素 {i}: {reason}；属于能力限制，未清理任何要素"));
                 }
@@ -203,6 +206,7 @@ fn decode(features: &[Value], allow_invalid: bool) -> Result<Vec<Geometry<f64>>,
         .iter()
         .enumerate()
         .map(|(i, f)| {
+            crate::analysis_runtime::checkpoint()?;
             let value = f
                 .get("geometry")
                 .ok_or_else(|| format!("要素 {i} 缺少 geometry"))?;
@@ -240,6 +244,7 @@ fn validate_coordinates(v: &Value) -> Result<(), String> {
     validate_coordinate_tree(v, &mut None)
 }
 fn validate_coordinate_tree(v: &Value, dimension: &mut Option<usize>) -> Result<(), String> {
+    crate::analysis_runtime::checkpoint()?;
     let a = v.as_array().ok_or("坐标必须为 XY 或 XYZ 数组")?;
     if a.first().is_some_and(Value::is_number) {
         if !matches!(a.len(), 2 | 3) {
@@ -590,6 +595,7 @@ fn group_key(value: &Value) -> Result<String, String> {
     })
 }
 fn push_bounded(out: &mut Vec<Value>, budget: &mut OutputBudget, f: Value) -> Result<(), String> {
+    crate::analysis_runtime::checkpoint()?;
     if out.len() >= MAX_FEATURES {
         return Err("结果超过 10000 个要素；未返回截断结果".into());
     }
@@ -668,6 +674,7 @@ fn unary(
     let mut out = Vec::new();
     let mut output_budget = OutputBudget::new(output_limit);
     for (i, g) in geometries.iter().enumerate() {
+        crate::analysis_runtime::checkpoint()?;
         let f = &source[i];
         let elevations = Elevations::from_geometry(&f["geometry"]);
         let generated_count = match name {
@@ -862,22 +869,28 @@ pub fn analyze(
     source: &[Value],
     target: Option<&[Value]>,
 ) -> Result<Value, String> {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        analyze_inner(name, args, source, target, MAX_OUTPUT_BYTES)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::analysis_runtime::checkpoint()?;
+        let result = analyze_inner(name, args, source, target, MAX_OUTPUT_BYTES)?;
+        crate::analysis_runtime::checkpoint()?;
+        json_size(&result, MAX_OUTPUT_BYTES)?;
+        if let Some(features) = result.get("features").and_then(Value::as_array) {
+            // Validation is also inside the panic boundary: never publish unchecked output.
+            decode(features, false).map_err(|e| {
+                if let Err(stop) = crate::analysis_runtime::checkpoint() {
+                    return stop;
+                }
+                if name == "simplify" {
+                    format!("简化结果未通过校验，请降低容差: {e}")
+                } else {
+                    format!("分析结果未通过校验: {e}")
+                }
+            })?;
+        }
+        crate::analysis_runtime::checkpoint()?;
+        Ok(result)
     }))
-    .map_err(|_| "几何引擎拒绝此数据，分析未完成；请先检查几何有效性".to_string())??;
-    json_size(&result, MAX_OUTPUT_BYTES)?;
-    if let Some(features) = result.get("features").and_then(Value::as_array) {
-        // Reject oversized generated geometry instead of returning a partial collection.
-        decode(features, false).map_err(|e| {
-            if name == "simplify" {
-                format!("简化结果未通过校验，请降低容差: {e}")
-            } else {
-                format!("分析结果未通过校验: {e}")
-            }
-        })?;
-    }
-    Ok(result)
+    .map_err(|_| "几何引擎拒绝此数据，分析未完成；请先检查几何有效性".to_string())?
 }
 
 fn analyze_inner(
@@ -966,9 +979,12 @@ fn analyze_inner(
             .filter(|d| *d > 0.0 && *d <= 100000.0)
             .ok_or("distanceMeters 必须 > 0 且 <= 100000")?;
         let projection = Projection::new(&s)?;
+        let mut work = OverlayBudget(0);
         let mut out = Vec::new();
         let mut output_budget = OutputBudget::new(output_limit);
         for (i, g) in s.iter().enumerate() {
+            crate::analysis_runtime::checkpoint()?;
+            work.vertices(g.coords_count().saturating_mul(64))?;
             let projected = projection.map(g, false);
             let result = Geometry::MultiPolygon(projected.buffer(distance));
             push_bounded(
@@ -994,9 +1010,10 @@ fn analyze_inner(
         };
         let mut groups = std::collections::BTreeMap::<
             String,
-            (Value, MultiPolygon<f64>, usize, Elevations),
+            (Value, Vec<(MultiPolygon<f64>, Elevations)>),
         >::new();
         for (i, g) in s.iter().enumerate() {
+            crate::analysis_runtime::checkpoint()?;
             let value = if let Some(field) = group_by {
                 source[i]["properties"]
                     .get(field)
@@ -1006,18 +1023,18 @@ fn analyze_inner(
                 Value::Null
             };
             let key = group_key(&value)?;
-            let group = groups
-                .entry(key)
-                .or_insert_with(|| (value, MultiPolygon(vec![]), 0, Elevations::default()));
-            let next = polygon(g)?;
-            group.3.add(&source[i]["geometry"]["coordinates"]);
-            group.3.quantize(&group.1, &next);
-            group.1 = group.1.union(&next);
-            group.2 += 1;
+            let group = groups.entry(key).or_insert_with(|| (value, Vec::new()));
+            crate::analysis_runtime::checkpoint()?;
+            let mut elevations = Elevations::default();
+            elevations.add(&source[i]["geometry"]["coordinates"]);
+            group.1.push((polygon(g)?, elevations));
         }
         let mut out = Vec::new();
         let mut output_budget = OutputBudget::new(output_limit);
-        for (_, (value, union, count, elevations)) in groups {
+        let mut work = OverlayBudget(0);
+        for (_, (value, parts)) in groups {
+            let count = parts.len();
+            let (union, elevations) = balanced_union(parts, &mut work)?;
             if !union.0.is_empty() {
                 let mut p = serde_json::Map::new();
                 if let Some(field) = group_by {
@@ -1083,7 +1100,11 @@ fn analyze_inner(
     if t.is_empty() {
         return Err("需要非空 target 或 bbox".into());
     }
-    if (name == "nearest" || (name == "spatial_join" && predicate == "disjoint"))
+    let all_points = s
+        .iter()
+        .chain(t.iter())
+        .all(|g| matches!(g, Geometry::Point(_)));
+    if ((name == "nearest" && !all_points) || (name == "spatial_join" && predicate == "disjoint"))
         && s.len().saturating_mul(t.len()) > MAX_PAIRS
     {
         return Err("候选对超过 1000000，请缩小输入范围".into());
@@ -1092,6 +1113,7 @@ fn analyze_inner(
     let target_bounds: Vec<_> = t.iter().map(BoundingRect::bounding_rect).collect();
     let target_index = SpatialIndex::new(&target_bounds);
     let mut pair_budget = PairBudget(0);
+    let mut relation_work = OverlayBudget(0);
     let mut out = Vec::new();
     let mut output_budget = OutputBudget::new(output_limit);
     if name == "count_points" {
@@ -1106,20 +1128,22 @@ fn analyze_inner(
         let point_bounds: Vec<_> = points.iter().map(|p| Some(p.bounding_rect())).collect();
         let point_index = SpatialIndex::new(&point_bounds);
         for (i, g) in s.iter().enumerate() {
+            crate::analysis_runtime::checkpoint()?;
             polygon(g)?;
             let candidates = point_index.candidates(source_bounds[i], &mut pair_budget)?;
-            let count = candidates
-                .into_iter()
-                .filter(|j| {
-                    bounded_relation(
-                        g,
-                        &Geometry::Point(points[*j]),
-                        "intersects",
-                        source_bounds[i],
-                        point_bounds[*j],
-                    )
-                })
-                .count();
+            let mut count = 0;
+            for j in candidates {
+                relation_work.vertices(g.coords_count().saturating_add(1))?;
+                if bounded_relation(
+                    g,
+                    &Geometry::Point(points[j]),
+                    "intersects",
+                    source_bounds[i],
+                    point_bounds[j],
+                ) {
+                    count += 1;
+                }
+            }
             push_bounded(
                 &mut out,
                 &mut output_budget,
@@ -1140,6 +1164,7 @@ fn analyze_inner(
             for (i, a) in sp.iter().enumerate() {
                 for j in target_index.candidates(source_bounds[i], &mut pair_budget)? {
                     let b = &tp[j];
+                    overlay_budget.charge(a, b)?;
                     let result = a.intersection(b);
                     if result.0.is_empty() {
                         continue;
@@ -1151,10 +1176,20 @@ fn analyze_inner(
                         source[i]["properties"].clone(),
                         Some(&elevations),
                     );
-                    if let Some(p) = target.unwrap()[j]["properties"].as_object() {
+                    if let Some(p) = target.unwrap()[j]["properties"]
+                        .as_object()
+                        .filter(|p| !p.is_empty())
+                    {
+                        if !f["properties"].is_object() {
+                            f["properties"] = json!({});
+                        }
+                        let dest = f["properties"].as_object_mut().unwrap();
                         for (key, value) in p {
-                            f["properties"] =
-                                properties(&f, &format!("target_{key}"), value.clone());
+                            let mut name = format!("target_{key}");
+                            while dest.contains_key(&name) {
+                                name.push('_');
+                            }
+                            dest.insert(name, value.clone());
                         }
                     }
                     push_bounded(&mut out, &mut output_budget, without_id(f))?;
@@ -1221,26 +1256,66 @@ fn analyze_inner(
     if name == "nearest" {
         nearest_work_preflight(&s, &t)?;
         use geo::{Distance, Geodesic};
-        let all_points = s
-            .iter()
-            .chain(t.iter())
-            .all(|g| matches!(g, Geometry::Point(_)));
+        let point_index = all_points.then(|| {
+            RTree::bulk_load(
+                t.iter()
+                    .enumerate()
+                    .map(|(id, g)| {
+                        let Geometry::Point(p) = g else {
+                            unreachable!()
+                        };
+                        IndexedSpherePoint {
+                            id,
+                            xyz: unit_sphere(*p),
+                        }
+                    })
+                    .collect(),
+            )
+        });
         for (i, g) in s.iter().enumerate() {
+            crate::analysis_runtime::checkpoint()?;
             let mut best: Option<(usize, f64, bool)> = None;
-            for (j, b) in t.iter().enumerate() {
-                let (distance, geodesic) = match (g, b) {
-                    (Geometry::Point(a), Geometry::Point(b)) => (Geodesic.distance(*a, *b), true),
-                    _ => {
-                        let projection = Projection::from_geometries([g, b].into_iter())?;
-                        (
-                            Euclidean
-                                .distance(&projection.map(g, false), &projection.map(b, false)),
-                            false,
-                        )
+            if let (Some(tree), Geometry::Point(a)) = (&point_index, g) {
+                let xyz = unit_sphere(*a);
+                for candidate in tree.nearest_neighbor_iter(&xyz) {
+                    // Ellipsoid metric >= minimum WGS84 curvature radius times
+                    // angular distance >= radius times unit-sphere chord length.
+                    // 6,335,000 m is rounded DOWN from 6,335,439.327 m; the extra
+                    // epsilon also prevents floating-point pruning of exact ties.
+                    let lower = candidate.distance_2(&xyz).sqrt() * 6_335_000.;
+                    if best.is_some_and(|(_, d, _)| lower > d + 1e-6) {
+                        break;
                     }
-                };
-                if best.is_none_or(|(_, d, _)| distance < d) {
-                    best = Some((j, distance, geodesic));
+                    pair_budget.consume()?;
+                    let Geometry::Point(b) = &t[candidate.id] else {
+                        unreachable!()
+                    };
+                    let distance = Geodesic.distance(*a, *b);
+                    if best.is_none_or(|(id, d, _)| {
+                        distance < d || (distance == d && candidate.id < id)
+                    }) {
+                        best = Some((candidate.id, distance, true));
+                    }
+                }
+            } else {
+                for (j, b) in t.iter().enumerate() {
+                    pair_budget.consume()?;
+                    let (distance, geodesic) = match (g, b) {
+                        (Geometry::Point(a), Geometry::Point(b)) => {
+                            (Geodesic.distance(*a, *b), true)
+                        }
+                        _ => {
+                            let projection = Projection::from_geometries([g, b].into_iter())?;
+                            (
+                                Euclidean
+                                    .distance(&projection.map(g, false), &projection.map(b, false)),
+                                false,
+                            )
+                        }
+                    };
+                    if best.is_none_or(|(_, d, _)| distance < d) {
+                        best = Some((j, distance, geodesic));
+                    }
                 }
             }
             let (index, distance, geodesic) = best.ok_or("目标为空")?;
@@ -1259,12 +1334,13 @@ fn analyze_inner(
             )?;
         }
         let mut result = collection(out, false);
-        result["analysis"] = json!({"distanceModel":if all_points {"WGS84_ellipsoidal_geodesic"} else {"point_geodesic_other_pair_local_approximation"},"units":"meters","geodesic":all_points});
+        result["analysis"] = json!({"distanceModel":if all_points {"WGS84_ellipsoidal_geodesic"} else {"point_geodesic_other_pair_local_approximation"},"units":"meters","geodesic":all_points,"exactDistanceEvaluations":pair_budget.0});
         return Ok(result);
     }
     if name == "clip" {
         let tp = t.iter().map(polygon).collect::<Result<Vec<_>, _>>()?;
         for (i, g) in s.iter().enumerate() {
+            crate::analysis_runtime::checkpoint()?;
             let input = polygon(g)?;
             let candidates = target_index.candidates(source_bounds[i], &mut pair_budget)?;
             if candidates.is_empty() {
@@ -1290,16 +1366,24 @@ fn analyze_inner(
         return Ok(collection(out, false));
     }
     for (i, g) in s.iter().enumerate() {
+        crate::analysis_runtime::checkpoint()?;
         if name == "spatial_query" {
             let candidates = target_index.candidates(source_bounds[i], &mut pair_budget)?;
-            let mut matches = candidates
-                .into_iter()
-                .map(|j| bounded_relation(g, &t[j], predicate, source_bounds[i], target_bounds[j]));
-            if if predicate == "disjoint" {
-                matches.all(|matched| matched)
-            } else {
-                matches.any(|matched| matched)
-            } {
+            let mut matched = predicate == "disjoint";
+            for j in candidates {
+                relation_work.vertices(g.coords_count().saturating_add(t[j].coords_count()))?;
+                let current =
+                    bounded_relation(g, &t[j], predicate, source_bounds[i], target_bounds[j]);
+                if predicate == "disjoint" && !current {
+                    matched = false;
+                    break;
+                }
+                if predicate != "disjoint" && current {
+                    matched = true;
+                    break;
+                }
+            }
+            if matched {
                 push_bounded(&mut out, &mut output_budget, source[i].clone())?;
             }
         } else {
@@ -1308,12 +1392,13 @@ fn analyze_inner(
             } else {
                 target_index.candidates(source_bounds[i], &mut pair_budget)?
             };
-            let matches: Vec<_> = candidates
-                .into_iter()
-                .filter(|j| {
-                    bounded_relation(g, &t[*j], predicate, source_bounds[i], target_bounds[*j])
-                })
-                .collect();
+            let mut matches = Vec::new();
+            for j in candidates {
+                relation_work.vertices(g.coords_count().saturating_add(t[j].coords_count()))?;
+                if bounded_relation(g, &t[j], predicate, source_bounds[i], target_bounds[j]) {
+                    matches.push(j);
+                }
+            }
             push_bounded(
                 &mut out,
                 &mut output_budget,
@@ -1335,18 +1420,91 @@ fn analyze_inner(
 // Bound repeated geometry traversal, including intermediate union growth.
 struct OverlayBudget(usize);
 impl OverlayBudget {
-    fn charge(&mut self, a: &MultiPolygon<f64>, b: &MultiPolygon<f64>) -> Result<(), String> {
-        self.0 = self
-            .0
-            .saturating_add(a.coords_count())
-            .saturating_add(b.coords_count());
+    fn vertices(&mut self, count: usize) -> Result<(), String> {
+        crate::analysis_runtime::checkpoint()?;
+        self.0 = self.0.saturating_add(count);
         if self.0 > MAX_METRIC_WORK_VERTICES {
-            return Err("局部叠加累计处理顶点超过 10000000；未返回截断结果".into());
+            return Err("空间计算累计处理顶点超过 10000000；未返回截断结果".into());
         }
+        Ok(())
+    }
+    fn charge(&mut self, a: &MultiPolygon<f64>, b: &MultiPolygon<f64>) -> Result<(), String> {
+        self.vertices(a.coords_count().saturating_add(b.coords_count()))?;
         #[cfg(test)]
         OVERLAY_CALLS.with(|count| count.set(count.get() + 1));
         Ok(())
     }
+}
+
+struct IndexedSpherePoint {
+    id: usize,
+    xyz: [f64; 3],
+}
+impl RTreeObject for IndexedSpherePoint {
+    type Envelope = AABB<[f64; 3]>;
+    fn envelope(&self) -> Self::Envelope {
+        AABB::from_point(self.xyz)
+    }
+}
+impl PointDistance for IndexedSpherePoint {
+    fn distance_2(&self, p: &[f64; 3]) -> f64 {
+        self.xyz.iter().zip(p).map(|(a, b)| (a - b) * (a - b)).sum()
+    }
+}
+fn unit_sphere(p: geo::Point<f64>) -> [f64; 3] {
+    let (lat_sin, lat_cos) = p.y().to_radians().sin_cos();
+    let (lon_sin, lon_cos) = p.x().to_radians().sin_cos();
+    [lat_cos * lon_cos, lat_cos * lon_sin, lat_sin]
+}
+
+fn balanced_union(
+    mut parts: Vec<(MultiPolygon<f64>, Elevations)>,
+    budget: &mut OverlayBudget,
+) -> Result<(MultiPolygon<f64>, Elevations), String> {
+    // Nearby parts meet early. Strict envelope separation is sufficient to
+    // concatenate valid polygons without changing coordinates or XYZ values.
+    parts.sort_by(|(a, _), (b, _)| {
+        let a = a.bounding_rect().map(|r| r.min().x).unwrap_or(0.);
+        let b = b.bounding_rect().map(|r| r.min().x).unwrap_or(0.);
+        a.total_cmp(&b)
+    });
+    while parts.len() > 1 {
+        let mut next = Vec::with_capacity(parts.len().div_ceil(2));
+        let mut iter = parts.into_iter();
+        while let Some((mut a, mut elevations)) = iter.next() {
+            crate::analysis_runtime::checkpoint()?;
+            if let Some((b, other)) = iter.next() {
+                budget.vertices(a.coords_count().saturating_add(b.coords_count()))?;
+                elevations.xyz |= other.xyz;
+                for (key, z) in other.values {
+                    elevations
+                        .values
+                        .entry(key)
+                        .and_modify(|v| {
+                            if v.as_ref().and_then(Value::as_f64)
+                                != z.as_ref().and_then(Value::as_f64)
+                            {
+                                *v = None;
+                            }
+                        })
+                        .or_insert(z);
+                }
+                if bounds_overlap(a.bounding_rect(), b.bounding_rect()) {
+                    if elevations.xyz {
+                        elevations.quantize(&a, &b);
+                    }
+                    a = a.union(&b);
+                } else {
+                    a.0.extend(b.0);
+                }
+            }
+            next.push((a, elevations));
+        }
+        parts = next;
+    }
+    Ok(parts
+        .pop()
+        .unwrap_or_else(|| (MultiPolygon(vec![]), Elevations::default())))
 }
 #[cfg(test)]
 thread_local! { static OVERLAY_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
@@ -1448,6 +1606,7 @@ fn topology(source: &[Value]) -> Result<Value, String> {
     let mut issues = Vec::new();
     let mut geometries = Vec::new();
     for (i, f) in source.iter().enumerate() {
+        crate::analysis_runtime::checkpoint()?;
         match decode(std::slice::from_ref(f), true) {
             Ok(mut gs) => {
                 let g = gs.remove(0);
@@ -1459,6 +1618,7 @@ fn topology(source: &[Value]) -> Result<Value, String> {
                 }
             }
             Err(e) => {
+                crate::analysis_runtime::checkpoint()?;
                 issues.push(json!({"kind":"invalid_geometry","featureIndex":i,"message":e}));
                 geometries.push(None);
             }
@@ -1470,8 +1630,15 @@ fn topology(source: &[Value]) -> Result<Value, String> {
         .collect();
     let index = SpatialIndex::new(&bounds);
     let mut budget = PairBudget(0);
+    let mut work = OverlayBudget(0);
     for i in 0..source.len() {
         for j in index.candidates_after(bounds[i], i, &mut budget)? {
+            work.vertices(
+                geometries[i]
+                    .as_ref()
+                    .map_or(0, CoordsIter::coords_count)
+                    .saturating_add(geometries[j].as_ref().map_or(0, CoordsIter::coords_count)),
+            )?;
             if source[i]["geometry"] == source[j]["geometry"] {
                 issues.push(json!({"kind":"duplicate_geometry","featureIndices":[i,j]}));
             } else if let (Some(a), Some(b)) = (&geometries[i], &geometries[j]) {
@@ -1482,6 +1649,7 @@ fn topology(source: &[Value]) -> Result<Value, String> {
                     issues.push(json!({"kind":"topological_duplicate","featureIndices":[i,j]}));
                 } else if let (Ok(a), Ok(b)) = (polygon(a), polygon(b)) {
                     use geo::Area;
+                    work.charge(&a, &b)?;
                     if a.intersection(&b).unsigned_area() > 0.0 {
                         issues.push(json!({"kind":"polygon_overlap","featureIndices":[i,j]}));
                     }
@@ -2260,8 +2428,317 @@ mod tests {
         assert_eq!(candidates, 1);
         eprintln!("稀疏面 fixture: 2500 对，完整关系计算候选 {candidates}；baseline={baseline:?}, prefiltered={optimized:?}");
     }
+    #[test]
+    #[ignore = "release performance baseline; run explicitly with --ignored --nocapture"]
+    fn spatial_performance_baseline() {
+        let dissolved: Vec<_> = (0..400)
+            .map(|i| square((i % 20) as f64 * 0.02, (i / 20) as f64 * 0.02, 0.01))
+            .collect();
+        let mut wide = square(0., 0., 1.);
+        for i in 0..600 {
+            wide["properties"][format!("field_{i}")] = json!("value".repeat(20));
+        }
+        let source = vec![square(0.1, 0.1, 0.5); 12];
+        let targets: Vec<_> = (0..700)
+            .map(|i| point((i % 35) as f64 * 0.01, (i / 35) as f64 * 0.01))
+            .collect();
+        let points: Vec<_> = (0..300)
+            .map(|i| {
+                point(
+                    (i % 30) as f64 * 0.01 + 0.002,
+                    (i / 30) as f64 * 0.01 + 0.002,
+                )
+            })
+            .collect();
+        for (name, input, target) in [
+            ("dissolve", dissolved.as_slice(), None),
+            (
+                "intersection",
+                source.as_slice(),
+                Some(std::slice::from_ref(&wide)),
+            ),
+            ("nearest", points.as_slice(), Some(targets.as_slice())),
+        ] {
+            analyze(name, &json!({}), input, target).unwrap();
+            let mut samples = Vec::new();
+            for _ in 0..20 {
+                let start = std::time::Instant::now();
+                let result = analyze(name, &json!({}), input, target).unwrap();
+                std::hint::black_box(result);
+                samples.push(start.elapsed().as_secs_f64() * 1000.);
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "{}",
+                json!({"benchmark":name,"iterations":20,"sourceCount":input.len(),"targetCount":target.map_or(0, |t| t.len()),"medianMs":(samples[9]+samples[10])/2.,"p95Ms":samples[18],"samplesMs":samples})
+            );
+        }
+    }
+
     fn point(x: f64, y: f64) -> Value {
         json!({"type":"Feature","geometry":{"type":"Point","coordinates":[x,y]},"properties":{"name":"keep","_zgis_join":"original"}})
+    }
+    #[test]
+    fn point_nearest_index_matches_ellipsoidal_bruteforce_globally_and_ties() {
+        use geo::{Distance, Geodesic};
+        let mut seed = 12345678u64;
+        let mut random = || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+            (seed >> 11) as f64 / ((1u64 << 53) as f64)
+        };
+        let mut targets: Vec<_> = (0..250)
+            .map(|_| point(random() * 360. - 180., random() * 180. - 90.))
+            .collect();
+        targets.extend([
+            point(-179.99, 89.999),
+            point(179.99, -89.999),
+            point(0., 0.),
+            point(0., 0.),
+        ]);
+        let mut sources: Vec<_> = (0..120)
+            .map(|_| point(random() * 360. - 180., random() * 180. - 90.))
+            .collect();
+        sources.extend([
+            point(180., 89.999),
+            point(-180., -89.999),
+            point(120., 90.),
+            point(0., 0.),
+        ]);
+        let target_geometry = decode(&targets, false).unwrap();
+        let result = analyze("nearest", &json!({}), &sources, Some(&targets)).unwrap();
+        for (i, source) in decode(&sources, false).unwrap().iter().enumerate() {
+            let Geometry::Point(a) = source else {
+                unreachable!()
+            };
+            let expected = target_geometry
+                .iter()
+                .enumerate()
+                .map(|(j, g)| {
+                    let Geometry::Point(b) = g else {
+                        unreachable!()
+                    };
+                    (j, Geodesic.distance(*a, *b))
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
+                .unwrap();
+            let actual = &result["features"][i]["properties"]["_zgis_nearest"];
+            assert_eq!(actual["targetIndex"], expected.0, "source {i}");
+            assert_eq!(actual["distanceMeters"], expected.1, "source {i}");
+        }
+        assert!(
+            result["analysis"]["exactDistanceEvaluations"]
+                .as_u64()
+                .unwrap()
+                < 1200
+        );
+    }
+
+    #[test]
+    fn point_nearest_handles_ten_thousand_by_ten_thousand_without_cartesian_work() {
+        let source: Vec<_> = (0..10_000)
+            .map(|i| point((i % 100) as f64 * 0.01, (i / 100) as f64 * 0.01))
+            .collect();
+        let result = analyze("nearest", &json!({}), &source, Some(&source)).unwrap();
+        assert_eq!(result["features"].as_array().unwrap().len(), 10_000);
+        assert_eq!(result["analysis"]["exactDistanceEvaluations"], 10_000);
+        for (i, f) in result["features"].as_array().unwrap().iter().enumerate() {
+            assert_eq!(f["properties"]["_zgis_nearest"]["targetIndex"], i);
+            assert_eq!(f["properties"]["_zgis_nearest"]["distanceMeters"], 0.);
+        }
+    }
+
+    #[test]
+    fn point_nearest_dense_equal_points_exhaust_actual_budget_without_partial_results() {
+        let sources = vec![point(0., 0.); 1001];
+        let targets = vec![point(0., 0.); 1000];
+        let error = analyze("nearest", &json!({}), &sources, Some(&targets)).unwrap_err();
+        assert!(error.contains("实际空间候选对超过 1000000"));
+        assert!(error.contains("未返回截断结果"));
+    }
+
+    #[test]
+    fn balanced_dissolve_preserves_holes_area_xyz_and_budget() {
+        let mut source = vec![
+            hole_polygon(),
+            square(5., 5., 0.2),
+            square(5.1, 5., 0.2),
+            square(7., 7., 0.2),
+        ];
+        for (i, f) in source.iter_mut().enumerate() {
+            add_z(f, (i + 1) as f64 * 10.);
+        }
+        let original = source.clone();
+        let geometries = decode(&source, false).unwrap();
+        let sequential = geometries
+            .iter()
+            .map(|g| polygon(g).unwrap())
+            .reduce(|a, b| a.union(&b))
+            .unwrap();
+        let result = analyze("dissolve", &json!({}), &source, None).unwrap();
+        let actual =
+            polygon(&decode(result["features"].as_array().unwrap(), false).unwrap()[0]).unwrap();
+        assert!((actual.unsigned_area() - sequential.unsigned_area()).abs() < 1e-7);
+        assert!(actual.xor(&sequential).unsigned_area() < 1e-7);
+        assert!(all_xyz(&result["features"][0]["geometry"]["coordinates"]));
+        assert_eq!(source, original);
+        // A disjoint union must not quantize untouched points or discard known Z.
+        let independent = analyze(
+            "dissolve",
+            &json!({}),
+            &[source[0].clone(), source[3].clone()],
+            None,
+        )
+        .unwrap();
+        let coordinates = independent["features"][0]["geometry"]["coordinates"]
+            .as_array()
+            .unwrap();
+        assert_eq!(coordinates.len(), 2);
+        assert!(coordinates.iter().any(|p| p
+            == &derived_feature(&source[0], Some(&geometries[0]), json!({}))["geometry"]
+                ["coordinates"]));
+        assert!(coordinates.iter().any(|p| p
+            == &derived_feature(&source[3], Some(&geometries[3]), json!({}))["geometry"]
+                ["coordinates"]));
+        let parts = geometries
+            .iter()
+            .map(|g| (polygon(g).unwrap(), Elevations::default()))
+            .collect();
+        assert!(
+            balanced_union(parts, &mut OverlayBudget(MAX_METRIC_WORK_VERTICES))
+                .err()
+                .unwrap()
+                .contains("累计处理顶点")
+        );
+    }
+
+    #[test]
+    fn cancelled_algorithms_and_budget_checks_return_no_partial_result() {
+        use crate::analysis_runtime::AnalysisRuntime;
+        let runtime = AnalysisRuntime::new(1, std::time::Duration::from_secs(10));
+        let source = vec![square(0., 0., 1.)];
+        for (i, name) in [
+            "intersection",
+            "dissolve",
+            "nearest",
+            "buffer",
+            "spatial_query",
+            "topology_check",
+            "clean_geometries",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let id = i.to_string();
+            let guard = runtime.start("test-spatial", &id).unwrap();
+            let error = guard
+                .run(|| {
+                    assert!(runtime.cancel("test-spatial", &id));
+                    let result = analyze(name, &json!({}), &source, Some(&source));
+                    assert!(result
+                        .as_ref()
+                        .err()
+                        .is_some_and(|e| e.contains("ANALYSIS_CANCELLED")));
+                    result
+                })
+                .unwrap_err();
+            assert!(error.contains("ANALYSIS_CANCELLED"), "{name}: {error}");
+        }
+        let guard = runtime.start("test-spatial", "budget").unwrap();
+        assert!(guard
+            .run(|| {
+                runtime.cancel("test-spatial", "budget");
+                let result = OverlayBudget(0).vertices(1);
+                assert!(result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|e| e.contains("CANCELLED")));
+                result
+            })
+            .unwrap_err()
+            .contains("CANCELLED"));
+        assert!(OverlayBudget(MAX_METRIC_WORK_VERTICES)
+            .vertices(1)
+            .unwrap_err()
+            .contains("累计处理顶点"));
+    }
+
+    #[test]
+    #[ignore = "release preparation profile; run explicitly with --ignored --nocapture"]
+    fn spatial_preparation_profile() {
+        let points: Vec<_> = (0..10_000)
+            .map(|i| point((i % 100) as f64 * 0.01, (i / 100) as f64 * 0.01))
+            .collect();
+        let mut decode_samples = Vec::new();
+        let mut index_samples = Vec::new();
+        let mut total_samples = Vec::new();
+        for _ in 0..20 {
+            let start = std::time::Instant::now();
+            let decoded = decode(&points, false).unwrap();
+            decode_samples.push(start.elapsed().as_secs_f64() * 1000.);
+            let start = std::time::Instant::now();
+            let tree = RTree::bulk_load(
+                decoded
+                    .iter()
+                    .enumerate()
+                    .map(|(id, g)| {
+                        let Geometry::Point(p) = g else {
+                            unreachable!()
+                        };
+                        IndexedSpherePoint {
+                            id,
+                            xyz: unit_sphere(*p),
+                        }
+                    })
+                    .collect(),
+            );
+            std::hint::black_box(tree);
+            index_samples.push(start.elapsed().as_secs_f64() * 1000.);
+            let start = std::time::Instant::now();
+            std::hint::black_box(analyze("nearest", &json!({}), &points, Some(&points)).unwrap());
+            total_samples.push(start.elapsed().as_secs_f64() * 1000.);
+        }
+        decode_samples.sort_by(f64::total_cmp);
+        index_samples.sort_by(f64::total_cmp);
+        total_samples.sort_by(f64::total_cmp);
+        println!(
+            "{}",
+            json!({"benchmark":"preparation_10000_points","iterations":20,"decodeMedianMs":(decode_samples[9]+decode_samples[10])/2.,"indexMedianMs":(index_samples[9]+index_samples[10])/2.,"nearestFullMedianMs":(total_samples[9]+total_samples[10])/2.})
+        );
+    }
+
+    #[test]
+    fn intersection_merges_wide_properties_once_without_changing_collision_rules() {
+        let mut a = square(0., 0., 1.);
+        a["properties"]["target_field_0"] = json!("existing");
+        a["properties"]["target_field_0_"] = json!("existing2");
+        let mut b = a.clone();
+        b["properties"] = json!({});
+        for i in 0..1000 {
+            b["properties"][format!("field_{i}")] = json!({"nested":[i,"keep"]});
+        }
+        let original = (a.clone(), b.clone());
+        let result = analyze(
+            "intersection",
+            &json!({}),
+            std::slice::from_ref(&a),
+            Some(std::slice::from_ref(&b)),
+        )
+        .unwrap();
+        let properties = &result["features"][0]["properties"];
+        assert_eq!(properties["target_field_0"], "existing");
+        assert_eq!(properties["target_field_0_"], "existing2");
+        assert_eq!(properties["target_field_0__"], json!({"nested":[0,"keep"]}));
+        assert_eq!(
+            properties["target_field_999"],
+            json!({"nested":[999,"keep"]})
+        );
+        assert_eq!((a, b), original);
+        let mut a = square(0., 0., 1.);
+        a["properties"] = Value::Null;
+        let mut b = a.clone();
+        b["properties"] = json!({});
+        let result = analyze("intersection", &json!({}), &[a], Some(&[b])).unwrap();
+        assert!(result["features"][0]["properties"].is_null());
     }
     fn square(x: f64, y: f64, size: f64) -> Value {
         json!({"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[x,y],[x+size,y],[x+size,y+size],[x,y+size],[x,y]]]},"properties":{}})
