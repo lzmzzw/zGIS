@@ -152,7 +152,7 @@ export const analysisTools: AnalysisTool[] = [
     targetKinds: all,
     metric: true,
     parameters: [],
-    help: "按要素几何之间的最近距离寻找目标，附加目标索引与近似距离。相交或接触的要素距离为零。",
+    help: "按要素间最近距离寻找目标，附加目标索引、距离与计算模型。Point 对使用 WGS84 椭球测地距离；其他几何使用各对的局部近似。相交或接触距离为零。",
   },
   {
     id: "count_points",
@@ -312,7 +312,7 @@ export const analysisTools: AnalysisTool[] = [
     metric: false,
     parameters: [],
     report: true,
-    help: "返回问题清单，不自动修复数据。检查几何有效性、完全相同的几何和面之间的重叠；未覆盖面缝隙或共享边界一致性。要素序号按本次输入顺序显示。",
+    help: "返回问题清单，不自动修复数据。检查有效性、精确重复、XY 拓扑重复和面重叠；无效几何不参与成对检查。未覆盖面缝隙或共享边界一致性。要素序号按本次输入顺序显示。",
   },
   {
     id: "layer_summary",

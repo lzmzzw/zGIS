@@ -6636,6 +6636,7 @@ dependencies = [
  "postgres-native-tls",
  "reqwest",
  "rfd",
+ "rstar 0.12.2",
  "security-framework",
  "semver",
  "serde",

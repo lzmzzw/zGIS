@@ -92,7 +92,10 @@ try {
   const catalog = await page.evaluate(() =>
     window.__TAURI_INTERNALS__.invoke("gis_mcp_tool_catalog"),
   );
-  assert.equal(catalog.length, 28);
+  assert.equal(catalog.length, 31);
+  for (const name of ["list_results", "release_result", "clean_geometries"]) {
+    assert.ok(catalog.some(tool => tool.name === name), `Missing ${name}`);
+  }
   assert.ok(catalog.some((tool) => tool.name === "intersection"));
   await page.getByRole("button", { name: "工具", exact: true }).click();
   const checkDock = async () => {
@@ -284,7 +287,7 @@ try {
           "centroid-buffer-measure chain",
           "topology report",
           "source preservation",
-          "28 tool native catalog",
+          "31 tool native catalog including cache lifecycle and geometry cleaning",
           "normal snapshot exit",
           "XYZ overlay preserves source vertex Z and fills unknown Z with zero",
           "XYZ centroid-buffer chain and recovery snapshot",

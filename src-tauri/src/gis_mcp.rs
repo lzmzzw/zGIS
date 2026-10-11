@@ -851,6 +851,21 @@ mod tests {
     fn test_feature(text_bytes: usize) -> Value {
         json!({"type":"Feature","geometry":{"type":"Point","coordinates":[1,1]},"properties":{"name":"保留","large":"x".repeat(text_bytes)}})
     }
+    #[test]
+    fn cleaned_geometry_result_is_chainable_and_publication_keeps_source() {
+        let m=GisMcp::default();
+        let original=json!({"id":"dirty","name":"dirty","features":[test_feature(0),{"type":"Feature","geometry":null,"properties":{"name":"empty"}}]});
+        m.inner.lock().unwrap().layers.push(original.clone());
+        assert_eq!(definitions().len(),31);
+        let cleaned=call(&m,"clean_geometries",&json!({"source":{"layerId":"dirty"}})).unwrap();
+        assert_eq!(cleaned["featureCount"],1);
+        assert_eq!(cleaned["summary"]["analysis"]["removedCount"],1);
+        let derived=call(&m,"buffer",&json!({"source":{"resultId":cleaned["resultId"]},"distanceMeters":10})).unwrap();
+        call(&m,"publish_result",&json!({"resultId":derived["resultId"],"name":"clean buffer"})).unwrap();
+        assert_eq!(m.inner.lock().unwrap().layers[0],original);
+        assert_eq!(m.inner.lock().unwrap().queue.len(),1);
+        assert!(call(&m,"spatial_query",&json!({"source":{"resultId":cleaned["resultId"]},"target":{"resultId":cleaned["resultId"]},"bbox":[0,0,2,2]})).unwrap_err().contains("二选一"));
+    }
     #[tokio::test]
     async fn http_external_file_pagination_and_cache_release_roundtrip() {
         let m=GisMcp::default();

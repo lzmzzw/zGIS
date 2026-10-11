@@ -31,6 +31,7 @@ sha2 = "0.10"
 shapefile = { version = "0.7", features = ["geo-types"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 geo = "0.32"
+rstar = "0.12"
 i_float = "=1.15.0"
 geojson = { version = "0.24", features = ["geo-types"] }
 wkt = "0.14"

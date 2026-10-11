@@ -13,6 +13,7 @@ const labels: Record<string, [string, string]> = {
   spatial_join: ["空间分析", "空间关联"],
   nearest: ["空间分析", "最近目标"],
   topology_check: ["空间分析", "拓扑检查"],
+  clean_geometries: ["空间分析", "清理空或无效几何"],
   buffer: ["空间分析", "缓冲分析"],
   clip: ["空间分析", "裁剪"],
   dissolve: ["空间分析", "合并面"],

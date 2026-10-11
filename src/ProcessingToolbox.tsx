@@ -178,6 +178,7 @@ function AnalysisReport({
     const issueLabels: Record<string, string> = {
       invalid_geometry: "无效几何",
       duplicate_geometry: "重复几何",
+      topological_duplicate: "拓扑重复几何（XY）",
       polygon_overlap: "面重叠",
     };
     return (
@@ -773,7 +774,9 @@ export function ProcessingToolbox({
                   <p>{tool.help}</p>
                   {tool.metric && (
                     <p>
-                      使用近似米制度量，适用于局部、低中纬度数据；大范围或高纬度分析请使用专业投影工具。
+                      {tool.id === "nearest"
+                        ? "Point 对使用 WGS84 椭球测地距离；其他几何使用成对局部近似，受 ±75° 纬度和 5° 跨度限制。"
+                        : "使用近似米制度量，适用于局部、低中纬度数据；大范围或高纬度分析请使用专业投影工具。"}
                     </p>
                   )}
                   <p>
