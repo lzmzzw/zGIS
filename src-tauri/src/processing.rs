@@ -1,8 +1,6 @@
 //! 用户工具箱的内存分析入口；不读取路径、MCP token 或数据库身份。
 use serde_json::Value;
-use std::sync::Arc;
 use tauri::State;
-use tokio::sync::Semaphore;
 
 // 大小校验直接计数，避免为每个要素及完整结果再分配一份 JSON。
 fn json_size(value: &impl serde::Serialize, limit: usize) -> Result<usize, String> {
@@ -27,16 +25,8 @@ fn json_size(value: &impl serde::Serialize, limit: usize) -> Result<usize, Strin
     Ok(counter.bytes)
 }
 
-pub struct ProcessingState {
-    slots: Arc<Semaphore>,
-}
-impl Default for ProcessingState {
-    fn default() -> Self {
-        Self {
-            slots: Arc::new(Semaphore::new(2)),
-        }
-    }
-}
+#[derive(Default)]
+pub struct ProcessingState;
 
 fn execute(
     operation: &str,
@@ -59,6 +49,7 @@ fn execute(
             return Err("图层超过 10000 个要素，请先缩小范围".into());
         }
         for feature in input {
+            crate::analysis_runtime::checkpoint()?;
             let object = feature.as_object().ok_or("分析要素必须是对象")?;
             if object
                 .keys()
@@ -92,23 +83,25 @@ fn execute(
 
 #[tauri::command]
 pub async fn gis_run_analysis(
-    state: State<'_, ProcessingState>,
+    _state: State<'_, ProcessingState>,
     operation: String,
     parameters: Value,
     source: Vec<Value>,
     target: Option<Vec<Value>>,
+    job_id: Option<String>,
 ) -> Result<Value, String> {
-    let slot = state
-        .slots
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| "分析任务正在运行，请稍后重试")?;
+    let id = job_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let guard = crate::analysis_runtime::global().start("desktop", &id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let _slot = slot;
-        execute(&operation, &parameters, &source, target.as_deref())
+        guard.run(|| execute(&operation, &parameters, &source, target.as_deref()))
     })
     .await
     .map_err(|_| "空间分析执行失败，请重试")?
+}
+
+#[tauri::command]
+pub fn gis_cancel_analysis(job_id: String) -> bool {
+    crate::analysis_runtime::global().cancel("desktop", &job_id)
 }
 
 #[cfg(test)]

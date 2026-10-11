@@ -15,6 +15,7 @@ use tokio_postgres::{Client, NoTls};
 mod shapefile_export;
 mod spatial;
 mod processing;
+mod analysis_runtime;
 mod gis_mcp;
 mod mcp_credentials;
 mod vector_files;
@@ -618,14 +619,18 @@ fn save_file(
     }))
 }
 #[tauri::command]
-fn save_recovery(app: tauri::AppHandle, content: String) -> Result<(), String> {
-    let _: Value = serde_json::from_str(&content).map_err(io_error)?;
-    if content.len() as u64 > MAX_FILE {
-        return Err("恢复数据过大".into());
-    }
+async fn save_recovery(app: tauri::AppHandle, content: String) -> Result<(), String> {
+    if content.len() as u64 > MAX_FILE { return Err("恢复数据过大".into()); }
+    // 在接收次序中取得串行锁；避免较早的大备份晚于新版本落盘。
+    static SERIAL: std::sync::OnceLock<std::sync::Arc<tokio::sync::Mutex<()>>> = std::sync::OnceLock::new();
+    let guard = SERIAL.get_or_init(|| std::sync::Arc::new(tokio::sync::Mutex::new(()))).clone().lock_owned().await;
     let dir = app.path().app_local_data_dir().map_err(io_error)?;
-    fs::create_dir_all(&dir).map_err(io_error)?;
-    atomic_write(&dir.join("recovery.json"), content.as_bytes())
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let _: serde::de::IgnoredAny = serde_json::from_str(&content).map_err(io_error)?;
+        fs::create_dir_all(&dir).map_err(io_error)?;
+        atomic_write(&dir.join("recovery.json"), content.as_bytes())
+    }).await.map_err(|_| "恢复数据保存失败".to_string())?
 }
 #[tauri::command]
 fn load_recovery(app: tauri::AppHandle) -> Result<Option<String>, String> {
@@ -1398,6 +1403,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             processing::gis_run_analysis,
+            processing::gis_cancel_analysis,
             gis_mcp::gis_mcp_status,
             gis_mcp::gis_mcp_tool_catalog,
             gis_mcp::gis_mcp_set_enabled,

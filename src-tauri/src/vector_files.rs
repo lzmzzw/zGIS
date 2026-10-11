@@ -3,10 +3,102 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     fs,
-    io::{Cursor, Read},
+    io::{BufReader, Cursor, Read},
     path::Path,
 };
 const MAX_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_FEATURE_COORDINATES: usize = 1_000_000;
+const MAX_TOTAL_COORDINATES: usize = 2_000_000;
+
+#[derive(Default)]
+struct CoordinateBudget { total: usize }
+impl CoordinateBudget {
+    fn add(&mut self, geometry: &Value) -> Result<(), String> {
+        fn coordinates(v: &Value, count: &mut usize) -> Result<(), String> {
+            crate::analysis_runtime::checkpoint()?;
+            if let Some(a) = v.as_array() {
+                if a.first().is_some_and(Value::is_number) {
+                    *count += 1;
+                    if *count > MAX_FEATURE_COORDINATES { return Err("单要素坐标超过1000000预算".into()); }
+                } else { for child in a { coordinates(child, count)?; } }
+            }
+            Ok(())
+        }
+        fn geometry_count(g: &Value, count: &mut usize) -> Result<(), String> {
+            coordinates(&g["coordinates"], count)?;
+            if let Some(a) = g["geometries"].as_array() { for g in a { geometry_count(g, count)?; } }
+            Ok(())
+        }
+        let mut count = 0;
+        geometry_count(geometry, &mut count)?;
+        self.total += count;
+        if self.total > MAX_TOTAL_COORDINATES { return Err("累计坐标超过2000000预算".into()); }
+        Ok(())
+    }
+}
+
+/// features 逐项解析并立即检查预算；不保留原始文件字节或复制整个 features 数组。
+fn read_geojson(path: &Path) -> Result<Value, String> {
+    use serde::de::{DeserializeSeed, MapAccess, SeqAccess, Visitor, Error};
+    struct Features;
+    impl<'de> DeserializeSeed<'de> for Features {
+        type Value = Value;
+        fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Value, D::Error> {
+            struct Items;
+            impl<'de> Visitor<'de> for Items {
+                type Value = Value;
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { f.write_str("features array") }
+                fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Value, A::Error> {
+                    let mut out = Vec::new();
+                    let mut budget = CoordinateBudget::default();
+                    while let Some(mut feature) = seq.next_element::<Value>()? {
+                        crate::analysis_runtime::checkpoint().map_err(A::Error::custom)?;
+                        if out.len() >= 100_000 { return Err(A::Error::custom("最多100000要素")); }
+                        budget.add(&feature["geometry"]).map_err(A::Error::custom)?;
+                        preserve_property_numbers(&mut feature);
+                        out.push(feature);
+                    }
+                    Ok(Value::Array(out))
+                }
+            }
+            deserializer.deserialize_seq(Items)
+        }
+    }
+    struct Document;
+    impl<'de> Visitor<'de> for Document {
+        type Value = Value;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { f.write_str("GeoJSON object") }
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+            let mut object = serde_json::Map::new();
+            while let Some(key) = map.next_key::<String>()? {
+                if object.contains_key(&key) { return Err(A::Error::custom("GeoJSON含重复字段")); }
+                let value = if key == "features" && object.get("type").and_then(Value::as_str) == Some("FeatureCollection") { map.next_value_seed(Features)? } else { map.next_value::<Value>()? };
+                object.insert(key, value);
+            }
+            Ok(Value::Object(object))
+        }
+    }
+    struct CheckedReader<R> { reader: R, bytes: u64 }
+    impl<R: Read> Read for CheckedReader<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            crate::analysis_runtime::checkpoint().map_err(std::io::Error::other)?;
+            let n = self.reader.read(buf)?;
+            self.bytes += n as u64;
+            if self.bytes > MAX_BYTES { return Err(std::io::Error::other("文件必须小于100MB")); }
+            Ok(n)
+        }
+    }
+    let file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let metadata = file.metadata().map_err(|e| e.to_string())?;
+    if !metadata.is_file() || metadata.len() > MAX_BYTES { return Err("文件必须小于100MB".into()); }
+    let mut de = serde_json::Deserializer::from_reader(BufReader::new(CheckedReader { reader: file, bytes: 0 }));
+    let value = serde::Deserializer::deserialize_map(&mut de, Document).map_err(|e| {
+        let message = e.to_string();
+        if ["ANALYSIS_", "预算", "最多100000要素", "100MB"].iter().any(|s| message.contains(s)) { message } else { "无效GeoJSON".to_owned() }
+    })?;
+    de.end().map_err(|_| "无效GeoJSON")?;
+    Ok(value)
+}
 fn wkt_geometry(g: &wkt::Wkt<f64>) -> Result<Value, String> {
     fn coord(c: &wkt::types::Coord<f64>) -> Result<Value, String> {
         if c.m.is_some() { return Err("不支持 WKT M/ZM".into()); }
@@ -129,12 +221,13 @@ fn read(path: &Path) -> Result<Vec<u8>, String> {
         return Err("文件必须小于100MB".into());
     }
     let mut bytes = Vec::new();
-    file.by_ref()
-        .take(MAX_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err("文件必须小于100MB".into());
+    let mut block = [0u8; 64 * 1024];
+    loop {
+        crate::analysis_runtime::checkpoint()?;
+        let n = file.read(&mut block).map_err(|e| e.to_string())?;
+        if n == 0 { break; }
+        if bytes.len() as u64 + n as u64 > MAX_BYTES { return Err("文件必须小于100MB".into()); }
+        bytes.extend_from_slice(&block[..n]);
     }
     Ok(bytes)
 }
@@ -196,7 +289,9 @@ fn normalize_geojson_metadata(v: &mut Value, source_crs: &str) -> Result<(), Str
 pub fn load_with_metadata(path: &str, args: &Value) -> Result<LoadedVector, String> {
     // 解析实际文件位置，使 SHP 符号链接仍能找到目标文件组的配套文件。
     let p = Path::new(path).canonicalize().map_err(|_| "文件不存在或不可访问")?;
-    let bytes = read(&p)?;
+    crate::analysis_runtime::checkpoint()?;
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let bytes = if matches!(ext.as_str(), "json" | "geojson") { Vec::new() } else { read(&p)? };
     let mut source_crs = args["crs"].as_str().unwrap_or("EPSG:4326").to_owned();
     let mut features = match p
         .extension()
@@ -206,7 +301,7 @@ pub fn load_with_metadata(path: &str, args: &Value) -> Result<LoadedVector, Stri
         .as_str()
     {
         "json" | "geojson" => {
-            let mut v: Value = serde_json::from_slice(&bytes).map_err(|_| "无效GeoJSON")?;
+            let mut v = read_geojson(&p)?;
             preserve_property_numbers(&mut v);
             let declared = declared_geojson_crs(&v)?;
             if let (Some(explicit), Some(declared)) = (args["crs"].as_str(), declared) {
@@ -230,6 +325,8 @@ pub fn load_with_metadata(path: &str, args: &Value) -> Result<LoadedVector, Stri
                 Some("Feature") => vec![v],
                 _ => return Err("需要Feature或FeatureCollection".into()),
             };
+            let mut budget = CoordinateBudget::default();
+            for feature in &out { budget.add(&feature["geometry"])?; }
             transform(&mut out, &crs)?;
             out
         }
@@ -263,6 +360,7 @@ pub fn load_with_metadata(path: &str, args: &Value) -> Result<LoadedVector, Stri
             let mut stem = None;
             let mut total = 0u64;
             for i in 0..zip.len() {
+                crate::analysis_runtime::checkpoint()?;
                 let mut f = zip.by_index(i).map_err(|e| e.to_string())?;
                 let Some(q) = f.enclosed_name() else {
                     return Err("ZIP含越界路径".into());
@@ -307,7 +405,10 @@ pub fn load_with_metadata(path: &str, args: &Value) -> Result<LoadedVector, Stri
     if features.len() > 100_000 {
         return Err("最多100000要素".into());
     }
+    let mut budget = CoordinateBudget::default();
     for f in &mut features {
+        crate::analysis_runtime::checkpoint()?;
+        budget.add(&f["geometry"])?;
         if f["type"] != "Feature" {
             return Err("无效Feature".into());
         }
@@ -361,7 +462,9 @@ fn csv_features(bytes: &[u8], args: &Value) -> Result<Vec<Value>, String> {
     let x = find("xField", &["x", "lon", "longitude"]);
     let y = find("yField", &["y", "lat", "latitude"]);
     let mut out = Vec::new();
+    let mut budget = CoordinateBudget::default();
     for row in r.records() {
+        crate::analysis_runtime::checkpoint()?;
         let row = row.map_err(|e| e.to_string())?;
         let g = if let Some(i) = w {
             let parsed: wkt::Wkt<f64> = row[i].parse().map_err(|_| "无效WKT")?;
@@ -379,6 +482,7 @@ fn csv_features(bytes: &[u8], args: &Value) -> Result<Vec<Value>, String> {
             .filter(|(h, _)| Some(*h) != w.map(|i| &headers[i]))
             .map(|(h, v)| (h.into(), json!(v)))
             .collect();
+        budget.add(&g)?;
         out.push(json!({"type":"Feature","geometry":g,"properties":props}));
         if out.len() > 100_000 {
             return Err("最多100000要素".into());
@@ -418,7 +522,9 @@ fn shp_features(mut parts: HashMap<String, Vec<u8>>, args: &Value) -> Result<Loa
         d,
     );
     let mut out = Vec::new();
+    let mut budget = CoordinateBudget::default();
     for record in r.iter_shapes_and_records() {
+        crate::analysis_runtime::checkpoint()?;
         let (s, props) = record.map_err(|e| e.to_string())?;
         if props
             .as_ref()
@@ -462,6 +568,7 @@ fn shp_features(mut parts: HashMap<String, Vec<u8>>, args: &Value) -> Result<Loa
                 (k, value)
             })
             .collect();
+        budget.add(&geom)?;
         out.push(json!({"type":"Feature","geometry":geom,"properties":properties}));
         if out.len() > 100_000 {
             return Err("最多100000要素".into());
@@ -527,6 +634,7 @@ fn transform(features: &mut [Value], crs: &str) -> Result<(), String> {
     }
     if crs == "EPSG:3857" {
         fn walk(v: &mut Value) -> Result<(), String> {
+            crate::analysis_runtime::checkpoint()?;
             let a = v.as_array_mut().ok_or("坐标必须为数组")?;
             if a.first().is_some_and(Value::is_number) {
                 if ![2, 3].contains(&a.len()) {
@@ -570,6 +678,7 @@ pub fn validate_geometry(g: &Value) -> Result<(), String> {
         return Err("暂不支持GeometryCollection".into());
     }
     fn walk(v: &Value) -> Result<(), String> {
+        crate::analysis_runtime::checkpoint()?;
         let a = v.as_array().ok_or("坐标必须为数组")?;
         if a.first().is_some_and(Value::is_number) {
             if ![2, 3].contains(&a.len()) {
@@ -596,6 +705,34 @@ pub fn validate_geometry(g: &Value) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn loading_coordinate_budgets_reject_single_and_accumulated_geometry() {
+        let point = json!([0, 0]);
+        let geometry = json!({"type":"MultiPoint", "coordinates":vec![point.clone();MAX_FEATURE_COORDINATES]});
+        let mut budget = CoordinateBudget::default();
+        for _ in 0..2 { budget.add(&geometry).unwrap(); }
+        assert!(budget.add(&json!({"type":"Point","coordinates":point})).unwrap_err().contains("累计"));
+        let oversized = json!({"type":"MultiPoint", "coordinates":vec![json!([0,0]);MAX_FEATURE_COORDINATES+1]});
+        assert!(CoordinateBudget::default().add(&oversized).unwrap_err().contains("单要素"));
+    }
+
+    #[test]
+    fn reader_preserves_unordered_metadata_foreign_members_and_precise_properties() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("stream.geojson");
+        // 顶层 type 允许在 features 后面，来源 CRS 也允许后置。
+        fs::write(&path, r#"{"features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0,3]},"properties":{"large":9007199254740993},"custom":{"crs":"keep"}}],"crs":{"type":"name","properties":{"name":"EPSG:3857"}},"type":"FeatureCollection"}"#).unwrap();
+        let loaded = load_with_metadata(path.to_str().unwrap(), &json!({})).unwrap();
+        assert_eq!(loaded.source_crs, "EPSG:3857");
+        assert_eq!(loaded.features[0]["properties"]["large"], "9007199254740993");
+        assert_eq!(loaded.features[0]["custom"]["crs"], "keep");
+        assert_eq!(loaded.features[0]["geometry"]["coordinates"][2], 3);
+        fs::write(&path, r#"{"type":"Feature","features":{"foreign":true},"geometry":null,"properties":{}}"#).unwrap();
+        assert_eq!(load(path.to_str().unwrap(), &json!({})).unwrap()[0]["features"]["foreign"], true);
+        fs::write(&path, r#"{"type":"FeatureCollection","features":[]} trailing"#).unwrap();
+        assert!(load(path.to_str().unwrap(), &json!({})).is_err());
+    }
 
     fn zip_entries(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
