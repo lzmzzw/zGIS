@@ -26,13 +26,10 @@ pub fn commit_checkpoint() -> Result<(), String> {
     })
 }
 
-struct Entry { context: Context, started: Instant }
+struct Entry { context: Context }
 #[derive(Default)]
 struct Inner { jobs: HashMap<(String, String), Entry>, early: HashMap<(String, String), Instant> }
 pub struct AnalysisRuntime { inner: Arc<Mutex<Inner>>, capacity: usize, timeout: Duration }
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JobStatus { pub job_id: String, pub elapsed_ms: u128, pub cancellation_requested: bool }
 pub struct JobGuard { inner: Arc<Mutex<Inner>>, key: (String, String), context: Context }
 pub fn global() -> &'static AnalysisRuntime {
     static RUNTIME: OnceLock<AnalysisRuntime> = OnceLock::new();
@@ -49,7 +46,7 @@ impl AnalysisRuntime {
         if inner.early.remove(&key).is_some() { return Err("ANALYSIS_CANCELLED: 分析已取消".into()); }
         if inner.jobs.len() >= self.capacity { return Err("ANALYSIS_BUSY: 分析任务正在运行，请稍后重试".into()); }
         let context = Context { state: Arc::new(AtomicU8::new(0)), deadline: Instant::now() + self.timeout };
-        inner.jobs.insert(key.clone(), Entry { context: context.clone(), started: Instant::now() });
+        inner.jobs.insert(key.clone(), Entry { context: context.clone() });
         Ok(JobGuard { inner: self.inner.clone(), key, context })
     }
     pub fn cancel(&self, owner: &str, job_id: &str) -> bool {
@@ -68,9 +65,6 @@ impl AnalysisRuntime {
             for ((job_owner, _), job) in &inner.jobs { if job_owner == owner { let _ = job.context.state.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire); } }
             inner.early.retain(|(job_owner, _), _| job_owner != owner);
         }
-    }
-    pub fn status(&self, owner: &str) -> Vec<JobStatus> {
-        self.inner.lock().map(|inner| inner.jobs.iter().filter(|((o,_),_)| o == owner).map(|((_,id),job)| JobStatus { job_id: id.clone(), elapsed_ms: job.started.elapsed().as_millis(), cancellation_requested: job.context.state.load(Ordering::Acquire) == 1 }).collect()).unwrap_or_default()
     }
 }
 impl JobGuard {
@@ -112,7 +106,7 @@ mod tests {
             Ok(())
         }).unwrap();
         assert!(mutated);
-        assert!(rt.status("desktop").is_empty());
+        assert!(rt.inner.lock().unwrap().jobs.is_empty());
     }
     #[test]
     fn shared_capacity_cancellation_and_ownership() {
@@ -125,7 +119,7 @@ mod tests {
         assert!(rt.start("session-2", "1").is_err(), "取消请求不得提前释放仍在计算的槽");
         assert!(mcp.run(|| Ok(())).unwrap_err().contains("CANCELLED"));
         assert!(desktop.run(|| { checkpoint()?; Ok(()) }).is_ok());
-        assert!(rt.status("desktop").is_empty());
+        assert!(rt.inner.lock().unwrap().jobs.is_empty());
         assert!(rt.start("session-2", "1").is_ok());
     }
     #[test]
@@ -138,7 +132,7 @@ mod tests {
         let rt = AnalysisRuntime::new(1, Duration::from_secs(1));
         let guard = rt.start("desktop", "panic").unwrap();
         assert!(std::panic::catch_unwind(|| guard.run::<()>(|| panic!("test"))).is_err());
-        assert!(rt.status("desktop").is_empty());
+        assert!(rt.inner.lock().unwrap().jobs.is_empty());
         assert!(checkpoint().is_ok());
     }
 }

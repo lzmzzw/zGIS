@@ -1416,7 +1416,7 @@ pub fn run() {
         .manage(Backend::default())
         .manage(mysql_catalog::MysqlBackend::default())
         .manage(database_passwords::PasswordStore::default())
-        .manage(processing::ProcessingState::default())
+        .manage(processing::ProcessingState)
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
                 handle_drop(window, paths.clone());
