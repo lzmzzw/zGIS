@@ -1809,9 +1809,9 @@ select {
 }
 .map-cancel {
   position: absolute;
-  right: 10px;
-  bottom: 10px;
-  z-index: 5;
+  right: 62px;
+  bottom: 16px;
+  z-index: 16;
 }
 .map-surface.pan-mode {
   cursor: grab;

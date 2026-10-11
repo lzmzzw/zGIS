@@ -51,8 +51,8 @@ PostGIS 通过 `query_raw` 逐行构造要素，查询与遍历共用 30 秒期�
 ## 空间分析与 Agent
 
 - `gis_mcp_status` / `gis_mcp_set_enabled {enabled}`：返回 `{enabled,endpoint?,token?,startupError?,headersHelper?}`；应用启动自动启用，地址固定为 `http://127.0.0.1:9420/mcp`。token 首次生成后保存到当前用户 Windows 凭据管理器或 macOS 钥匙串并复用，停止和重启不轮换；不写配置或日志。headersHelper 为安装资源目录中的平台认证助手命令，Windows 使用 PowerShell，macOS 使用 `/bin/sh`；startupError 展示启动失败原因。
-- `gis_workspace_sync {layers,activeLayerId}`：layers 为 `{id,name,features}`，只接受标准 GeoJSON Feature 快照。
-- `gis_results_drain`：消费待导入的 `{id,name,features}` 结果；前端暂存队列避免退出或繁忙期间丢失。
+- `gis_workspace_sync {layers,activeLayerId,incremental?,removedLayerIds?}`：layers 为 `{id,name,features}`，只接受标准 GeoJSON Feature 快照。默认全量替换；incremental=true 合并变更并删除 removedLayerIds，按合并后总量检查预算。后台串行执行；失败标记旧快照不可用，成功后恢复。
+- `gis_results_drain`：重复读取待导入的 `{id,name,features}` 结果，不移除队列。`gis_results_ack {resultIds}`：最多确认 20 个结果，幂等移除；前端按稳定 ID 去重并在恢复副本写入成功后确认。队列跨 MCP 重启保留，不跨应用进程崩溃保留。
 - MCP 缓存与待导入结果各有独立 100 MiB 大小预算，队列最多 20 个结果；缓存预算检查采用流式计数。HTTP 连接绑定启动代次，服务停止重启后旧连接不能继承新服务。初始化版本取自 Cargo 包版本。
 - `gis_mcp_audit`：有界工具审计摘要。
 - `agent_open` / `agent_current`：`{sessionId,running}`；current 无会话时 null。
@@ -75,3 +75,6 @@ MCP 工具及计算边界见 [空间分析说明](../docs/spatial-mcp.md)。zGIS
 - 前端兼容旧配置：补齐 OSM 地址，移除无自定义地址的旧天地图预置，保留自定义服务和顺序；不再保存全局注记或 tk。空服务列表合法，隐藏服务不参与当前选择；没有可显示服务时 `selected` 为 `none`。服务内容校验失败时保留旧文件并显示错误。
 
 - `fetch_basemap_tile {url:string}`：只读下载单张 HTTP(S) 瓦片并返回图片 data URL，仅供设置保存时合成武汉预览，不暴露为 MCP 工具。拒绝 URL 用户名/密码，最多 3 次重定向、8 秒请求超时、2 MB 响应上限；校验图片类型，错误不含服务地址或密钥。前端并行合成 288×144 PNG，整个预览最多等待 8 秒。保存配置超过 1 MB 时仅裁减可重新获取的预览缓存，优先保留当前底图预览，不删除服务信息。取消后忽略晚到结果；失败保留同地址旧预览，地址变化时移除旧缓存，均允许保存服务。
+
+- `gis_run_analysis {operation,parameters,source,target?,jobId?}`：后台纯内存分析，桌面与 MCP 共用 2 个槽位和 120 秒协作式截止时间；jobId 可选。
+- `gis_cancel_analysis {jobId}`：仅取消桌面命名空间任务，返回是否接受取消；不代表底层几何调用已经停止。

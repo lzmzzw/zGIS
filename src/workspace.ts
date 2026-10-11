@@ -106,7 +106,12 @@ export function boundedRecoveryHistory(
   };
 }
 
+const validatedFeatures = new WeakMap<object, GeoFeature[]>();
 function safeFeatures(values: unknown, requireIds = false): GeoFeature[] {
+  if (requireIds && Array.isArray(values)) {
+    const cached = validatedFeatures.get(values);
+    if (cached) return cached;
+  }
   if (!Array.isArray(values)) throw new Error("恢复要素列表结构无效");
   const ids = new Set<string>();
   for (const value of values) {
@@ -122,10 +127,12 @@ function safeFeatures(values: unknown, requireIds = false): GeoFeature[] {
   }
   // 沿用导入器的坐标、几何与属性校验，独立保留内部 ID，丢弃数据库身份。
   const imported = importGeoJSON(exportGeoJSON(values as GeoFeature[]));
-  return imported.map((feature, index) => ({
+  const result = imported.map((feature, index) => ({
     ...feature,
     ...(validId(values[index].id) ? { id: values[index].id } : {}),
   }));
+  if (requireIds) validatedFeatures.set(values, result);
+  return result;
 }
 
 function safeSession(
@@ -316,8 +323,27 @@ function snapshotLayerData(layers: DocumentLayer[]) {
   }));
 }
 
+const featureJsonCache = new WeakMap<GeoFeature[], string>();
+const layerJsonCache = new WeakMap<DocumentLayer, string>();
+function featureJson(features: GeoFeature[]): string {
+  let value = featureJsonCache.get(features);
+  if (value === undefined) {
+    value = JSON.stringify(features.map(({ id, geometry, properties, sourceFeatureId }) => ({ id, geometry, properties, sourceFeatureId })));
+    featureJsonCache.set(features, value);
+  }
+  return value;
+}
 export function snapshotLayers(layers: DocumentLayer[]): string {
-  return JSON.stringify(snapshotLayerData(layers));
+  return `[${layers.map(layer => {
+    let value = layerJsonCache.get(layer);
+    if (value === undefined) {
+      const metadata = snapshotLayerData([{ ...layer, features: [] }])[0];
+      const { features: _, ...rest } = metadata;
+      value = `${JSON.stringify(rest).slice(0, -1)},"features":${featureJson(layer.features)}}`;
+      layerJsonCache.set(layer, value);
+    }
+    return value;
+  }).join(",")}]`;
 }
 
 export function restoreLayers(raw: string): DocumentLayer[] {
@@ -356,6 +382,7 @@ export function restoreLayers(raw: string): DocumentLayer[] {
       throw new Error("恢复图层字段结构无效或重复");
     const features = safeFeatures(value.features);
     return makeLayer(value.name, features, "geojson", {
+      ...(typeof value.id === "string" && /^mcp-publication-[A-Za-z0-9_-]+$/.test(value.id) ? { id: value.id } : {}),
       displayName: value.displayName?.trim(),
       visible: value.visible !== false,
       color:
@@ -408,7 +435,7 @@ export function snapshotWorkspace(
   const data = {
     version: 3,
     recoveryRevision: ++recoveryRevision,
-    layers: snapshotLayerData(layers),
+    layers: undefined,
     tree: safeTree,
     ...(session
       ? {
@@ -424,7 +451,24 @@ export function snapshotWorkspace(
         }
       : {}),
   };
-  let content = JSON.stringify(data);
+  const encode = () => {
+    const { session: current, ...header } = data;
+    let body = `${JSON.stringify(header).slice(0, -1)},"layers":${snapshotLayers(layers)}`;
+    if (current) {
+      const { history, ...draft } = current;
+      let sessionJson = JSON.stringify(draft).slice(0, -1);
+      if (history) {
+        const { undo, redo, baseline, ...fields } = history;
+        const entries = [`"undo":[${undo.map(featureJson).join(",")}]`, `"redo":[${redo.map(featureJson).join(",")}]`];
+        for (const [key, value] of Object.entries(fields)) if (value !== undefined) entries.push(`${JSON.stringify(key)}:${JSON.stringify(value)}`);
+        if (baseline) entries.push(`"baseline":${JSON.stringify({ ...baseline, features: undefined }).slice(0, -1)},"features":${featureJson(baseline.features)}}`);
+        sessionJson += `,"history":{${entries.join(",")}}`;
+      }
+      body += `,"session":${sessionJson}}`;
+    }
+    return `${body}}`;
+  };
+  let content = encode();
   // Keep room below the native 100 MB limit for the live document and draft.
   if (
     data.session?.history &&
@@ -433,7 +477,7 @@ export function snapshotWorkspace(
     new TextEncoder().encode(content).length > 95 * 1024 * 1024
   ) {
     data.session.history = undefined;
-    content = JSON.stringify(data);
+    content = encode();
   }
   return content;
 }

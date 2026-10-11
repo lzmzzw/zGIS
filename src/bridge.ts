@@ -4,7 +4,7 @@ import type { GeoFeature } from "./domain/types";
 export const desktop = isTauri();
 export interface InputFile {
   name: string;
-  bytes: number[];
+  bytes: number[] | Uint8Array;
   sourceId?: string;
   sourcePath?: string;
   sourceHash?: string;
@@ -141,6 +141,7 @@ export const api = {
     parameters: Record<string, unknown>,
     source: GeoFeature[],
     target?: GeoFeature[],
+    jobId?: string,
   ) => {
     const features = (input: GeoFeature[]) =>
       input.map(({ id, geometry, properties }) => ({
@@ -152,17 +153,22 @@ export const api = {
     return invoke<unknown>("gis_run_analysis", {
       operation,
       parameters,
+      jobId: jobId ?? null,
       source: features(source),
       target: target ? features(target) : null,
     });
   },
+  cancelAnalysis: (jobId: string) => invoke<boolean>("gis_cancel_analysis", { jobId }),
+  mcpResultsAck: (resultIds: string[]) => invoke<void>("gis_results_ack", { resultIds }),
   mcpStatus: () => invoke<McpStatus>("gis_mcp_status"),
   mcpEnable: (enabled: boolean) =>
     invoke<McpStatus>("gis_mcp_set_enabled", { enabled }),
-  mcpSync: (layers: unknown[], activeLayerId?: string) =>
+  mcpSync: (layers: unknown[], activeLayerId?: string, options?: { incremental?: boolean; removedLayerIds?: string[] }) =>
     invoke("gis_workspace_sync", {
       layers,
       activeLayerId: activeLayerId ?? null,
+      incremental: options?.incremental ?? false,
+      removedLayerIds: options?.removedLayerIds ?? [],
     }),
   mcpResults: () => invoke<AnalysisLayer[]>("gis_results_drain"),
   renameSourceFile: (sourceId: string, newName: string) =>

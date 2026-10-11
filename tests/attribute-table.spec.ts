@@ -301,6 +301,7 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
   await page
     .getByLabel("attributes.geojson颜色", { exact: true })
     .fill("#123456");
+  const drainsBefore = await page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_results_drain").length);
   await page.evaluate(() =>
     window.__ZG_TEST__.analysisResults.push({
       id: "analysis",
@@ -315,8 +316,9 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
     }),
   );
   await expect
-    .poll(() => page.evaluate(() => window.__ZG_TEST__.analysisResults.length))
-    .toBe(0);
+    .poll(() => page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_results_drain").length))
+    .toBeGreaterThan(drainsBefore);
+  expect(await page.evaluate(() => window.__ZG_TEST__.analysisResults.length)).toBe(1);
   await expect(page.getByRole("dialog")).toHaveAccessibleName(
     "图层样式：attributes.geojson",
   );
@@ -362,6 +364,7 @@ test("confirmed native exit includes deferred analysis layers but discards uncon
   await page
     .getByLabel("attributes.geojson颜色", { exact: true })
     .fill("#abcdef");
+  const drainsBefore = await page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_results_drain").length);
   await page.evaluate(() =>
     window.__ZG_TEST__.analysisResults.push({
       id: "deferred",
@@ -376,8 +379,9 @@ test("confirmed native exit includes deferred analysis layers but discards uncon
     }),
   );
   await expect
-    .poll(() => page.evaluate(() => window.__ZG_TEST__.analysisResults.length))
-    .toBe(0);
+    .poll(() => page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_results_drain").length))
+    .toBeGreaterThan(drainsBefore);
+  expect(await page.evaluate(() => window.__ZG_TEST__.analysisResults.length)).toBe(1);
   await page.evaluate(() => window.__ZG_TEST__.requestClose());
   await page
     .getByRole("button", { name: "退出并保留工作区", exact: true })

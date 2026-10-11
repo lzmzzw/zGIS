@@ -1409,6 +1409,7 @@ pub fn run() {
             gis_mcp::gis_mcp_set_enabled,
             gis_mcp::gis_workspace_sync,
             gis_mcp::gis_results_drain,
+            gis_mcp::gis_results_ack,
             gis_mcp::gis_mcp_audit,
             codex_agent::agent_open,
             codex_agent::agent_current,

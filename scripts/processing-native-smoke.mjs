@@ -52,6 +52,26 @@ try {
     });
   });
   await page.reload();
+  const ipcChecks = await page.evaluate(async () => {
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    await invoke("gis_workspace_sync", { layers: [], activeLayerId: null });
+    await invoke("gis_workspace_sync", {
+      layers: [], activeLayerId: null, incremental: true, removedLayerIds: [],
+    });
+    await invoke("gis_results_ack", { resultIds: ["native-unknown-result"] });
+    const jobId = `native-cancel-${Date.now()}`;
+    const accepted = await invoke("gis_cancel_analysis", { jobId });
+    let cancelled = "";
+    try {
+      await invoke("gis_run_analysis", {
+        operation: "centroid", parameters: {}, jobId,
+        source: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [116, 40] } }],
+      });
+    } catch (error) { cancelled = String(error); }
+    return { accepted, cancelled };
+  });
+  assert.equal(ipcChecks.accepted, true);
+  assert.match(ipcChecks.cancelled, /取消|CANCELLED/);
   const square = (x) => ({
     type: "Feature",
     geometry: {
@@ -283,6 +303,7 @@ try {
         executable,
         identifier: "com.personal.zgis.processing-smoke",
         checks: [
+          "native full/delta workspace sync, idempotent result ack and pre-start analysis cancellation",
           "native toolbox intersection and both-side attributes",
           "centroid-buffer-measure chain",
           "topology report",

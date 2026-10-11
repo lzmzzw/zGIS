@@ -9,6 +9,7 @@ const projection = {
   dataProjection: "EPSG:4326",
   featureProjection: "EPSG:3857",
 };
+const synced = new WeakMap<VectorSource, { features: GeoFeature[]; revision: number }>();
 
 // 地图仅持有几何和标识；属性以文档为准，避免业务 geometry 字段覆盖 OL 几何。
 export function syncMapFeatures(
@@ -17,6 +18,8 @@ export function syncMapFeatures(
   geometries: WeakMap<Feature<Geometry>, GeoFeature["geometry"]>,
   gestureActive = false,
 ): void {
+  const previous = synced.get(source);
+  if (!gestureActive && previous?.features === features && previous.revision === source.getRevision()) return;
   const ids = new Set(features.map((feature) => feature.id));
   for (const feature of source.getFeatures()) {
     if (!ids.has(String(feature.getId()))) source.removeFeature(feature);
@@ -44,4 +47,5 @@ export function syncMapFeatures(
   }
   // OL 通过 addFeatures 批量建立空间索引，避免逐条插入和重复 change 通知。
   if (added.length) source.addFeatures(added);
+  if (!gestureActive) synced.set(source, { features, revision: source.getRevision() });
 }

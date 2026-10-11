@@ -1,3 +1,6 @@
+import { sameFeatures } from "./featureEquality";
+import { createRecoveryWriter } from "./recoveryWriter";
+import { searchFeatures } from "./attributeSearch";
 import HeaderMenu from "./HeaderMenu";
 import {
   createContext,
@@ -275,6 +278,9 @@ export default function App() {
   const [drawDraft, setDrawDraft] = useState<DrawDraft | null>(null);
   const [gestureActive, setGestureActive] = useState(false);
   const [cancelNonce, setCancelNonce] = useState(0);
+  const [busyKind, setBusyKind] = useState<"parse" | "analysis" | null>(null);
+  const analysisJob = useRef<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const [undoNodeNonce, setUndoNodeNonce] = useState(0);
   const restoringSession = useRef<WorkspaceEditSession | undefined>(undefined);
   const restoringPanel = useRef<WorkspaceEditSession["panelDraft"]>(undefined);
@@ -512,7 +518,7 @@ export default function App() {
   const [newField, setNewField] = useState("");
   const [fieldTarget, setFieldTarget] = useState("");
   const [recoveryReady, setRecoveryReady] = useState(!desktop);
-  const snapshotQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const snapshotWriter = useRef(createRecoveryWriter(content => api.backup(content)));
   const exitPending = useRef(false);
   const exitPreviousModal = useRef<typeof modal>(null);
   const busyRef = useRef(false);
@@ -581,16 +587,26 @@ export default function App() {
     [layers, activeId],
   );
   const mcpSyncQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const mcpSyncBaseline = useRef<Map<string, { features: GeoFeature[]; name: string }> | null>(null);
+  const [mcpSyncRetry, setMcpSyncRetry] = useState(0);
+  const mcpSyncFailures = useRef(0);
   useEffect(() => {
     if (!desktop || !recoveryReady) return;
     let disposed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     mcpSyncQueue.current = mcpSyncQueue.current
       .catch(() => {})
-      .then(() => {
-        // IPC 进行中只保留最新待同步状态，避免积压大图层副本。
+      .then(async () => {
+        // IPC 进行中只保留最新待同步状态；基线始终对应最后成功写入的版本。
         if (disposed) return;
-        return api.mcpSync(
-          layers.map((layer) => ({
+        const previous = mcpSyncBaseline.current;
+        const next = new Map(layers.map(layer => [layer.id, { features: layer.features, name: layer.displayName ?? layer.name }]));
+        const changed = layers.filter(layer => {
+          const before = previous?.get(layer.id);
+          return !before || before.features !== layer.features || before.name !== (layer.displayName ?? layer.name);
+        });
+        await api.mcpSync(
+          changed.map((layer) => ({
             id: layer.id,
             name: layer.displayName ?? layer.name,
             features: layer.features.map((feature) => ({
@@ -601,24 +617,37 @@ export default function App() {
             })),
           })),
           activeId,
+          { incremental: previous !== null, removedLayerIds: previous ? [...previous.keys()].filter(id => !next.has(id)) : [] },
         );
+        // 即使这次 Effect 已被新状态清理，后端仍已接收这个版本。
+        mcpSyncBaseline.current = next;
+        mcpSyncFailures.current = 0;
+        if (!disposed) setError(current => current.startsWith("空间分析图层同步失败：") ? "" : current);
       })
       .catch((reason) => {
-        if (!disposed) setError(`空间分析图层同步失败：${errorText(reason)}`);
+        if (!disposed) {
+          setError(`空间分析图层同步失败：${errorText(reason)}`);
+          const delay = Math.min(30_000, 1000 * 2 ** Math.min(mcpSyncFailures.current++, 5));
+          retryTimer = setTimeout(() => { if (!disposed) setMcpSyncRetry(value => value + 1); }, delay);
+        }
       });
     return () => {
       disposed = true;
+      clearTimeout(retryTimer);
     };
-  }, [layers, activeId, recoveryReady]);
+  }, [layers, activeId, recoveryReady, mcpSyncRetry]);
   const pendingAnalysis = useRef<AnalysisLayer[]>([]);
   const analysisInFlight = useRef<Promise<void> | null>(null);
-  function importPendingAnalysis(forExit = false) {
+  async function importPendingAnalysis(forExit = false) {
     if (
+      !recoveryReady || recoveryBlocked.current ||
       !pendingAnalysis.current.length ||
       (!forExit && (cellDraft || modal || editingLayerId))
     )
       return;
-    const added = pendingAnalysis.current.map((result) =>
+    const publications = [...new Map(pendingAnalysis.current.map(result => [result.id, result])).values()];
+    const existing = new Set(currentLayers.current.map(layer => layer.id));
+    const added = publications.filter(result => !existing.has(`mcp-publication-${result.id}`)).map((result) =>
       makeLayer(
         result.name,
         importGeoJSON(
@@ -628,14 +657,18 @@ export default function App() {
           }),
         ),
         "geojson",
-        { dirty: true, warnings: ["空间分析结果副本，核对后可保存或导出。"] },
+        { id: `mcp-publication-${result.id}`, dirty: true, warnings: ["空间分析结果副本，核对后可保存或导出。"] },
       ),
     );
-    pendingAnalysis.current = [];
     const next = [...currentLayers.current, ...added];
     currentLayers.current = next;
     setLayers(next);
-    if (!forExit) {
+    // A publication remains in Rust until its stable layer ID is durable.
+    await writeSnapshot(next);
+    await api.mcpResultsAck(publications.map(result => result.id));
+    const acknowledged = new Set(publications.map(result => result.id));
+    pendingAnalysis.current = pendingAnalysis.current.filter(result => !acknowledged.has(result.id));
+    if (!forExit && added.length) {
       setActiveId(added.at(-1)?.id);
       setLayersOpen(true);
       setFitNonce((n) => n + 1);
@@ -653,10 +686,10 @@ export default function App() {
       analysisInFlight.current = (async () => {
         try {
           const incoming = await api.mcpResults();
-          if (incoming?.length) pendingAnalysis.current.push(...incoming);
+          if (incoming?.length) pendingAnalysis.current = [...new Map([...pendingAnalysis.current, ...incoming].map(result => [result.id, result])).values()];
           // Save/close may begin while IPC is pending; keep drained data until safe.
           if (alive && !busyRef.current && !exitPending.current)
-            importAnalysisRef.current();
+            await importAnalysisRef.current();
         } catch (reason) {
           if (alive) setError(`空间分析结果读取失败：${errorText(reason)}`);
         } finally {
@@ -890,22 +923,15 @@ export default function App() {
     } catch {
       /* Native copy remains authoritative when browser quota is exceeded. */
     }
-    return persistSnapshot(content);
+    return persistSnapshot(content, true);
   }
-  function persistSnapshot(content: string) {
-    const next = snapshotQueue.current
-      .catch(() => {})
-      .then(() => api.backup(content))
-      .then(() => {
-        try {
-          if (localStorage.getItem("zgis.editRecovery") === content)
-            localStorage.removeItem("zgis.editRecovery");
-        } catch {
-          /* The native snapshot is already durable. */
-        }
-      });
-    snapshotQueue.current = next;
-    return next;
+  function persistSnapshot(content: string, barrier = false) {
+    return snapshotWriter.current(content, barrier).then((persisted) => {
+      try {
+        if (localStorage.getItem("zgis.editRecovery") === persisted)
+          localStorage.removeItem("zgis.editRecovery");
+      } catch { /* Native snapshot is durable. */ }
+    });
   }
   async function requestExit() {
     if (
@@ -918,7 +944,9 @@ export default function App() {
     exitPending.current = true;
     try {
       await analysisInFlight.current;
-      importAnalysisRef.current();
+      const incoming = await api.mcpResults();
+      if (incoming?.length) pendingAnalysis.current = [...new Map([...pendingAnalysis.current, ...incoming].map(result => [result.id, result])).values()];
+      await importAnalysisRef.current();
     } catch (reason) {
       exitPending.current = false;
       setError(errorText(reason));
@@ -1183,6 +1211,9 @@ export default function App() {
       throw new Error("结果图层名称须为 1–100 个字符");
     busyRef.current = true;
     setBusy(true);
+    const jobId = crypto.randomUUID();
+    analysisJob.current = jobId;
+    setBusyKind("analysis");
     const start = performance.now();
     setStatus(`正在运行${definition.label}…`);
     try {
@@ -1191,6 +1222,7 @@ export default function App() {
         request.parameters,
         input,
         target?.features,
+        jobId,
       );
       if (!raw || typeof raw !== "object" || Array.isArray(raw))
         throw new Error("分析结果结构无效");
@@ -1227,9 +1259,12 @@ export default function App() {
       setStatus(`${definition.label}完成`);
       return { report: result, durationMs: performance.now() - start };
     } catch (reason) {
-      setStatus(`${definition.label}失败`);
+      setStatus(errorText(reason).includes("取消") || errorText(reason).includes("CANCEL") ? `${definition.label}已取消` : `${definition.label}失败`);
       throw reason;
     } finally {
+      analysisJob.current = null;
+      setBusyKind(null);
+      setCancelling(false);
       busyRef.current = false;
       setBusy(false);
     }
@@ -1274,6 +1309,7 @@ export default function App() {
   ) {
     await task(async () => {
       setStatus("解析中");
+      setBusyKind("parse");
       let result: DocumentLayer[];
       try {
         result = await parseInWorker(files, options, perFileOptions);
@@ -1281,6 +1317,9 @@ export default function App() {
         setPendingFiles(files);
         setModal("import");
         throw reason;
+      } finally {
+        setBusyKind(null);
+        setCancelling(false);
       }
       addLayers(result);
       setPendingFiles([]);
@@ -1417,8 +1456,7 @@ export default function App() {
                 dirty:
                   editingBaseline.current?.id === active.id
                     ? editingBaseline.current.dirty ||
-                      JSON.stringify(next) !==
-                        JSON.stringify(editingBaseline.current.features) ||
+                      !sameFeatures(next, editingBaseline.current.features) ||
                       JSON.stringify(nextFields ?? []) !==
                         JSON.stringify(editingBaseline.current.fieldNames ?? [])
                     : true,
@@ -1667,7 +1705,7 @@ export default function App() {
     if (!active || !editingBaseline.current) return false;
     const baseline = editingBaseline.current;
     return (
-      JSON.stringify(active.features) !== JSON.stringify(baseline.features) ||
+      !sameFeatures(active.features, baseline.features) ||
       JSON.stringify(active.fieldNames ?? []) !==
         JSON.stringify(baseline.fieldNames ?? []) ||
       JSON.stringify(active.schemaChanges ?? []) !==
@@ -1885,7 +1923,7 @@ export default function App() {
           throw new Error(
             "恢复文件加载失败，退出前请先处理恢复错误，避免覆盖原副本。",
           );
-        importAnalysisRef.current(true);
+        await importAnalysisRef.current(true);
         await writeSnapshot(currentLayers.current);
         await configQueue.current;
         if (configError.current) throw new Error(configError.current);
@@ -2265,16 +2303,12 @@ export default function App() {
       />
     );
   }
-  const filtered = useMemo(() => {
-    const features = active?.features ?? [];
-    if (!search) return features;
-    const query = search.toLowerCase();
-    return features.filter((feature) =>
-      Object.values(feature.properties).some((value) =>
-        stringify(value).toLowerCase().includes(query),
-      ),
-    );
-  }, [active?.features, search]);
+  const [searchQuery, setSearchQuery] = useState(search);
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchQuery(search), 120);
+    return () => clearTimeout(timer);
+  }, [search]);
+  const filtered = useMemo(() => searchFeatures(active?.features ?? [], searchQuery), [active?.features, searchQuery]);
   const pageSize = 100;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const effectivePage = Math.min(page, totalPages - 1);
@@ -2957,12 +2991,15 @@ export default function App() {
           hidden
           onChange={async (e) => {
             const list = Array.from(e.target.files ?? []);
-            const files = await Promise.all(
-              list.map(async (f) => ({
-                name: f.name,
-                bytes: Array.from(new Uint8Array(await f.arrayBuffer())),
-              })),
-            );
+            if (list.some(f => f.size > 100 * 1024 * 1024) || list.reduce((n, f) => n + f.size, 0) > 100 * 1024 * 1024) {
+              setError("单文件及一批文件总量均不能超过 100 MB");
+              e.target.value = "";
+              return;
+            }
+            const files: InputFile[] = [];
+            for (const file of list) {
+              files.push({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+            }
             await acceptFiles(files);
             e.target.value = "";
           }}
@@ -3503,15 +3540,26 @@ export default function App() {
               <div className="map-coordinates" aria-label="经纬度坐标">
                 {position[0].toFixed(5)}, {position[1].toFixed(5)}
               </div>
-              {busy && (
+              {busy && busyKind && (
                 <button
+                  disabled={cancelling}
                   className="map-cancel"
-                  onClick={() => {
-                    cancelParsing();
-                    setStatus("已取消解析");
+                  onClick={async () => {
+                    setCancelling(true);
+                    if (busyKind === "parse") cancelParsing();
+                    else if (analysisJob.current) {
+                      try {
+                        const accepted = await api.cancelAnalysis(analysisJob.current);
+                        setStatus(accepted ? "已请求取消，等待计算结束…" : "分析已结束或当前任务不可取消，等待结果…");
+                        if (!accepted) setCancelling(false);
+                      } catch (reason) {
+                        setError(errorText(reason));
+                        setCancelling(false);
+                      }
+                    }
                   }}
                 >
-                  取消解析
+                  {cancelling ? "正在取消…" : busyKind === "analysis" ? "取消分析" : "取消解析"}
                 </button>
               )}
 

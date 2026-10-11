@@ -15,10 +15,17 @@ use std::{
 };
 use tauri::Manager;
 use tokio::{sync::Semaphore, task::JoinHandle};
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct GisMcp {
     inner: Arc<Mutex<Inner>>,
     start_lock: Arc<tokio::sync::Mutex<()>>,
+    sync_lock: Arc<tokio::sync::Mutex<()>>,
+    instance_id: Arc<str>,
+}
+impl Default for GisMcp {
+    fn default() -> Self {
+        Self { inner: Arc::default(), start_lock: Arc::default(), sync_lock: Arc::default(), instance_id: uuid::Uuid::new_v4().to_string().into() }
+    }
 }
 #[derive(Default)]
 struct Inner {
@@ -26,19 +33,21 @@ struct Inner {
     endpoint: Option<String>,
     token: Option<String>,
     server: Option<JoinHandle<()>>,
-    layers: Vec<Value>,
+    layers: Vec<Arc<LayerSnapshot>>,
     active: Option<String>,
     startup_error: Option<String>,
+    sync_error: Option<String>,
     results: HashMap<String, Cached>,
-    queue: Vec<Value>,
+    queue: Vec<Publication>,
     queue_bytes: usize,
     audit: VecDeque<Value>,
 }
+#[derive(Clone)]
 struct Cached {
     publishable: bool,
     bytes: usize,
-    features: Vec<Value>,
-    summary: Value,
+    features: Arc<Vec<Value>>,
+    summary: Arc<Value>,
     created: Instant,
     versions: Vec<(String, String)>,
     published: bool,
@@ -53,6 +62,7 @@ pub struct McpStatus {
     headers_helper: Option<String>,
 }
 impl GisMcp {
+    fn owner(&self, generation: u64) -> String { format!("mcp:{}:{generation}", self.instance_id) }
     #[cfg(test)]
     fn start_generation(&self) -> Option<u64> {
         let i = self.inner.lock().unwrap();
@@ -133,6 +143,7 @@ impl GisMcp {
     }
     fn stop_listener(&self) -> Option<JoinHandle<()>> {
         let mut i = self.inner.lock().unwrap();
+        crate::analysis_runtime::global().cancel_owner(&self.owner(i.generation));
         i.generation += 1;
         let server = i.server.take();
         if let Some(h) = &server {
@@ -140,10 +151,11 @@ impl GisMcp {
         }
         i.endpoint = None;
         i.token = None;
-        i.results.clear();
-        i.queue.clear();
-        i.queue_bytes = 0;
+        let results = std::mem::take(&mut i.results);
+        // Accepted publications survive transport restarts until the desktop acknowledges them.
         i.startup_error = None;
+        drop(i);
+        drop(results);
         server
     }
     fn status(&self) -> McpStatus {
@@ -168,7 +180,7 @@ impl GisMcp {
     }
     fn log(&self, name: &str, ok: bool) {
         let safe_name = if definition_catalog().iter().any(|d| d["name"] == name)
-            || ["http_host_check", "http_auth_check", "http_origin_check"].contains(&name)
+            || ["http_host_check", "http_auth_check", "http_origin_check", "notifications/cancelled"].contains(&name)
         {
             name
         } else {
@@ -202,43 +214,85 @@ pub async fn gis_mcp_set_enabled(
     Ok(state.client_status(&app))
 }
 #[tauri::command]
-pub fn gis_workspace_sync(
+pub async fn gis_workspace_sync(
     layers: Vec<Value>,
     active_layer_id: Option<String>,
+    incremental: Option<bool>,
+    removed_layer_ids: Option<Vec<String>>,
     state: tauri::State<'_, GisMcp>,
 ) -> Result<(), String> {
-    if layers.len() > 100 {
-        return Err("最多同步100图层".into());
-    }
-    super::bounded_json_size(&layers, 100 * 1024 * 1024)
-        .map_err(|_| "同步图层总大小超过100MB")?;
-    let mut count = 0;
-    for l in &layers {
-        if !l["id"].is_string() || !l["name"].is_string() {
-            return Err("无效图层".into());
-        }
-        let fs = l["features"].as_array().ok_or("缺少features")?;
-        count += fs.len();
-        for f in fs {
-            if f["type"] != "Feature" {
-                return Err("无效要素".into());
+    let m = state.inner().clone();
+    let order = m.sync_lock.clone().lock_owned().await;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _order = order;
+        sync_workspace(&m, layers, active_layer_id, incremental.unwrap_or(false), removed_layer_ids.unwrap_or_default())
+    })
+        .await.map_err(|_| "工作区同步失败".to_owned())?
+}
+fn sync_workspace(m: &GisMcp, layers: Vec<Value>, active: Option<String>, incremental: bool, removed: Vec<String>) -> Result<(), String> {
+    let result: Result<(), String> = (|| {
+        if layers.len() > 100 || removed.len() > 100 { return Err("最多同步100图层".into()); }
+        super::bounded_json_size(&layers, 100 * 1024 * 1024).map_err(|_| "同步图层总大小超过100MB")?;
+        let mut ids = std::collections::HashSet::new();
+        let mut count = 0;
+        for l in &layers {
+            let id = l["id"].as_str().ok_or("无效图层id")?;
+            if !ids.insert(id) || removed.iter().any(|x| x == id) { return Err("同步图层标识重复或同时删除".into()); }
+            if !l["name"].is_string() { return Err("无效图层名称".into()); }
+            let fs = l["features"].as_array().ok_or("缺少features")?;
+            count += fs.len();
+            for f in fs {
+                if f["type"] != "Feature" { return Err("无效要素".into()); }
+                super::vector_files::validate_geometry(&f["geometry"])?;
             }
-            super::vector_files::validate_geometry(&f["geometry"])?;
         }
-    }
-    if count > 100_000 {
-        return Err("最多同步100000要素".into());
-    }
-    let mut i = state.inner.lock().unwrap();
-    i.layers = layers;
-    i.active = active_layer_id;
-    Ok(())
+        if count > 100_000 { return Err("最多同步100000要素".into()); }
+        let updates = layers.into_iter().map(LayerSnapshot::from_value).collect::<Result<Vec<_>, _>>()?;
+        let mut i = m.inner.lock().unwrap();
+        let mut next = if incremental { i.layers.clone() } else { Vec::new() };
+        next.retain(|l| !removed.contains(&l.id));
+        for layer in updates {
+            if let Some(index) = next.iter().position(|l| l.id == layer.id) { next[index] = layer; }
+            else { next.push(layer); }
+        }
+        if next.len() > 100 || next.iter().map(|l| l.features.len()).sum::<usize>() > 100_000 { return Err("工作区超过100图层或100000要素".into()); }
+        if next.iter().map(|l| l.bytes).sum::<usize>().saturating_add(next.len()+2) > 100*1024*1024 { return Err("同步图层总大小超过100MB".into()); }
+        let old = std::mem::replace(&mut i.layers, next);
+        i.active = active;
+        i.sync_error = None;
+        drop(i); drop(old);
+        Ok(())
+    })();
+    if let Err(error) = &result { m.inner.lock().unwrap().sync_error = Some(error.clone()); }
+    result
 }
 #[tauri::command]
 pub fn gis_results_drain(state: tauri::State<'_, GisMcp>) -> Vec<Value> {
+    pending_publications(&state)
+}
+fn pending_publications(state: &GisMcp) -> Vec<Value> {
+    let pending = state.inner.lock().unwrap().queue.clone();
+    pending.into_iter().map(|p| json!({"id":p.id,"name":p.name,"features":p.features.as_ref()})).collect()
+}
+#[tauri::command]
+pub fn gis_results_ack(state: tauri::State<'_, GisMcp>, result_ids: Vec<String>) -> Result<(), String> {
+    acknowledge_publications(&state, &result_ids)
+}
+fn acknowledge_publications(state: &GisMcp, ids: &[String]) -> Result<(), String> {
+    if ids.len() > 20 || ids.iter().any(|id| id.len() > 100) { return Err("发布确认参数超过上限".into()); }
     let mut inner = state.inner.lock().unwrap();
-    inner.queue_bytes = 0;
-    std::mem::take(&mut inner.queue)
+    let mut removed = Vec::new();
+    let mut index = 0;
+    while index < inner.queue.len() {
+        if ids.contains(&inner.queue[index].id) {
+            let item = inner.queue.remove(index);
+            inner.queue_bytes = inner.queue_bytes.saturating_sub(item.bytes);
+            removed.push(item);
+        } else { index += 1; }
+    }
+    drop(inner);
+    drop(removed);
+    Ok(())
 }
 #[tauri::command]
 pub fn gis_mcp_audit(state: tauri::State<'_, GisMcp>) -> Vec<Value> {
@@ -249,6 +303,39 @@ struct HttpState {
     mcp: GisMcp,
     limit: Arc<Semaphore>,
     generation: u64,
+}
+struct LayerSnapshot {
+    id: String,
+    name: String,
+    features: Arc<Vec<Value>>,
+    version: String,
+    fields: std::collections::BTreeSet<String>,
+    bytes: usize,
+}
+impl LayerSnapshot {
+    fn from_value(mut value: Value) -> Result<Arc<Self>, String> {
+        let bytes = super::bounded_json_size(&value, 100*1024*1024).map_err(|_| "同步图层总大小超过100MB")?;
+        let version = fingerprint(&value);
+        let id = value["id"].as_str().ok_or("无效图层id")?.to_owned();
+        let name = value["name"].as_str().ok_or("无效图层名称")?.to_owned();
+        let Some(Value::Array(features)) = value.as_object_mut().and_then(|o| o.remove("features")) else {
+            return Err("缺少features".into());
+        };
+        let fields = features.iter().filter_map(|f| f["properties"].as_object())
+            .flat_map(|p| p.keys().cloned()).collect();
+        Ok(Arc::new(Self { id, name, features: Arc::new(features), version, fields, bytes }))
+    }
+    #[cfg(test)]
+    fn value(&self) -> Value {
+        json!({"id":self.id,"name":self.name,"features":self.features.as_ref()})
+    }
+}
+#[derive(Clone, Debug, PartialEq)]
+struct Publication {
+    id: String,
+    name: String,
+    features: Arc<Vec<Value>>,
+    bytes: usize,
 }
 #[cfg(any(target_os = "macos", test))]
 fn macos_headers_helper(path: &std::path::Path) -> String {
@@ -270,7 +357,8 @@ fn router(mcp: GisMcp, generation: u64) -> Router {
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(HttpState {
             mcp,
-            limit: Arc::new(Semaphore::new(2)),
+            // Transport/control capacity is independent of the two global computation slots.
+            limit: Arc::new(Semaphore::new(8)),
             generation,
         })
 }
@@ -314,12 +402,18 @@ async fn handle(
     let id = req.get("id").cloned();
     let method = req["method"].as_str().ok_or(StatusCode::BAD_REQUEST)?;
     if id.is_none() {
+        if method == "notifications/cancelled" {
+            let target = request_job_id(&req["params"]["requestId"]).ok_or(StatusCode::BAD_REQUEST)?;
+            crate::analysis_runtime::global().cancel(&s.mcp.owner(generation), &target);
+            s.mcp.log(method, true);
+        }
         if method.starts_with("notifications/") {
             return Ok((StatusCode::ACCEPTED, Json(Value::Null)));
         }
         return Err(StatusCode::BAD_REQUEST);
     }
     let id = id.unwrap();
+    let job_id = request_job_id(&id).ok_or(StatusCode::BAD_REQUEST)?;
     let result = match method {
         "initialize" => Ok(
             json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"zgis","version":env!("CARGO_PKG_VERSION")},"instructions":"zGIS 内部图层操作使用本 MCP；外部 GeoJSON、SHP、WKT CSV 等空间文件优先使用本 MCP，访问权限由调用 Agent 判断，zGIS 不校验文件访问授权。PostGIS 按场景选择：已加载图层用本 MCP 分析；直接数据库操作使用 DBX，本 MCP 不读写数据库。所有工作几何为 WGS84，分析结果用 publish_result 加入独立未保存图层。"}),
@@ -340,12 +434,22 @@ async fn handle(
                 .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
             let m = s.mcp.clone();
             let n = name.clone();
+            let heavy = !matches!(name.as_str(), "list_layers" | "describe_layer" | "read_features" | "read_result" | "list_results" | "release_result");
+            let owner = m.owner(generation);
+            let job = if heavy { Some(crate::analysis_runtime::global().start(&owner, &job_id)) } else { None };
+            let owns_job = matches!(&job, Some(Ok(_)));
+            let mut cancellation = CancelHttpJob { owner, id:job_id, armed:owns_job };
             let r = tokio::task::spawn_blocking(move || {
                 let _permit = permit;
-                call_expected(&m, &n, &args, generation)
+                match job {
+                    Some(Ok(job)) => job.run(|| call_expected(&m, &n, &args, generation)),
+                    Some(Err(error)) => Err(error),
+                    None => call_expected(&m, &n, &args, generation),
+                }
             })
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            cancellation.armed = false;
             s.mcp.log(&name, r.is_ok());
             Ok(match r {
                 Ok(v) => {
@@ -354,6 +458,10 @@ async fn handle(
                 Err(e) => {
                     let code = if e.starts_with("RESULT_ITEM_TOO_LARGE:") { "RESULT_ITEM_TOO_LARGE" }
                         else if e.starts_with("RESULT_CACHE_FULL:") { "RESULT_CACHE_FULL" }
+                        else if e.starts_with("ANALYSIS_CANCELLED:") { "ANALYSIS_CANCELLED" }
+                        else if e.starts_with("ANALYSIS_TIMEOUT:") { "ANALYSIS_TIMEOUT" }
+                        else if e.starts_with("ANALYSIS_BUSY:") { "ANALYSIS_BUSY" }
+                        else if e.starts_with("ANALYSIS_DUPLICATE:") { "ANALYSIS_DUPLICATE" }
                         else { "TOOL_ERROR" };
                     json!({"content":[{"type":"text","text":e}],"structuredContent":{"error":{"code":code,"message":e}},"isError":true})
                 },
@@ -361,6 +469,7 @@ async fn handle(
         }
         _ => Err("未知JSON-RPC方法".to_string()),
     };
+    if s.mcp.inner.lock().unwrap().generation != generation { return Err(StatusCode::SERVICE_UNAVAILABLE); }
     Ok((
         StatusCode::OK,
         Json(match result {
@@ -368,6 +477,17 @@ async fn handle(
             Err(e) => json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":e}}),
         }),
     ))
+}
+fn request_job_id(id: &Value) -> Option<String> {
+    if !(id.is_string() || id.is_number()) { return None; }
+    let id = id.to_string();
+    (id.len() <= 200).then_some(id)
+}
+struct CancelHttpJob { owner: String, id: String, armed: bool }
+impl Drop for CancelHttpJob {
+    fn drop(&mut self) {
+        if self.armed { crate::analysis_runtime::global().cancel(&self.owner, &self.id); }
+    }
 }
 fn def(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
     json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":!matches!(name,"publish_result"|"release_result"),"destructiveHint":name=="release_result","idempotentHint":true,"openWorldHint":!matches!(name,"list_layers"|"describe_layer"|"read_features"|"read_result"|"publish_result"|"list_results"|"release_result")}})
@@ -544,14 +664,19 @@ fn fingerprint(l: &Value) -> String {
     serde_json::to_writer(&mut writer, &l["features"]).expect("JSON value serialization is infallible");
     format!("{:x}", writer.0.finalize())
 }
-type SourceSnapshot = (Vec<Value>, Vec<(String, String)>);
-fn source(m: &GisMcp, v: &Value) -> Result<SourceSnapshot, String> {
+fn current_inner(m: &GisMcp, generation: u64) -> Result<std::sync::MutexGuard<'_, Inner>, String> {
+    let inner = m.inner.lock().map_err(|_| "MCP状态不可用")?;
+    if inner.generation != generation { return Err("会话授权已改变".into()); }
+    Ok(inner)
+}
+type SourceSnapshot = (Arc<Vec<Value>>, Vec<(String, String)>);
+fn source(m: &GisMcp, v: &Value, generation: u64) -> Result<SourceSnapshot, String> {
     let obj = v.as_object().ok_or("source必须为object")?;
     if let Some(id) = v["resultId"].as_str() {
         if obj.len() != 1 {
             return Err("resultId不接受其他参数".into());
         }
-        let i = m.inner.lock().unwrap();
+        let i = current_inner(m, generation)?;
         let r = i.results.get(id).ok_or("缓存不存在或已过期")?;
         if !r.publishable || stale(&i, r) || r.created.elapsed() >= Duration::from_secs(1800) {
             return Err("缓存不是矢量结果或已过期，请重新分析".into());
@@ -562,15 +687,16 @@ fn source(m: &GisMcp, v: &Value) -> Result<SourceSnapshot, String> {
         if obj.len() != 1 {
             return Err("layerId来源不接受其他参数".into());
         }
-        let i = m.inner.lock().unwrap();
+        let i = current_inner(m, generation)?;
+        if i.sync_error.is_some() { return Err("工作区同步失败，旧图层快照不可用于新分析".into()); }
         let l = i
             .layers
             .iter()
-            .find(|l| l["id"] == id)
+            .find(|l| l.id == id)
             .ok_or("图层不存在")?;
         Ok((
-            l["features"].as_array().ok_or("无效图层")?.clone(),
-            vec![(id.into(), fingerprint(l))],
+            l.features.clone(),
+            vec![(id.into(), l.version.clone())],
         ))
     } else if let Some(path) = v["path"].as_str() {
         for k in obj.keys() {
@@ -578,10 +704,18 @@ fn source(m: &GisMcp, v: &Value) -> Result<SourceSnapshot, String> {
                 return Err("未知文件来源参数".into());
             }
         }
-        Ok((super::vector_files::load(path, v)?, vec![]))
+        Ok((Arc::new(super::vector_files::load(path, v)?), vec![]))
     } else {
         Err("source需要layerId或path".into())
     }
+}
+fn prune_expired(m: &GisMcp) {
+    let expired = {
+        let mut inner = m.inner.lock().unwrap();
+        let ids:Vec<_> = inner.results.iter().filter(|(_,r)| r.created.elapsed() >= Duration::from_secs(1800)).map(|(id,_)| id.clone()).collect();
+        ids.into_iter().filter_map(|id| inner.results.remove(&id)).collect::<Vec<_>>()
+    };
+    drop(expired);
 }
 fn cache(
     m: &GisMcp,
@@ -591,6 +725,7 @@ fn cache(
     generation: u64,
     publishable: bool,
 ) -> Result<Value, String> {
+    prune_expired(m);
     if features.len() > 100_000 {
         return Err("结果超过100000要素".into());
     }
@@ -598,28 +733,27 @@ fn cache(
         .map_err(|_| "结果缓存超过100MB")?;
     let bytes = feature_bytes + super::bounded_json_size(&summary, 100 * 1024 * 1024 - feature_bytes)
         .map_err(|_| "结果缓存超过100MB")?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let sample = bounded_sample(&features);
+    let result = json!({"resultId":id,"summary":compact_summary(&summary),"featureCount":features.len(),"sampleTruncated":sample.len()<features.len(),"sample":sample});
     let mut i = m.inner.lock().unwrap();
     if i.generation != generation {
         return Err("会话已停止或授权已撤销，请重新执行".into());
     }
-    i.results
-        .retain(|_, r| r.created.elapsed() < Duration::from_secs(1800));
     if i.results.len() >= 20
         || i.results.values().map(|r| r.features.len()).sum::<usize>() + features.len() > 200_000
         || i.results.values().map(|r| r.bytes).sum::<usize>() + bytes > 100 * 1024 * 1024
     {
         return Err("RESULT_CACHE_FULL: 结果缓存已满，请使用list_results查看并通过release_result释放不再需要的中间结果".into());
     }
-    let id = uuid::Uuid::new_v4().to_string();
-    let sample = bounded_sample(&features);
-    let result = json!({"resultId":id,"summary":compact_summary(&summary),"featureCount":features.len(),"sampleTruncated":sample.len()<features.len(),"sample":sample});
+    crate::analysis_runtime::commit_checkpoint()?;
     i.results.insert(
         id,
         Cached {
             publishable,
             bytes,
-            features,
-            summary,
+            features: Arc::new(features),
+            summary: Arc::new(summary),
             created: Instant::now(),
             versions,
             published: false,
@@ -641,14 +775,10 @@ fn call_expected(m: &GisMcp, name: &str, args: &Value, generation: u64) -> Resul
         .find(|d| d["name"] == name)
         .ok_or("未知工具")?;
     validate(args, &d["inputSchema"])?;
-    {
-        let mut i = m.inner.lock().unwrap();
-        i.results
-            .retain(|_, r| r.created.elapsed() < Duration::from_secs(1800));
-    }
+    prune_expired(m);
     match name {
         "list_results" => {
-            let i = m.inner.lock().unwrap();
+            let i = current_inner(m, generation)?;
             let used_bytes: usize = i.results.values().map(|r| r.bytes).sum();
             let used_features: usize = i.results.values().map(|r| r.features.len()).sum();
             let mut results: Vec<Value> = i.results.iter().map(|(id, r)| json!({"resultId":id,"featureCount":r.features.len(),"bytes":r.bytes,"expiresInSeconds":1800u64.saturating_sub(r.created.elapsed().as_secs()),"publishable":r.publishable,"published":r.published,"stale":stale(&i,r)})).collect();
@@ -656,38 +786,28 @@ fn call_expected(m: &GisMcp, name: &str, args: &Value, generation: u64) -> Resul
             Ok(json!({"results":results,"remaining":{"results":20usize.saturating_sub(i.results.len()),"features":200_000usize.saturating_sub(used_features),"bytes":(100*1024*1024usize).saturating_sub(used_bytes)}}))
         }
         "release_result" => {
-            let mut i = m.inner.lock().unwrap();
+            let mut i = current_inner(m, generation)?;
             if i.generation != generation { return Err("会话授权已改变".into()); }
             let id = args["resultId"].as_str().unwrap();
             let removed = i.results.remove(id);
+            drop(i);
             Ok(json!({"resultId":id,"released":removed.is_some(),"freedBytes":removed.map(|r|r.bytes).unwrap_or(0)}))
         }
         "list_layers" => {
-            let i = m.inner.lock().unwrap();
-            Ok(
-                json!({"activeLayerId":i.active,"layers":i.layers.iter().map(|l|json!({"id":l["id"],"name":l["name"],"featureCount":l["features"].as_array().map(Vec::len),"version":fingerprint(l)})).collect::<Vec<_>>()}),
-            )
+            let i = current_inner(m, generation)?;
+            Ok(json!({"activeLayerId":i.active,"synchronized":i.sync_error.is_none(),"syncError":i.sync_error,"layers":i.layers.iter().map(|l|json!({"id":l.id,"name":l.name,"featureCount":l.features.len(),"version":l.version})).collect::<Vec<_>>()}))
         }
         "describe_layer" | "read_features" => {
-            let i = m.inner.lock().unwrap();
-            let l = i
-                .layers
-                .iter()
-                .find(|l| l["id"] == args["layerId"])
-                .ok_or("图层不存在")?;
-            let f = l["features"].as_array().ok_or("无效图层")?;
+            let l = {
+                let i = current_inner(m, generation)?;
+                if i.sync_error.is_some() { return Err("工作区同步失败，请重试图层同步".into()); }
+                i.layers.iter().find(|l| Some(l.id.as_str()) == args["layerId"].as_str())
+                    .cloned().ok_or("图层不存在")?
+            };
             if name == "describe_layer" {
-                let mut fields = std::collections::BTreeSet::new();
-                for v in f {
-                    if let Some(p) = v["properties"].as_object() {
-                        fields.extend(p.keys().cloned());
-                    }
-                }
-                Ok(
-                    json!({"id":l["id"],"name":l["name"],"featureCount":f.len(),"fields":fields,"version":fingerprint(l)}),
-                )
+                Ok(json!({"id":l.id,"name":l.name,"featureCount":l.features.len(),"fields":l.fields,"version":l.version}))
             } else {
-                page(f, args, json!({"version":fingerprint(l)}), "features")
+                page(&l.features, args, json!({"version":l.version}), "features")
             }
         }
         "load_vector_file" => {
@@ -703,77 +823,75 @@ fn call_expected(m: &GisMcp, name: &str, args: &Value, generation: u64) -> Resul
             )
         }
         "read_result" => {
-            let i = m.inner.lock().unwrap();
-            let r = i
-                .results
-                .get(args["resultId"].as_str().unwrap())
-                .ok_or("结果不存在或已过期")?;
+            let (r, is_stale) = {
+                let i = current_inner(m, generation)?;
+                let r = i.results.get(args["resultId"].as_str().unwrap()).ok_or("结果不存在或已过期")?;
+                (r.clone(), stale(&i, r))
+            };
             if let Some(issues) = r.summary["issues"].as_array() {
                 let mut summary = compact_summary(&r.summary);
                 summary.as_object_mut().unwrap().remove("issues");
-                return page(issues, args, json!({"summary":summary,"stale":stale(&i,r)}), "issues");
+                return page(issues, args, json!({"summary":summary,"stale":is_stale}), "issues");
             }
-            page(
-                &r.features,
-                args,
-                json!({"summary":compact_summary(&r.summary),"stale":stale(&i,r)}), "features",
-            )
+            page(&r.features, args, json!({"summary":compact_summary(&r.summary),"stale":is_stale}), "features")
         }
         "publish_result" => {
-            let mut i = m.inner.lock().unwrap();
             let id = args["resultId"].as_str().unwrap();
-            let r = i.results.get(id).ok_or("结果不存在或已过期")?;
-            if i.generation != generation {
-                return Err("会话授权已改变".into());
-            }
-            if !r.publishable {
-                return Err("报告结果不能发布为矢量图层".into());
-            }
-            if stale(&i, r) {
-                return Err("源图层已改变，请重新分析后发布".into());
-            }
-            if r.published {
-                return Ok(json!({"published":true,"alreadyPublished":true}));
-            }
-            if i.queue.len() >= 20 {
-                return Err("待导入结果已满".into());
-            }
-            let layer_bytes = r.bytes + args["name"].as_str().unwrap().len() + 1024;
-            if i.queue_bytes.saturating_add(layer_bytes) > 100 * 1024 * 1024 {
-                return Err("待导入结果超过100MB，请先导入已有结果".into());
-            }
+            let r = {
+                let i = current_inner(m, generation)?;
+                let r = i.results.get(id).ok_or("结果不存在或已过期")?;
+                if !r.publishable { return Err("报告结果不能发布为矢量图层".into()); }
+                if stale(&i, r) { return Err("源图层已改变，请重新分析后发布".into()); }
+                if r.published { return Ok(json!({"published":true,"alreadyPublished":true})); }
+                r.clone()
+            };
+            // Potentially expensive validation never holds the metadata lock.
             if !r.features.is_empty() {
                 super::spatial::analyze("layer_summary", &json!({}), &r.features, None)?;
             }
-            let layer = json!({"id":id,"name":args["name"],"features":r.features});
-            i.queue.push(layer);
+            let layer_bytes = r.bytes + args["name"].as_str().unwrap().len() + 1024;
+            let mut i = current_inner(m, generation)?;
+            if i.generation != generation { return Err("会话授权已改变".into()); }
+            let current = i.results.get(id).ok_or("结果不存在或已过期")?;
+            if current.created.elapsed() >= Duration::from_secs(1800) { return Err("结果不存在或已过期".into()); }
+            if stale(&i, current) { return Err("源图层已改变，请重新分析后发布".into()); }
+            if current.published { return Ok(json!({"published":true,"alreadyPublished":true})); }
+            if i.queue.len() >= 20 { return Err("待导入结果已满".into()); }
+            if i.queue_bytes.saturating_add(layer_bytes) > 100 * 1024 * 1024 {
+                return Err("待导入结果超过100MB，请先导入已有结果".into());
+            }
+            crate::analysis_runtime::commit_checkpoint()?;
+            i.queue.push(Publication { id:id.into(), name:args["name"].as_str().unwrap().into(), features:r.features, bytes:layer_bytes });
             i.queue_bytes += layer_bytes;
             i.results.get_mut(id).unwrap().published = true;
             Ok(json!({"published":true,"resultId":id}))
         }
         _ => {
-            let (s, mut versions) = source(m, &args["source"])?;
+            let (s, mut versions) = source(m, &args["source"], generation)?;
             let target = if !args["target"].is_null() {
-                let (t, v) = source(m, &args["target"])?;
+                let (t, v) = source(m, &args["target"], generation)?;
                 versions.extend(v);
                 Some(t)
             } else {
                 None
             };
-            let result = super::spatial::analyze(name, args, &s, target.as_deref())?;
-            let features = result["features"].as_array().cloned().unwrap_or_default();
+            let result = super::spatial::analyze(name, args, &s, target.as_ref().map(|t| t.as_slice()))?;
             let publishable = result["type"] == "FeatureCollection";
             let mut summary = result;
-            summary.as_object_mut().map(|o| o.remove("features"));
+            let features = match summary.as_object_mut().and_then(|o| o.remove("features")) {
+                Some(Value::Array(features)) => features,
+                _ => Vec::new(),
+            };
             cache(m, features, summary, versions, generation, publishable)
         }
     }
 }
 fn stale(i: &Inner, r: &Cached) -> bool {
+    if !r.versions.is_empty() && i.sync_error.is_some() { return true; }
     r.versions.iter().any(|(id, v)| {
         !i.layers
             .iter()
-            .any(|l| l["id"] == *id && fingerprint(l) == *v)
+            .any(|l| l.id == *id && l.version == *v)
     })
 }
 fn bounded_sample(features: &[Value]) -> Vec<Value> {
@@ -806,6 +924,37 @@ fn compact_summary(summary: &Value) -> Value {
     }
     Value::Object(v)
 }
+struct ProjectedItem<'a> { original: &'a Value, feature: bool, include_geometry: bool, fields: Option<&'a Vec<Value>> }
+impl Serialize for ProjectedItem<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        struct Properties<'a>(&'a serde_json::Map<String, Value>, &'a [Value]);
+        impl Serialize for Properties<'_> {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok,S::Error> {
+                use serde::ser::SerializeMap;
+                let mut map = serializer.serialize_map(None)?;
+                for (key,value) in self.0 {
+                    if self.1.iter().any(|field| field.as_str() == Some(key)) { map.serialize_entry(key,value)?; }
+                }
+                map.end()
+            }
+        }
+        if !self.feature { return self.original.serialize(serializer); }
+        let Some(object) = self.original.as_object() else { return self.original.serialize(serializer); };
+        let mut map = serializer.serialize_map(None)?;
+        for (key,value) in object {
+            if !self.include_geometry && (key == "geometry" || key == "bbox") { continue; }
+            if key == "properties" {
+                if let (Some(fields),Some(properties)) = (self.fields,value.as_object()) {
+                    map.serialize_entry(key, &Properties(properties,fields))?;
+                    continue;
+                }
+            }
+            map.serialize_entry(key,value)?;
+        }
+        map.end()
+    }
+}
 fn page(f: &[Value], args: &Value, mut extra: Value, kind: &str) -> Result<Value, String> {
     let offset = args["offset"].as_u64().unwrap_or(0) as usize;
     let limit = args["limit"].as_u64().unwrap_or(100).min(100) as usize;
@@ -818,21 +967,13 @@ fn page(f: &[Value], args: &Value, mut extra: Value, kind: &str) -> Result<Value
     let mut budget = (512 * 1024usize).saturating_sub(super::bounded_json_size(&extra, 512*1024).map_err(|_| "分页元数据超过响应上限")? + 256);
     let mut items = Vec::new();
     for (index, original) in f.iter().enumerate().skip(offset).take(limit) {
-        let mut item = original.clone();
-        if kind == "features" {
-            if let Some(fields) = fields {
-                if let Some(properties) = item["properties"].as_object_mut() {
-                    properties.retain(|key, _| fields.iter().any(|field| field.as_str()==Some(key)));
-                }
+        // Count a borrowed projection before allocating; oversized items never clone a large tree.
+        let view = ProjectedItem { original, feature:kind == "features", include_geometry, fields };
+        match super::bounded_json_size(&view, budget.saturating_sub(1)) {
+            Ok(bytes) => {
+                budget = budget.saturating_sub(bytes+1);
+                items.push(serde_json::to_value(&view).map_err(|_| "分页数据编码失败")?);
             }
-            if !include_geometry {
-                if let Some(object) = item.as_object_mut() {
-                    object.remove("geometry"); object.remove("bbox");
-                }
-            }
-        }
-        match super::bounded_json_size(&item, budget.saturating_sub(1)) {
-            Ok(bytes) => { budget = budget.saturating_sub(bytes+1); items.push(item); }
             Err(_) if items.is_empty() => return Err(format!("RESULT_ITEM_TOO_LARGE: offset={index} 的单条记录超过512KiB响应预算；请指定properties字段或includeGeometry=false后重试")),
             Err(_) => break,
         }
@@ -848,6 +989,107 @@ fn page(f: &[Value], args: &Value, mut extra: Value, kind: &str) -> Result<Value
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn delta_sync_reuses_unchanged_layers_and_blocks_stale_workspace_on_failure() {
+        let m=GisMcp::default();
+        let a=json!({"id":"a","name":"a","features":[test_feature(0)]});
+        let b=json!({"id":"b","name":"b","features":[test_feature(0)]});
+        sync_workspace(&m,vec![a.clone(),b],Some("a".into()),false,vec![]).unwrap();
+        let shared=m.inner.lock().unwrap().layers[0].clone();
+        sync_workspace(&m,vec![],Some("b".into()),true,vec![]).unwrap();
+        assert!(Arc::ptr_eq(&shared,&m.inner.lock().unwrap().layers[0]));
+        assert_eq!(call(&m,"list_layers",&json!({})).unwrap()["activeLayerId"],"b");
+        assert!(sync_workspace(&m,vec![json!({"id":"bad"})],None,true,vec![]).is_err());
+        assert_eq!(call(&m,"list_layers",&json!({})).unwrap()["synchronized"],false);
+        assert!(source(&m,&json!({"layerId":"a"}),0).is_err());
+        sync_workspace(&m,vec![a],Some("a".into()),true,vec!["b".into()]).unwrap();
+        assert_eq!(call(&m,"list_layers",&json!({})).unwrap()["layers"].as_array().unwrap().len(),1);
+        assert!(source(&m,&json!({"layerId":"a"}),0).is_ok());
+    }
+    #[test]
+    fn cancelled_cache_does_not_mutate_and_committed_cache_cannot_report_cancelled() {
+        let m=GisMcp::default();
+        let runtime=crate::analysis_runtime::AnalysisRuntime::new(1,Duration::from_secs(10));
+        let job=runtime.start("test","cancel").unwrap();
+        let error=job.run(|| {
+            runtime.cancel("test","cancel");
+            cache(&m,vec![test_feature(0)],json!({}),vec![],0,true)
+        }).unwrap_err();
+        assert!(error.contains("CANCELLED"));
+        assert!(m.inner.lock().unwrap().results.is_empty());
+        runtime.start("test","commit").unwrap().run(|| {
+            let result=cache(&m,vec![test_feature(0)],json!({}),vec![],0,true)?;
+            assert!(!runtime.cancel("test","commit"));
+            Ok(result)
+        }).unwrap();
+        assert_eq!(m.inner.lock().unwrap().results.len(),1);
+    }
+    #[test]
+    fn immutable_sources_share_storage_and_versions_change_only_with_content() {
+        let m = GisMcp::default();
+        let layer = json!({"id":"a","name":"old","features":[test_feature(1024)]});
+        let snapshot = LayerSnapshot::from_value(layer.clone()).unwrap();
+        m.inner.lock().unwrap().layers.push(snapshot.clone());
+        let (features, versions) = source(&m, &json!({"layerId":"a"}), 0).unwrap();
+        assert!(Arc::ptr_eq(&features, &snapshot.features));
+        let mut renamed = layer.clone(); renamed["name"] = json!("new");
+        assert_eq!(LayerSnapshot::from_value(renamed).unwrap().version, versions[0].1);
+        let result = cache(&m, vec![test_feature(0)], json!({}), versions, 0, true).unwrap();
+        let mut changed = layer; changed["features"][0]["properties"]["changed"] = json!(true);
+        m.inner.lock().unwrap().layers[0] = LayerSnapshot::from_value(changed).unwrap();
+        assert!(source(&m,&json!({"resultId":result["resultId"]}), 0).is_err());
+        assert_eq!(features[0]["properties"]["changed"], Value::Null);
+    }
+    #[test]
+    fn publication_retries_until_ack_even_after_cache_release() {
+        let m = GisMcp::default();
+        let result = cache(&m, vec![test_feature(0)], json!({}), vec![], 0, true).unwrap();
+        let id = result["resultId"].as_str().unwrap().to_owned();
+        call(&m,"publish_result",&json!({"resultId":id,"name":"output"})).unwrap();
+        let first = pending_publications(&m);
+        assert_eq!(pending_publications(&m), first, "failed IPC or WebView reload must allow redelivery");
+        assert!(m.inner.lock().unwrap().queue_bytes > 0);
+        call(&m,"release_result",&json!({"resultId":id})).unwrap();
+        assert_eq!(pending_publications(&m), first);
+        acknowledge_publications(&m, &["unrelated".into()]).unwrap();
+        assert_eq!(pending_publications(&m), first);
+        acknowledge_publications(&m, &[id.clone()]).unwrap();
+        acknowledge_publications(&m, &[id]).unwrap();
+        assert!(pending_publications(&m).is_empty());
+        assert_eq!(m.inner.lock().unwrap().queue_bytes, 0);
+    }
+    #[tokio::test]
+    async fn cancellation_notification_is_authenticated_and_scoped_to_generation() {
+        let m = GisMcp::default();
+        { let mut i=m.inner.lock().unwrap(); i.endpoint=Some("http://127.0.0.1:9420/mcp".into()); i.token=Some("test-only".into()); }
+        let state=HttpState{mcp:m.clone(),limit:Arc::new(Semaphore::new(8)),generation:0};
+        let mut headers=HeaderMap::new(); headers.insert("host","127.0.0.1:9420".parse().unwrap());
+        let cancel=Bytes::from_static(br#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"job"}}"#);
+        assert_eq!(handle(State(state.clone()),headers.clone(),cancel.clone()).await.unwrap_err(),StatusCode::UNAUTHORIZED);
+        headers.insert("authorization","Bearer test-only".parse().unwrap());
+        assert_eq!(handle(State(state.clone()),headers.clone(),cancel.clone()).await.unwrap().0,StatusCode::ACCEPTED);
+        let call=Bytes::from_static(br#"{"jsonrpc":"2.0","id":"job","method":"tools/call","params":{"name":"load_vector_file","arguments":{"path":"not-read.geojson"}}}"#);
+        let (_,Json(response))=handle(State(state.clone()),headers.clone(),call).await.unwrap();
+        assert_eq!(response["result"]["structuredContent"]["error"]["code"],"ANALYSIS_CANCELLED");
+        assert!(m.inner.lock().unwrap().results.is_empty());
+        m.shutdown();
+        assert_eq!(handle(State(state),headers,cancel).await.unwrap_err(),StatusCode::SERVICE_UNAVAILABLE);
+    }
+    #[test]
+    #[ignore = "release performance baseline; prints JSON, does not mutate user data"]
+    fn performance_metadata_snapshot() {
+        let features:Vec<_>=(0..10000).map(|n|json!({"type":"Feature","geometry":{"type":"Point","coordinates":[n as f64/1000.,30.,1.]},"properties":{"text":"宽表属性".repeat(12)}})).collect();
+        let layer=json!({"id":"bench","name":"bench","features":features});
+        let m=GisMcp::default();
+        m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(layer.clone()).unwrap());
+        let mut old=Vec::new(); let mut new=Vec::new();
+        for _ in 0..20 {
+            let start=Instant::now(); std::hint::black_box(fingerprint(&layer)); old.push(start.elapsed().as_secs_f64()*1000.);
+            let start=Instant::now(); std::hint::black_box(call(&m,"list_layers",&json!({})).unwrap()); new.push(start.elapsed().as_secs_f64()*1000.);
+        }
+        old.sort_by(f64::total_cmp); new.sort_by(f64::total_cmp);
+        println!("{}",json!({"benchmark":"metadata-10000-features","samples":20,"baseline":"equivalent previous full-layer hash","baselineMedianMs":old[10],"snapshotMedianMs":new[10],"scope":"metadata CPU only; excludes sync, RSS, transport"}));
+    }
     fn test_feature(text_bytes: usize) -> Value {
         json!({"type":"Feature","geometry":{"type":"Point","coordinates":[1,1]},"properties":{"name":"保留","large":"x".repeat(text_bytes)}})
     }
@@ -855,14 +1097,14 @@ mod tests {
     fn cleaned_geometry_result_is_chainable_and_publication_keeps_source() {
         let m=GisMcp::default();
         let original=json!({"id":"dirty","name":"dirty","features":[test_feature(0),{"type":"Feature","geometry":null,"properties":{"name":"empty"}}]});
-        m.inner.lock().unwrap().layers.push(original.clone());
+        m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(original.clone()).unwrap());
         assert_eq!(definitions().len(),31);
         let cleaned=call(&m,"clean_geometries",&json!({"source":{"layerId":"dirty"}})).unwrap();
         assert_eq!(cleaned["featureCount"],1);
         assert_eq!(cleaned["summary"]["analysis"]["removedCount"],1);
         let derived=call(&m,"buffer",&json!({"source":{"resultId":cleaned["resultId"]},"distanceMeters":10})).unwrap();
         call(&m,"publish_result",&json!({"resultId":derived["resultId"],"name":"clean buffer"})).unwrap();
-        assert_eq!(m.inner.lock().unwrap().layers[0],original);
+        assert_eq!(m.inner.lock().unwrap().layers[0].value(),original);
         assert_eq!(m.inner.lock().unwrap().queue.len(),1);
         assert!(call(&m,"spatial_query",&json!({"source":{"resultId":cleaned["resultId"]},"target":{"resultId":cleaned["resultId"]},"bbox":[0,0,2,2]})).unwrap_err().contains("二选一"));
     }
@@ -906,7 +1148,7 @@ mod tests {
     fn oversized_feature_requires_explicit_projection_and_never_returns_empty_success() {
         let m = GisMcp::default();
         let original = test_feature(600*1024);
-        m.inner.lock().unwrap().layers.push(json!({"id":"large","name":"large","features":[original.clone()]}));
+        m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(json!({"id":"large","name":"large","features":[original.clone()]})).unwrap());
         let result = cache(&m, vec![original.clone()], json!({}), vec![], 0, true).unwrap();
         assert_eq!(result["sampleTruncated"], true);
         for (tool, id) in [("read_result",json!({"resultId":result["resultId"]})),("read_features",json!({"layerId":"large"}))] {
@@ -919,7 +1161,7 @@ mod tests {
             assert!(page["nextOffset"].is_null());
             assert_eq!(page["hasMore"],false);
         }
-        assert_eq!(m.inner.lock().unwrap().layers[0]["features"][0],original);
+        assert_eq!(m.inner.lock().unwrap().layers[0].features[0],original);
         assert_eq!(m.inner.lock().unwrap().results[result["resultId"].as_str().unwrap()].features[0],original);
         let geometry = json!({"type":"Feature","geometry":{"type":"LineString","coordinates":vec![[1.,1.];70_000]},"properties":{"name":"line"}});
         assert!(page(&[geometry.clone()],&json!({}),json!({}),"features").is_err());
@@ -948,7 +1190,7 @@ mod tests {
     fn cache_lifecycle_supports_long_workflows_without_touching_layers_or_publications() {
         let m=GisMcp::default();
         let layer=json!({"id":"a","name":"a","features":[test_feature(0)]});
-        m.inner.lock().unwrap().layers.push(layer.clone());
+        m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(layer.clone()).unwrap());
         for _ in 0..100 {
             let result=call(&m,"centroid",&json!({"source":{"layerId":"a"}})).unwrap();
             assert_eq!(call(&m,"list_results",&json!({})).unwrap()["remaining"]["results"],19);
@@ -965,7 +1207,7 @@ mod tests {
         call(&m,"release_result",&json!({"resultId":ids[0]})).unwrap();
         cache(&m,vec![],json!({}),vec![],0,true).unwrap();
         assert_eq!(m.inner.lock().unwrap().queue,queued);
-        assert_eq!(m.inner.lock().unwrap().layers[0],layer);
+        assert_eq!(m.inner.lock().unwrap().layers[0].value(),layer);
         let expired=ids[1].as_str().unwrap();
         m.inner.lock().unwrap().results.get_mut(expired).unwrap().created=Instant::now()-Duration::from_secs(1801);
         assert_eq!(call(&m,"list_results",&json!({})).unwrap()["remaining"]["results"],1);
@@ -1032,14 +1274,18 @@ mod tests {
         mcp.inner.lock().unwrap().queue_bytes = 100 * 1024 * 1024;
         assert!(call(&mcp, "publish_result", &json!({"resultId":result["resultId"],"name":"result"})).is_err());
         assert!(mcp.inner.lock().unwrap().queue.is_empty());
+        mcp.inner.lock().unwrap().queue_bytes = 0;
+        call(&mcp, "publish_result", &json!({"resultId":result["resultId"],"name":"result"})).unwrap();
         mcp.shutdown();
+        assert_eq!(pending_publications(&mcp).len(), 1);
+        acknowledge_publications(&mcp, &[result["resultId"].as_str().unwrap().into()]).unwrap();
         assert_eq!(mcp.inner.lock().unwrap().queue_bytes, 0);
     }
     #[test]
     fn new_algorithms_share_bounded_schema_cache_and_publication() {
         let m = GisMcp::default();
         let layer = json!({"id":"test-polygons","name":"测试面","features":[{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[116.,40.,11.],[116.01,40.,22.],[116.01,40.01,33.],[116.,40.01,44.],[116.,40.,11.]]]},"properties":{"group":"甲"}}]});
-        m.inner.lock().unwrap().layers.push(layer.clone());
+        m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(layer.clone()).unwrap());
         for name in ["intersection", "difference", "symmetric_difference", "centroid", "point_on_surface", "convex_hull", "envelope", "multipart_to_singleparts", "extract_vertices", "polygon_to_lines", "simplify", "geometry_attributes", "count_points", "merge"] {
             let definition = definitions().into_iter().find(|d| d["name"] == name).unwrap();
             assert_eq!(definition["annotations"]["readOnlyHint"], true);
@@ -1054,10 +1300,10 @@ mod tests {
         let next = call(&m, "buffer", &json!({"source":{"resultId":result["resultId"]},"distanceMeters":10})).unwrap();
         call(&m, "publish_result", &json!({"resultId":next["resultId"],"name":"缓冲结果"})).unwrap();
         let inner = m.inner.lock().unwrap();
-        assert_eq!(inner.layers[0], layer);
+        assert_eq!(inner.layers[0].value(), layer);
         assert_eq!(inner.queue.len(), 1);
-        assert_eq!(inner.queue[0]["features"][0]["geometry"]["type"], "MultiPolygon");
-        assert!(inner.queue[0]["features"][0]["geometry"]["coordinates"][0][0].as_array().unwrap().iter().all(|c| c.as_array().unwrap().len() == 3 && c[2] == 0));
+        assert_eq!(inner.queue[0].features[0]["geometry"]["type"], "MultiPolygon");
+        assert!(inner.queue[0].features[0]["geometry"]["coordinates"][0][0].as_array().unwrap().iter().all(|c| c.as_array().unwrap().len() == 3 && c[2] == 0));
     }
     #[tokio::test]
     async fn shutdown_cancels_queued_enable_requests() {
@@ -1112,7 +1358,7 @@ mod tests {
     fn result_source_schema_and_chain_are_validated() {
         let m = GisMcp::default();
         let layer = json!({"id":"point","name":"point","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[116.,39.]},"properties":{}}]});
-        m.inner.lock().unwrap().layers.push(layer);
+        m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(layer).unwrap());
         let buffer = call(
             &m,
             "buffer",
@@ -1132,8 +1378,10 @@ mod tests {
             &json!({"source":{"resultId":buffer["resultId"],"path":"bad"},"distanceMeters":10.})
         )
         .is_err());
-        m.inner.lock().unwrap().layers[0]["features"][0]["geometry"]["coordinates"] =
-            json!([117., 39.]);
+        { let mut i = m.inner.lock().unwrap();
+          let mut changed = i.layers[0].value();
+          changed["features"][0]["geometry"]["coordinates"] = json!([117., 39.]);
+          i.layers[0] = LayerSnapshot::from_value(changed).unwrap(); }
         assert!(call(
             &m,
             "buffer",
@@ -1171,7 +1419,7 @@ mod tests {
     fn publication_is_independent_idempotent_and_fresh() {
         let m = GisMcp::default();
         let layer = json!({"id":"a","name":"a","features":[]});
-        m.inner.lock().unwrap().layers.push(layer.clone());
+        m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(layer.clone()).unwrap());
         let c = cache(
             &m,
             vec![],
@@ -1185,7 +1433,10 @@ mod tests {
         call(&m, "publish_result", &args).unwrap();
         call(&m, "publish_result", &args).unwrap();
         assert_eq!(m.inner.lock().unwrap().queue.len(), 1);
-        m.inner.lock().unwrap().layers[0]["features"] = json!([{"type":"Feature"}]);
+        { let mut i = m.inner.lock().unwrap();
+          let mut changed = i.layers[0].value();
+          changed["features"] = json!([{"type":"Feature"}]);
+          i.layers[0] = LayerSnapshot::from_value(changed).unwrap(); }
         assert!(call(&m, "publish_result", &args).is_err());
     }
     #[tokio::test]

@@ -5,6 +5,9 @@ export interface DesktopTestState {
   dropFiles: (files: {name:string;bytes:number[];sourceId?:string}[], error?:string) => Promise<void>;
   mcpEnabled: boolean;
   mcpPaths: string[];
+  mcpLayers: { id: string; name: string; features: unknown[] }[];
+  mcpSyncError: string;
+  mcpActiveLayerId: string | null;
   analysisResults: { id: string; name: string; features: unknown[] }[];
   calls: { command: string; args: Record<string, unknown> }[];
   commitError: string;
@@ -25,6 +28,7 @@ export interface DesktopTestState {
   backupError: string;
   analysisError: string;
   analysisDelay: number;
+  analysisCancellationAccepted: boolean;
   analysisResult: unknown;
   saveError: string;
   saveCancelled: boolean;
@@ -58,9 +62,13 @@ export async function installDesktopMock(
       const callbacks = new Map<number, (event: unknown) => unknown>();
       const listeners = new Map<number, { event: string; handler: number }>();
       let next = 1;
+      const cancelledJobs = new Set<string>();
       const state: DesktopTestState = {
         mcpEnabled: false,
         mcpPaths: [],
+        mcpLayers: [],
+        mcpSyncError: "",
+        mcpActiveLayerId: null,
         analysisResults: [],
         calls: [],
         commitError: "",
@@ -70,6 +78,7 @@ export async function installDesktopMock(
         backupError: "",
         analysisError: "",
         analysisDelay: 0,
+        analysisCancellationAccepted: true,
         analysisResult: null,
         saveError: "",
         saveCancelled: false,
@@ -132,11 +141,23 @@ export async function installDesktopMock(
             args: Record<string, unknown> = {},
           ) => {
             state.calls.push({ command, args });
+            if (command === "gis_cancel_analysis") { if (!state.analysisCancellationAccepted) return false; cancelledJobs.add(String(args.jobId)); return true; }
+            if (command === "gis_workspace_sync") {
+              if (state.mcpSyncError) throw Error(state.mcpSyncError);
+              const incoming = structuredClone(args.layers) as DesktopTestState["mcpLayers"];
+              const removed = new Set((args.removedLayerIds ?? []) as string[]);
+              const merged = new Map((args.incremental ? state.mcpLayers : []).filter(layer => !removed.has(layer.id)).map(layer => [layer.id, layer]));
+              incoming.forEach(layer => merged.set(layer.id, layer));
+              state.mcpLayers = [...merged.values()];
+              state.mcpActiveLayerId = args.activeLayerId as string | null;
+              return null;
+            }
             if (command === "gis_run_analysis") {
               const failure = state.analysisError;
               const result = state.analysisResult;
               if (state.analysisDelay)
                 await new Promise<void>((resolve) => window.setTimeout(resolve, state.analysisDelay));
+              if (cancelledJobs.delete(String(args.jobId))) throw Error("ANALYSIS_CANCELLED: 分析已取消");
               if (failure) throw Error(failure);
               if (result !== null) return structuredClone(result);
               if (args.operation === "layer_summary")
@@ -186,7 +207,8 @@ export async function installDesktopMock(
               return { enabled: state.mcpEnabled, endpoint: state.mcpEnabled ? "http://127.0.0.1:9999/mcp" : null, token: state.mcpEnabled ? "test-token" : null, authorizedPaths: state.mcpPaths };
             }
             if (command === "gis_mcp_audit") return [];
-            if (command === "gis_results_drain") return state.analysisResults.splice(0);
+            if (command === "gis_results_drain") return structuredClone(state.analysisResults);
+            if (command === "gis_results_ack") { state.analysisResults = state.analysisResults.filter(item => !(args.resultIds as string[]).includes(item.id)); return null; }
             if (command === "gis_authorize_files" || command === "gis_authorize_directory") { state.mcpPaths = ["C:/owned-test/vector.geojson"]; return state.mcpPaths; }
             if (command === "gis_revoke_access") { state.mcpPaths = []; return null; }
             if (command === "agent_current") return null;
