@@ -331,6 +331,7 @@ export function ImportPanel({
 }
 
 export function ExportPanel({
+  saving = false,
   layer,
   mode,
   crs,
@@ -349,6 +350,7 @@ export function ExportPanel({
   onExport,
   onClose,
 }: {
+  saving?: boolean;
   layer: DocumentLayer;
   mode: string;
   crs: string;
@@ -383,7 +385,7 @@ export function ExportPanel({
           : "");
   const formats: Record<string, string> = {
     geojson: "GeoJSON",
-    shp: "Shapefile · ZIP",
+    shp: saving ? "Shapefile · 文件组" : "Shapefile · ZIP",
     wkt: "CSV · WKT",
     xy: "CSV · X/Y",
     postgis: "PostGIS · 新表",
@@ -397,7 +399,6 @@ export function ExportPanel({
             <span className="export-source-name">
               {layer.displayName ?? layer.name}
             </span>
-
           </div>
         </div>
         <div className="export-fields">
@@ -411,7 +412,9 @@ export function ExportPanel({
             >
               {Object.entries(formats)
                 .filter(
-                  ([key]) => desktop || (key !== "postgis" && key !== "shp"),
+                  ([key]) =>
+                    (!saving || key !== "postgis") &&
+                    (desktop || (key !== "postgis" && key !== "shp")),
                 )
                 .map(([key, label]) => (
                   <option key={key} value={key}>
@@ -471,7 +474,6 @@ export function ExportPanel({
                   </select>
                 </label>
               )}
-
             </>
           )}
           {issue && (
@@ -494,8 +496,8 @@ export function ExportPanel({
           <details className="export-limits" key="shp">
             <summary>Shapefile 格式限制</summary>
             <p className="form-note">
-              另存
-              ZIP（SHP、SHX、DBF、PRJ、CPG），按目标坐标系输出、UTF-8，须选择不存在的新文件。
+              {saving ? "选择目标文件夹，保存 SHP 文件组" : "另存 ZIP"}
+              （SHP、SHX、DBF、PRJ、CPG），按目标坐标系输出、UTF-8，须选择不存在的新文件。
               每次仅支持一种几何族：Point、MultiPoint、线或面，Point 与
               MultiPoint 不能混合。 DBF 字段名须为 ASCII 字母或下划线开头，最多
               10 字符，可含数字和下划线；
@@ -523,7 +525,13 @@ export function ExportPanel({
           onClick={onExport}
         >
           <Download />
-          {busy ? "导出中" : "导出"}
+          {busy
+            ? saving
+              ? "保存中"
+              : "导出中"
+            : saving
+              ? "选择路径并保存"
+              : "导出"}
         </button>
       </div>
     </>

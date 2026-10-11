@@ -7,6 +7,7 @@ import {
   X,
 } from "lucide-react";
 import type { DocumentLayer } from "./domain";
+import { layerSource } from "./layerSource";
 import type { LayerTreeNode, DropPosition } from "./layerTree";
 import ContextMenu, {
   type ContextMenuAnchor,
@@ -54,6 +55,18 @@ const symbolLabels: Record<SymbolKind, string> = {
   mixed: "混合几何图层",
   empty: "无几何图层",
 };
+const sourceLabels = {
+  workspace: "工作区",
+  file: "文件",
+  database: "数据库",
+} as const;
+function sourceTitle(layer: DocumentLayer): string {
+  const source = layerSource(layer);
+  if (source === "workspace") return "仅工作区图层 · 保存时需选择格式和路径";
+  if (source === "database")
+    return `数据库图层 · 保存到 ${layer.db!.schema}.${layer.db!.table}`;
+  return `文件图层 · 保存到 ${layer.sourcePath ?? layer.name}`;
+}
 function symbolKind(layer: DocumentLayer): SymbolKind {
   const kinds = new Set<SymbolKind>();
   for (const feature of layer.features) {
@@ -169,6 +182,7 @@ export default function LayerTree(props: Props) {
         ? node.name
         : (layer!.displayName ?? layer!.name);
       const symbol = symbols.get(node.id) ?? "empty";
+      const source = layer ? layerSource(layer) : undefined;
       return (
         <div key={node.id} role="none">
           <div
@@ -180,6 +194,7 @@ export default function LayerTree(props: Props) {
             draggable={false}
             data-node-id={node.id}
             data-node-kind={node.kind}
+            data-source-kind={source}
             className={`layer-row tree-row ${!ancestorsVisible || !visible ? "effective-hidden" : ""} ${!group && node.id === props.activeId ? "selected" : ""} ${drop?.id === node.id ? `drop-${drop.position}` : ""}`}
             style={{ paddingLeft: 8 + (level - 1) * 20 }}
             onClick={() => {
@@ -418,8 +433,18 @@ export default function LayerTree(props: Props) {
                   : `${displayName}${layer!.dirty ? " *" : ""}`}
               </strong>
             </span>
-            {!group && props.readonlyIds?.includes(node.id) && (
-              <LockKeyhole aria-label="只读图层" />
+            {!group && (
+              <span className="layer-source-meta">
+                <span
+                  className={`layer-source-badge layer-source-${source}`}
+                  title={sourceTitle(layer!)}
+                >
+                  {sourceLabels[source!]}
+                </span>
+                {props.readonlyIds?.includes(node.id) && (
+                  <LockKeyhole aria-label="只读图层" />
+                )}
+              </span>
             )}
           </div>
           {group && !node.collapsed && (

@@ -13,6 +13,7 @@ use tauri::{Emitter, Manager, State};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_postgres::{Client, NoTls};
 mod shapefile_export;
+mod shapefile_save;
 mod spatial;
 mod processing;
 mod analysis_runtime;
@@ -118,6 +119,24 @@ async fn save_shapefile_folder(
     }).await.map_err(io_error)?
 }
 
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn save_shapefile_source(
+    state: State<'_, Backend>,
+    features: Vec<Value>,
+    source_id: Option<String>,
+    source_path: Option<String>,
+    source_hash: Option<String>,
+    crs: Option<String>,
+    zip_member: Option<String>,
+) -> Result<SavedFile, String> {
+    let files = state.files.clone();
+    tauri::async_runtime::spawn_blocking(move || shapefile_save::save_source(
+        &files, &features, source_id.as_deref(), source_path.as_deref(),
+        source_hash.as_deref(), crs.as_deref(), zip_member.as_deref(),
+    )).await.map_err(io_error)?
+}
+
 fn write_shapefile_group(directory: &Path, stem: &str, components: &[(&str, Vec<u8>)]) -> Result<PathBuf, String> {
     let targets: Vec<_> = components.iter().map(|(ext, _)| directory.join(format!("{stem}.{ext}"))).collect();
     if targets.iter().any(|path| path.try_exists().unwrap_or(true)) {
@@ -178,6 +197,9 @@ fn hash_text(hash: &[u8]) -> String {
     hash.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 fn fingerprint(path: &Path) -> Result<Vec<u8>, String> {
+    if path.extension().is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("shp")) {
+        return shapefile_save::group_fingerprint(path);
+    }
     Ok(Sha256::digest(fs::read(path).map_err(|e| e.to_string())?).to_vec())
 }
 fn ident(s: &str) -> Result<String, String> {
@@ -310,8 +332,11 @@ fn read_selected_files(
             return Err("读取时文件发生变化，请重试".into());
         }
         let id = uuid::Uuid::new_v4().to_string();
-        let source_hash = hash_text(&Sha256::digest(&bytes));
-        pending.push((id.clone(), FileHandle { path: path.clone(), hash: Sha256::digest(&bytes).to_vec() }));
+        let hash = if path.extension().is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("shp")) {
+            fingerprint(&path)?
+        } else { Sha256::digest(&bytes).to_vec() };
+        let source_hash = hash_text(&hash);
+        pending.push((id.clone(), FileHandle { path: path.clone(), hash }));
         out.push(OpenFile {
             name: path.file_name().unwrap_or_default().to_string_lossy().into(),
             bytes,
@@ -377,8 +402,14 @@ fn rename_source_file_blocking(files: &Mutex<HashMap<String, FileHandle>>, sourc
         return Err("文件名无效，请输入不含路径或保留字符的名称".into());
     }
     let parent = source.parent().ok_or("来源目录无效")?;
-    let sources = shapefile_group(vec![source.clone()])?;
-    let pairs: Vec<_> = sources.iter().map(|path| (path.clone(), parent.join(format!("{stem}.{}", path.extension().unwrap_or_default().to_string_lossy())))).collect();
+    let is_shp = extension.eq_ignore_ascii_case("shp");
+    let sources = if is_shp { shapefile_save::group_paths(&source)? } else { vec![source.clone()] };
+    let source_stem = source.file_stem().unwrap_or_default().to_string_lossy();
+    let pairs: Vec<_> = sources.iter().map(|path| {
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let suffix = if is_shp { name[source_stem.len()..].to_string() } else { format!(".{}", path.extension().unwrap_or_default().to_string_lossy()) };
+        (path.clone(), parent.join(format!("{stem}{suffix}")))
+    }).collect();
     for (old, _) in &pairs {
         let hash = fingerprint(old)?;
         if handles.values().any(|handle| handle.path == *old && handle.hash != hash) {
@@ -1419,6 +1450,7 @@ pub fn run() {
             codex_agent::agent_close,
             export_shapefile,
             save_shapefile_folder,
+            save_shapefile_source,
             open_files,
             save_file,
             rename_source_file,

@@ -7,6 +7,7 @@ const snapshot = JSON.stringify({
     {
       id: "point",
       name: "points.geojson",
+        sourcePath: "F:/owned/points.geojson", sourceHash: "points-hash", originalCrs: "EPSG:4326",
       geometry: {
         type: "MultiPoint",
         coordinates: [
@@ -45,7 +46,8 @@ const snapshot = JSON.stringify({
         ],
       },
     },
-  ].map(({ id, name, geometry }) => ({
+  ].map(({ id, name, geometry, ...source }) => ({
+    ...source,
     id,
     name,
     visible: true,

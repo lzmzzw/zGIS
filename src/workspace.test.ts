@@ -13,8 +13,12 @@ import { boundedRecoveryHistory } from "./workspace";
 it("旧副本缺少 dirty 时保留未保存状态，显式非法 dirty 仍拒绝", () => {
   const legacy = { name: "legacy.geojson", features: [] };
   expect(restoreLayers(JSON.stringify([legacy]))[0].dirty).toBe(true);
-  expect(restoreLayers(JSON.stringify([{ ...legacy, dirty: false }]))[0].dirty).toBe(false);
-  expect(() => restoreLayers(JSON.stringify([{ ...legacy, dirty: "false" }]))).toThrow("恢复图层结构无效");
+  expect(
+    restoreLayers(JSON.stringify([{ ...legacy, dirty: false }]))[0].dirty,
+  ).toBe(false);
+  expect(() =>
+    restoreLayers(JSON.stringify([{ ...legacy, dirty: "false" }])),
+  ).toThrow("恢复图层结构无效");
 });
 
 it("恢复采用较新副本，避免强退后旧浏览器日志覆盖原生保存", () => {
@@ -112,7 +116,7 @@ it("外部 JSON 空字段名的属性草稿可以恢复", () => {
   });
 });
 
-it("恢复只保留内容和样式，数据库身份及基线不进入快照", () => {
+it("旧数据库副本保留数据库来源标识，无来源配置时不猜原表和基线", () => {
   const layer = makeLayer(
     "database",
     [
@@ -133,13 +137,21 @@ it("恢复只保留内容和样式，数据库身份及基线不进入快照", (
   expect(snapshot).not.toContain("dbKey");
   const [restored] = restoreLayers(snapshot);
   expect(restored).toMatchObject({
-    sourceKind: "geojson",
+    sourceKind: "postgis",
     dirty: false,
     restored: true,
     opacity: 0.5,
     strokeWidth: 4,
   });
-  expect(restored.db).toBeUndefined();
+  expect(restored.db).toMatchObject({
+    engine: "postgis",
+    connectionId: "",
+    schema: "",
+    table: "",
+    keyColumns: [],
+  });
+  expect(restored.dbBaseline).toBeUndefined();
+  expect(restored.dbNeedsVerification).toBe(true);
   expect(restored.features[0].properties).toEqual({ a: 1 });
 });
 
@@ -534,4 +546,255 @@ it("空图层的几何类型与字段定义恢复，并兼容 v2 工作区", () 
   raw.layers[0].fieldNames = [];
   raw.layers[0].geometryType = "Circle";
   expect(() => restoreWorkspace(JSON.stringify(raw))).toThrow("几何类型");
+});
+
+it("文件恢复保留输出格式、CRS、CSV 几何列和 ZIP 成员，运行期句柄不持久化", () => {
+  const csv = makeLayer("custom.csv", [], "csv", {
+    sourceId: "transient",
+    sourcePath: "F:/owned/custom.csv",
+    sourceHash: "hash",
+    originalCrs: "EPSG:3857",
+    csvConfig: {
+      geometryMode: "wkt",
+      wktColumn: "shape_text",
+      crs: "EPSG:3857",
+    },
+  });
+  const shp = makeLayer("cities", [], "shp", {
+    sourcePath: "F:/owned/multi.zip",
+    sourceHash: "zip-hash",
+    zipMember: "nested/cities",
+    originalCrs: "EPSG:4490",
+  });
+  const restored = restoreLayers(snapshotLayers([csv, shp]));
+  expect(restored[0]).toMatchObject({
+    sourceKind: "csv",
+    sourcePath: csv.sourcePath,
+    sourceHash: "hash",
+    originalCrs: "EPSG:3857",
+    csvConfig: csv.csvConfig,
+  });
+  expect(restored[0].sourceId).toBeUndefined();
+  expect(restored[1]).toMatchObject({
+    sourceKind: "shp",
+    zipMember: "nested/cities",
+    originalCrs: "EPSG:4490",
+  });
+});
+
+it("旧统一 GeoJSON 快照按来源路径识别格式，缺失元数据不会补造", () => {
+  const [csv] = restoreLayers(
+    JSON.stringify([
+      {
+        name: "old.csv",
+        sourceKind: "geojson",
+        sourcePath: "F:/owned/old.csv",
+        features: [],
+      },
+    ]),
+  );
+  expect(csv.sourceKind).toBe("csv");
+  expect(csv.originalCrs).toBeUndefined();
+  expect(csv.csvConfig).toBeUndefined();
+});
+
+function databaseRecoveryFixture(engine: "postgis" | "mysql" = "postgis") {
+  const original: GeoFeature = {
+    id: "database-row-1",
+    geometry: { type: "Point", coordinates: [116, 40] },
+    properties: { name: "原始记录" },
+    dbKey: { id: "9007199254740993" },
+    baseline: {
+      id: "9007199254740993",
+      name: "原始记录",
+      geom: "010100-original",
+      nested: { a: true },
+    },
+  };
+  return makeLayer(
+    "points",
+    [{ ...original, properties: { name: "工作稿" } }],
+    engine,
+    {
+      dirty: true,
+      db: {
+        engine,
+        sourceId: "configured-source-1",
+        connectionId: "transient-connection",
+        schema: "public",
+        table: "points",
+        geometryColumn: "geom",
+        geometryKind: "geometry",
+        srid: 4326,
+        keyColumns: ["id"],
+        columns: [
+          { name: "id", type: "int8", nullable: false, generated: true },
+          { name: "name", type: "text", nullable: true, hasDefault: true },
+        ],
+      },
+      dbBaseline: [original],
+      dbReadLimit: 10_000,
+      dbBounds: [100, 20, 130, 50],
+      schemaChanges: [{ kind: "rename", name: "name", newName: "label" }],
+      dbCommitUncertain: true,
+      dbConnectionError: "do-not-persist-runtime-error",
+    },
+  );
+}
+
+it("数据库恢复白名单保留配置 ID、完整原始基线和字段修改，排除凭据及连接句柄", () => {
+  for (const engine of ["postgis", "mysql"] as const) {
+    const layer = databaseRecoveryFixture(engine);
+    Object.assign(layer.db!, {
+      host: "private-host",
+      user: "private-user",
+      password: "private-password",
+      connectionString: "private-connection-string",
+    });
+    Object.assign(layer.db!.columns[0], { token: "private-column-token" });
+    const snapshot = snapshotLayers([layer]);
+    for (const forbidden of [
+      "connectionId",
+      "transient-connection",
+      "private-host",
+      "private-user",
+      "private-password",
+      "private-connection-string",
+      "private-column-token",
+      "do-not-persist-runtime-error",
+    ])
+      expect(snapshot).not.toContain(forbidden);
+    expect(snapshot).toContain("configured-source-1");
+    const raw = JSON.parse(snapshot)[0];
+    expect(raw.features[0].dbKey).toBeUndefined();
+    expect(raw.features[0].baseline).toBeUndefined();
+    expect(raw.dbBaseline).toEqual(layer.dbBaseline);
+    const [restored] = restoreLayers(snapshot);
+    expect(restored).toMatchObject({
+      sourceKind: engine,
+      dbNeedsVerification: true,
+      dbCommitUncertain: true,
+      db: { ...raw.db, connectionId: "" },
+      dbBaseline: layer.dbBaseline,
+      dbReadLimit: 10_000,
+      dbBounds: [100, 20, 130, 50],
+      schemaChanges: layer.schemaChanges,
+    });
+    expect(restored.features[0].properties).toEqual({ name: "工作稿" });
+    expect(restored.features[0].dbKey).toBeUndefined();
+    expect(restored.dbConnectionError).toBeUndefined();
+    expect(restoreLayers(snapshotLayers([restored]))[0].dbCommitUncertain).toBe(
+      true,
+    );
+  }
+});
+
+it("legacy restoredFrom 数据库来源不降为文件或工作区，不补造原表身份", () => {
+  for (const engine of ["postgis", "mysql"] as const) {
+    const [restored] = restoreLayers(
+      JSON.stringify([
+        {
+          name: "legacy.geojson",
+          sourceKind: "geojson",
+          restoredFrom: engine,
+          sourcePath: "F:/do-not-overwrite.geojson",
+          features: [],
+        },
+      ]),
+    );
+    expect(restored).toMatchObject({
+      sourceKind: engine,
+      dbNeedsVerification: true,
+      db: { engine, connectionId: "", table: "", schema: "", keyColumns: [] },
+    });
+    expect(restored.db?.sourceId).toBeUndefined();
+    expect(restored.dbBaseline).toBeUndefined();
+    expect(restored.sourcePath).toBeUndefined();
+  }
+});
+
+it("旧快照仅残留数据库 connectionId 时恢复为无原表身份占位，残缺真实 metadata 仍拒绝", () => {
+  for (const engine of ["postgis", "mysql"] as const) {
+    for (const db of [
+      { connectionId: "expired-handle" },
+      { engine, connectionId: "expired-handle" },
+    ]) {
+      const [restored] = restoreLayers(
+        JSON.stringify([
+          {
+            name: "old-database",
+            sourceKind: engine,
+            db,
+            features: [
+              { id: "row", geometry: null, properties: { name: "保留工作稿" } },
+            ],
+            dirty: true,
+          },
+        ]),
+      );
+      expect(restored).toMatchObject({
+        sourceKind: engine,
+        dirty: true,
+        dbNeedsVerification: true,
+        db: { engine, connectionId: "", schema: "", table: "", keyColumns: [] },
+      });
+      expect(restored.features[0].properties).toEqual({ name: "保留工作稿" });
+      expect(restored.db?.sourceId).toBeUndefined();
+      expect(restored.dbBaseline).toBeUndefined();
+    }
+    expect(() =>
+      restoreLayers(
+        JSON.stringify([
+          {
+            name: "corrupt-database",
+            sourceKind: engine,
+            db: { connectionId: "expired-handle", table: "partial-table" },
+            features: [],
+          },
+        ]),
+      ),
+    ).toThrow("数据库");
+  }
+});
+
+it("数据库基线及读取条件损坏明确拒绝，空只读基线允许恢复", () => {
+  const layer = databaseRecoveryFixture();
+  const original = JSON.parse(snapshotLayers([layer]));
+  const corruptions = [
+    (raw: typeof original) => {
+      delete raw[0].dbBaseline[0].baseline;
+    },
+    (raw: typeof original) => {
+      raw[0].dbBaseline.push({ ...raw[0].dbBaseline[0], id: "duplicate-key" });
+    },
+    (raw: typeof original) => {
+      raw[0].dbBaseline[0].dbKey = null;
+    },
+    (raw: typeof original) => {
+      raw[0].dbBaseline[0].baseline = JSON.parse('{"__proto__":{}}');
+    },
+    (raw: typeof original) => {
+      raw[0].dbReadLimit = 0;
+    },
+    (raw: typeof original) => {
+      raw[0].dbBounds = [1, 2, 3];
+    },
+    (raw: typeof original) => {
+      raw[0].dbCommitUncertain = "true";
+    },
+    (raw: typeof original) => {
+      raw[0].db.engine = "unknown";
+    },
+    (raw: typeof original) => {
+      raw[0].schemaChanges = [{ kind: "rename", name: "name" }];
+    },
+  ];
+  for (const corrupt of corruptions) {
+    const raw = structuredClone(original);
+    corrupt(raw);
+    expect(() => restoreLayers(JSON.stringify(raw))).toThrow();
+  }
+  original[0].dbBaseline = [];
+  original[0].db.keyColumns = [];
+  expect(restoreLayers(JSON.stringify(original))[0].dbBaseline).toEqual([]);
 });

@@ -1,5 +1,27 @@
 import { test, expect, type Page } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
+import { readFileSync } from "node:fs";
+
+async function dropFile(page: Page, name: string, buffer: Buffer) {
+  await expect(page.getByRole("button", { name: "设置", exact: true })).toBeEnabled();
+  await page.evaluate(
+    async ({ name, bytes }) => {
+      await window.__ZG_TEST__.dropFiles([
+        {
+          name,
+          bytes,
+          sourceId: `source-${name}`,
+          sourcePath: `F:/test/${name}`,
+          sourceHash: `hash-${name}`,
+        },
+      ]);
+    },
+    { name, bytes: Array.from(buffer) },
+  );
+  await expect(
+    page.locator(".layer-text").filter({ hasText: name.replace(/\.zip$/, "") }),
+  ).toBeVisible();
+}
 
 async function menu(page: Page) {
   const menu = page
@@ -26,10 +48,10 @@ test("file menu contains only four actions and projected GeoJSON save-as preserv
     empty.getByRole("button", { name: "另存为", exact: true }),
   ).toBeDisabled();
   await empty.locator("summary").click();
-  await page.locator("input[type=file]").setInputFiles({
-    name: "projected.json",
-    mimeType: "application/json",
-    buffer: Buffer.from(
+  await dropFile(
+    page,
+    "projected.json",
+    Buffer.from(
       JSON.stringify({
         type: "FeatureCollection",
         crs: { type: "name", properties: { name: "EPSG:3857" } },
@@ -42,8 +64,7 @@ test("file menu contains only four actions and projected GeoJSON save-as preserv
         ],
       }),
     ),
-  });
-  await page.getByRole("button", { name: "导入", exact: true }).click();
+  );
   await (
     await menu(page)
   )
@@ -68,14 +89,11 @@ test("CSV save-as keeps WKT columns and SHP save-as uses a folder without an exp
 }) => {
   await installDesktopMock(page);
   await page.goto("/");
-  await page
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "points.csv",
-      mimeType: "text/csv",
-      buffer: Buffer.from('name,wkt\n甲,"POINT (116 40)"'),
-    });
-  await page.getByRole("button", { name: "导入", exact: true }).click();
+  await dropFile(
+    page,
+    "points.csv",
+    Buffer.from('name,wkt\n甲,"POINT (116 40)"'),
+  );
   await (
     await menu(page)
   )
@@ -88,9 +106,11 @@ test("CSV save-as keeps WKT columns and SHP save-as uses a folder without an exp
   expect(csv.args.suggestedName).toBe("points.csv");
   expect(csv.args.preserveExtension).toBe("csv");
   expect(String(csv.args.content)).toMatch(/POINT\s*\(116 40\)/);
-  await page
-    .locator("input[type=file]")
-    .setInputFiles("output/smoke/fixtures/cities.zip");
+  await dropFile(
+    page,
+    "cities.zip",
+    readFileSync("output/smoke/fixtures/cities.zip"),
+  );
   await expect(page.locator(".layer-text")).toHaveCount(2);
   await page
     .locator(".layer-text")

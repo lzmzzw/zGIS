@@ -1,3 +1,4 @@
+import type { DocumentLayer } from "./domain";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { GeoFeature } from "./domain/types";
@@ -158,12 +159,18 @@ export const api = {
       target: target ? features(target) : null,
     });
   },
-  cancelAnalysis: (jobId: string) => invoke<boolean>("gis_cancel_analysis", { jobId }),
-  mcpResultsAck: (resultIds: string[]) => invoke<void>("gis_results_ack", { resultIds }),
+  cancelAnalysis: (jobId: string) =>
+    invoke<boolean>("gis_cancel_analysis", { jobId }),
+  mcpResultsAck: (resultIds: string[]) =>
+    invoke<void>("gis_results_ack", { resultIds }),
   mcpStatus: () => invoke<McpStatus>("gis_mcp_status"),
   mcpEnable: (enabled: boolean) =>
     invoke<McpStatus>("gis_mcp_set_enabled", { enabled }),
-  mcpSync: (layers: unknown[], activeLayerId?: string, options?: { incremental?: boolean; removedLayerIds?: string[] }) =>
+  mcpSync: (
+    layers: unknown[],
+    activeLayerId?: string,
+    options?: { incremental?: boolean; removedLayerIds?: string[] },
+  ) =>
     invoke("gis_workspace_sync", {
       layers,
       activeLayerId: activeLayerId ?? null,
@@ -172,10 +179,12 @@ export const api = {
     }),
   mcpResults: () => invoke<AnalysisLayer[]>("gis_results_drain"),
   renameSourceFile: (sourceId: string, newName: string) =>
-    invoke<{ sourceId: string; name: string; path: string; sourceHash: string }>(
-      "rename_source_file",
-      { sourceId, newName },
-    ),
+    invoke<{
+      sourceId: string;
+      name: string;
+      path: string;
+      sourceHash: string;
+    }>("rename_source_file", { sourceId, newName }),
   open: () => invoke<InputFile[]>("open_files"),
   save: (
     content: string,
@@ -186,44 +195,76 @@ export const api = {
     overwrite = false,
     preserveExtension?: string,
   ) =>
-    invoke<{ sourceId: string; name: string; path: string; sourceHash: string } | null>(
-      "save_file",
-      { content, suggestedName, sourceId, sourcePath, sourceHash, overwrite, preserveExtension },
-    ),
+    invoke<{
+      sourceId: string;
+      name: string;
+      path: string;
+      sourceHash: string;
+    } | null>("save_file", {
+      content,
+      suggestedName,
+      sourceId,
+      sourcePath,
+      sourceHash,
+      overwrite,
+      preserveExtension,
+    }),
   exportShapefile: (
     features: GeoFeature[],
     suggestedName: string,
     crs = "EPSG:4326",
   ) =>
-    invoke<{ sourceId: string; name: string; path: string } | null>(
-      "export_shapefile",
-      {
-        features: features.map(({ geometry, properties }) => ({
-          type: "Feature",
-          geometry,
-          properties,
-        })),
-        suggestedName,
-        crs,
-      },
-    ),
+    invoke<{
+      sourceId: string;
+      name: string;
+      path: string;
+      sourceHash: string;
+    } | null>("export_shapefile", {
+      features: features.map(({ geometry, properties }) => ({
+        type: "Feature",
+        geometry,
+        properties,
+      })),
+      suggestedName,
+      crs,
+    }),
   saveShapefileFolder: (
     features: GeoFeature[],
     suggestedName: string,
     crs = "EPSG:4326",
   ) =>
-    invoke<{ sourceId: string; name: string; path: string } | null>(
-      "save_shapefile_folder",
-      {
-        features: features.map(({ geometry, properties }) => ({
-          type: "Feature",
-          geometry,
-          properties,
-        })),
-        suggestedName,
-        crs,
-      },
-    ),
+    invoke<{
+      sourceId: string;
+      name: string;
+      path: string;
+      sourceHash: string;
+    } | null>("save_shapefile_folder", {
+      features: features.map(({ geometry, properties }) => ({
+        type: "Feature",
+        geometry,
+        properties,
+      })),
+      suggestedName,
+      crs,
+    }),
+  saveShapefileSource: (layer: DocumentLayer) =>
+    invoke<{
+      sourceId: string;
+      name: string;
+      path: string;
+      sourceHash: string;
+    }>("save_shapefile_source", {
+      features: layer.features.map(({ geometry, properties }) => ({
+        type: "Feature",
+        geometry,
+        properties,
+      })),
+      sourceId: layer.sourceId,
+      sourcePath: layer.sourcePath,
+      sourceHash: layer.sourceHash,
+      crs: layer.originalCrs,
+      zipMember: layer.zipMember,
+    }),
   preferences: () => invoke<string | null>("load_preferences"),
   savePreferences: (content: string) => invoke("save_preferences", { content }),
   fetchBasemapTile: (url: string) =>

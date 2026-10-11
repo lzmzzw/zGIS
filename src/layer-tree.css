@@ -97,6 +97,34 @@
   display: flex;
   align-items: center;
 }
+.tree-row .layer-text strong {
+  min-width: 0;
+}
+.layer-source-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.layer-source-badge {
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+}
+.layer-source-workspace {
+  border-style: dashed;
+  border-color: var(--warning);
+  background: var(--warning-fill);
+  color: var(--warning);
+}
+.layer-source-meta > .lucide {
+  --icon-size: var(--icon-size-sm);
+  color: var(--muted);
+  flex-shrink: 0;
+}
 .tree-row.effective-hidden .layer-text {
   color: var(--muted);
   opacity: 0.72;

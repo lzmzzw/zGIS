@@ -3,7 +3,7 @@ import { installDesktopMock } from "./desktop.mock";
 
 async function open(page: Page) {
   await page.goto("/");
-  await page.locator("input[type=file]").setInputFiles({
+  const file = {
     name: "session.geojson",
     mimeType: "application/json",
     buffer: Buffer.from(
@@ -24,8 +24,23 @@ async function open(page: Page) {
         properties: { name: "original" },
       }),
     ),
-  });
-  await page.getByRole("button", { name: "导入", exact: true }).click();
+  };
+  if (await page.evaluate(() => Boolean(window.__ZG_TEST__))) {
+    await expect(page.getByRole("button", { name: "设置", exact: true })).toBeEnabled();
+    await page.evaluate(async (bytes) => {
+      await window.__ZG_TEST__.dropFiles([{
+        name: "session.geojson",
+        bytes,
+        sourceId: "session-source",
+        sourcePath: "F:/test/session.geojson",
+        sourceHash: "session-hash",
+      }]);
+    }, Array.from(file.buffer));
+  } else {
+    await page.locator("input[type=file]").setInputFiles(file);
+    await page.getByRole("button", { name: "导入", exact: true }).click();
+  }
+  await expect(page.locator(".layer-text")).toContainText("session.geojson");
   await page
     .locator(".attribute-panel")
     .getByRole("button", { name: "展开属性表", exact: true })

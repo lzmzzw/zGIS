@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import type { GeoFeature } from "../src/domain";
 import type { DatabaseSource, DatabaseCatalog } from "../src/bridge";
 export interface DesktopTestState {
-  dropFiles: (files: {name:string;bytes:number[];sourceId?:string}[], error?:string) => Promise<void>;
+  dropFiles: (files: {name:string;bytes:number[];sourceId?:string;sourcePath?:string;sourceHash?:string}[], error?:string) => Promise<void>;
   mcpEnabled: boolean;
   mcpPaths: string[];
   mcpLayers: { id: string; name: string; features: unknown[] }[];
@@ -55,7 +55,7 @@ declare global {
 export async function installDesktopMock(
   page: Page,
   snapshot: string | null = null,
-  initial: { databaseSources?: DatabaseSource[]; mysqlSources?: DatabaseSource[]; passwords?: Record<string,string> } = {},
+  initial: { databaseSources?: DatabaseSource[]; mysqlSources?: DatabaseSource[]; passwords?: Record<string,string>; features?: GeoFeature[]; databaseConnectError?: string; queryError?: string } = {},
 ) {
   await page.addInitScript(
     ({ snapshot, initial }) => {
@@ -72,8 +72,8 @@ export async function installDesktopMock(
         analysisResults: [],
         calls: [],
         commitError: "",
-        queryError: "",
-        databaseSources: initial.databaseSources ?? [], mysqlSources: initial.mysqlSources ?? [], sourceSaveError: "", databaseConnectError: "", catalogError: "", previewError: "", previewDelays: {}, previewCompletions: [], catalogs: {}, storedDatabasePasswords: initial.passwords ?? {},
+        queryError: initial.queryError ?? "",
+        databaseSources: initial.databaseSources ?? [], mysqlSources: initial.mysqlSources ?? [], sourceSaveError: "", databaseConnectError: initial.databaseConnectError ?? "", catalogError: "", previewError: "", previewDelays: {}, previewCompletions: [], catalogs: {}, storedDatabasePasswords: initial.passwords ?? {},
         passwordLoadError:"", passwordSaveError:"", passwordDeleteError:"",
         backupError: "",
         analysisError: "",
@@ -94,7 +94,7 @@ export async function installDesktopMock(
         mcpToolsError: "",
         snapshot,
         destroyed: false,
-        features: [
+        features: initial.features ?? [
           {
             id: "db-1",
             geometry: { type: "Point", coordinates: [116, 40] },
@@ -253,6 +253,18 @@ export async function installDesktopMock(
               if (state.saveError) throw Error(state.saveError);
               return {sourceId: args.sourceId, name: String(args.newName).replace(/\.geojson$/i, "") + ".geojson", path: "test-renamed", sourceHash: "test-renamed-hash"};
             }
+            if (command === "save_shapefile_source") {
+              if (state.saveError) throw Error(state.saveError);
+              const path = String(args.sourcePath ?? "test-source.shp");
+              return {
+                sourceId: args.sourceId ?? "test-shp-source",
+                name: path.split(/[\\/]/).at(-1),
+                path,
+                sourceHash: "test-shp-saved-hash",
+                crs: args.crs ?? "EPSG:4326",
+                zipMember: args.zipMember ?? null,
+              };
+            }
             if (command === "save_file" || command === "export_shapefile" || command === "save_shapefile_folder") {
               if (state.saveError) throw Error(state.saveError);
               if (state.saveCancelled) return null;
@@ -261,6 +273,8 @@ export async function installDesktopMock(
                 name: String(args.suggestedName),
                 path: "test-file",
                 sourceHash: "test-hash",
+                crs: args.crs ?? "EPSG:4326",
+                zipMember: command === "export_shapefile" ? String(args.suggestedName).replace(/\.zip$/i, ".shp") : null,
               };
             }
             if (command === "load_database_sources" || command === "load_mysql_sources") return structuredClone(command === "load_database_sources" ? state.databaseSources : state.mysqlSources);

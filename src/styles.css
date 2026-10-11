@@ -2076,3 +2076,24 @@ select {
     margin-left: 0;
   }
 }
+
+.database-conflict-list {
+  max-height: 50vh;
+  overflow: auto;
+}
+.database-conflict-record {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.database-conflict-versions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.database-conflict-versions pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 160px;
+  overflow: auto;
+  font-size: 12px;
+}

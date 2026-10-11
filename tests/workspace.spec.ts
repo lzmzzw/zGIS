@@ -53,9 +53,8 @@ const snapshot = JSON.stringify(
     name,
     visible: true,
     color: "#5479b6",
-    sourceKind: "postgis",
+    sourceKind: "geojson",
     dirty: true,
-    db: { connectionId: "old" },
     sourceId: "old-source",
     features: [
       {
@@ -90,12 +89,15 @@ test("native open continues into worker import after dialog busy state", async (
   await expect(page.locator(".layer-row")).toContainText("native.geojson");
 });
 
-test("restored CSV saves as GeoJSON from the main file menu", async ({
+test("restored workspace CSV chooses format and path from the main file menu", async ({
   page,
 }) => {
   const layers = JSON.parse(snapshot);
   layers[0].name = "points.csv";
   layers[0].sourceKind = "csv";
+  delete layers[0].db;
+  delete layers[0].sourceId;
+  delete layers[0].restoredFrom;
   await installDesktopMock(page, JSON.stringify([layers[0]]));
   await page.goto("/");
   await expect(page.locator(".operation-status")).toContainText("已恢复");
@@ -107,7 +109,10 @@ test("restored CSV saves as GeoJSON from the main file menu", async ({
     .locator(".app-header")
     .getByRole("button", { name: "另存为", exact: true })
     .click();
-  await expect(page.locator(".operation-status")).toContainText("保存完成");
+  await expect(page.getByRole("dialog", { name: "保存图层", exact: true })).toBeVisible();
+  await page.getByLabel("输出格式", { exact: true }).selectOption("geojson");
+  await page.getByRole("button", { name: "选择路径并保存", exact: true }).click();
+  await expect(page.locator(".operation-status")).toContainText("源文件已保存");
   const save = await page.evaluate(() =>
     window.__ZG_TEST__.calls.find((call) => call.command === "save_file")!,
   );
@@ -120,6 +125,7 @@ test("恢复的已有文件编辑直接覆盖来源，不再弹出另存窗口",
   layer.sourceKind = "geojson";
   delete layer.db;
   layer.sourcePath = "F:/data/existing.geojson";
+  layer.originalCrs = "EPSG:4326";
   layer.sourceHash = "original-hash";
   layer.dirty = true;
   await installDesktopMock(page, JSON.stringify([layer]));

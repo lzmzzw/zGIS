@@ -6,6 +6,13 @@ import {
   type DocumentLayer,
   type GeoFeature,
 } from "./domain";
+import type { SchemaChange } from "./domain/types";
+import {
+  databaseEngine,
+  legacyDatabaseIdentity,
+  safeDatabaseIdentity,
+  validatedDatabaseIdentities,
+} from "./databaseRecovery";
 
 export interface WorkspaceEditSession {
   layerId: string;
@@ -133,6 +140,81 @@ function safeFeatures(values: unknown, requireIds = false): GeoFeature[] {
   }));
   if (requireIds) validatedFeatures.set(values, result);
   return result;
+}
+
+function safeDatabaseBaseline(values: unknown): GeoFeature[] {
+  const identities = validatedDatabaseIdentities(values);
+  return safeFeatures(values, true).map((feature, index) => ({
+    ...feature,
+    ...identities[index],
+  }));
+}
+
+function safeSchemaChanges(values: unknown): SchemaChange[] {
+  if (!Array.isArray(values) || values.length > 10_000)
+    throw new Error("恢复数据库字段修改列表无效");
+  return values.map((value) => {
+    if (
+      !isRecord(value) ||
+      (value.kind !== "add" &&
+        value.kind !== "rename" &&
+        value.kind !== "delete") ||
+      typeof value.name !== "string" ||
+      !value.name ||
+      value.name.length > 1024 ||
+      value.name.includes("\0") ||
+      (value.kind === "rename" &&
+        (typeof value.newName !== "string" ||
+          !value.newName ||
+          value.newName.length > 1024 ||
+          value.newName.includes("\0")))
+    )
+      throw new Error("恢复数据库字段修改无效");
+    return {
+      kind: value.kind as SchemaChange["kind"],
+      name: value.name,
+      ...(value.kind === "rename" ? { newName: value.newName as string } : {}),
+    };
+  });
+}
+
+function safeDatabaseReadLimit(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Number.isSafeInteger(value) ||
+    Number(value) < 1 ||
+    Number(value) > 100_000
+  )
+    throw new Error("恢复数据库读取上限无效");
+  return Number(value);
+}
+
+function safeDatabaseBounds(value: unknown): number[] | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length !== 4 ||
+    value.some((part) => typeof part !== "number" || !Number.isFinite(part)) ||
+    Math.abs(value[0]) > 180 ||
+    Math.abs(value[2]) > 180 ||
+    Math.abs(value[1]) > 90 ||
+    Math.abs(value[3]) > 90 ||
+    value[0] > value[2] ||
+    value[1] > value[3]
+  )
+    throw new Error("恢复数据库读取范围无效");
+  return [...value];
+}
+
+function legacyDatabaseStub(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.connectionId === "string" &&
+    Object.keys(value).every(
+      (key) => key === "connectionId" || key === "engine",
+    ) &&
+    (value.engine === undefined || databaseEngine(value.engine) !== undefined)
+  );
 }
 
 function safeSession(
@@ -294,33 +376,61 @@ function safeSession(
   return result;
 }
 
-// 恢复只保存文档、显示配置及可用于冲突检测的来源定位信息，排除数据库身份。
+// 文档和来源身份分别按白名单持久化，数据库连接句柄及凭据不进入恢复文件。
 function snapshotLayerData(layers: DocumentLayer[]) {
-  return layers.map((layer) => ({
-    id: layer.id,
-    name: layer.name,
-    displayName: layer.displayName,
-    features: layer.features.map(
-      ({ id, geometry, properties, sourceFeatureId }) => ({
-        id,
-        geometry,
-        properties,
-        sourceFeatureId,
-      }),
-    ),
-    visible: layer.visible,
-    color: layer.color,
-    opacity: layer.opacity,
-    strokeWidth: layer.strokeWidth,
-    sourceKind: "geojson",
-    restoredFrom: layer.restoredFrom ?? layer.sourceKind,
-    sourcePath: layer.sourcePath,
-    sourceHash: layer.sourceHash,
-    crs: "EPSG:4326",
-    dirty: layer.dirty,
-    geometryType: layer.geometryType,
-    fieldNames: layer.fieldNames,
-  }));
+  return layers.map((layer) => {
+    const engine =
+      databaseEngine(layer.db?.engine) ??
+      databaseEngine(layer.sourceKind) ??
+      databaseEngine(layer.restoredFrom) ??
+      (layer.db ? "postgis" : undefined);
+    return {
+      id: layer.id,
+      name: layer.name,
+      displayName: layer.displayName,
+      features: layer.features.map(
+        ({ id, geometry, properties, sourceFeatureId }) => ({
+          id,
+          geometry,
+          properties,
+          sourceFeatureId,
+        }),
+      ),
+      visible: layer.visible,
+      color: layer.color,
+      opacity: layer.opacity,
+      strokeWidth: layer.strokeWidth,
+      sourceKind: engine ?? layer.sourceKind,
+      originalCrs: layer.originalCrs,
+      csvConfig: engine ? undefined : layer.csvConfig,
+      zipMember: engine ? undefined : layer.zipMember,
+      restoredFrom: layer.restoredFrom ?? layer.sourceKind,
+      sourcePath: engine ? undefined : layer.sourcePath,
+      sourceHash: engine ? undefined : layer.sourceHash,
+      crs: "EPSG:4326",
+      dirty: layer.dirty,
+      geometryType: layer.geometryType,
+      fieldNames: layer.fieldNames,
+      ...(engine
+        ? {
+            db: layer.db
+              ? safeDatabaseIdentity(layer.db, engine)
+              : legacyDatabaseIdentity(engine),
+            dbBaseline:
+              layer.dbBaseline === undefined
+                ? undefined
+                : safeDatabaseBaseline(layer.dbBaseline),
+            dbReadLimit: safeDatabaseReadLimit(layer.dbReadLimit),
+            dbBounds: safeDatabaseBounds(layer.dbBounds),
+            dbCommitUncertain: layer.dbCommitUncertain,
+            schemaChanges:
+              layer.schemaChanges === undefined
+                ? undefined
+                : safeSchemaChanges(layer.schemaChanges),
+          }
+        : {}),
+    };
+  });
 }
 
 const featureJsonCache = new WeakMap<GeoFeature[], string>();
@@ -328,22 +438,31 @@ const layerJsonCache = new WeakMap<DocumentLayer, string>();
 function featureJson(features: GeoFeature[]): string {
   let value = featureJsonCache.get(features);
   if (value === undefined) {
-    value = JSON.stringify(features.map(({ id, geometry, properties, sourceFeatureId }) => ({ id, geometry, properties, sourceFeatureId })));
+    value = JSON.stringify(
+      features.map(({ id, geometry, properties, sourceFeatureId }) => ({
+        id,
+        geometry,
+        properties,
+        sourceFeatureId,
+      })),
+    );
     featureJsonCache.set(features, value);
   }
   return value;
 }
 export function snapshotLayers(layers: DocumentLayer[]): string {
-  return `[${layers.map(layer => {
-    let value = layerJsonCache.get(layer);
-    if (value === undefined) {
-      const metadata = snapshotLayerData([{ ...layer, features: [] }])[0];
-      const { features: _, ...rest } = metadata;
-      value = `${JSON.stringify(rest).slice(0, -1)},"features":${featureJson(layer.features)}}`;
-      layerJsonCache.set(layer, value);
-    }
-    return value;
-  }).join(",")}]`;
+  return `[${layers
+    .map((layer) => {
+      let value = layerJsonCache.get(layer);
+      if (value === undefined) {
+        const metadata = snapshotLayerData([{ ...layer, features: [] }])[0];
+        const { features: _, ...rest } = metadata;
+        value = `${JSON.stringify(rest).slice(0, -1)},"features":${featureJson(layer.features)}}`;
+        layerJsonCache.set(layer, value);
+      }
+      return value;
+    })
+    .join(",")}]`;
 }
 
 export function restoreLayers(raw: string): DocumentLayer[] {
@@ -381,8 +500,50 @@ export function restoreLayers(raw: string): DocumentLayer[] {
     )
       throw new Error("恢复图层字段结构无效或重复");
     const features = safeFeatures(value.features);
-    return makeLayer(value.name, features, "geojson", {
-      ...(typeof value.id === "string" && /^mcp-publication-[A-Za-z0-9_-]+$/.test(value.id) ? { id: value.id } : {}),
+    const engine =
+      databaseEngine(isRecord(value.db) ? value.db.engine : undefined) ??
+      databaseEngine(value.sourceKind) ??
+      databaseEngine(value.restoredFrom) ??
+      (value.db !== undefined ? "postgis" : undefined);
+    const db = engine
+      ? {
+          ...(value.db !== undefined && !legacyDatabaseStub(value.db)
+            ? safeDatabaseIdentity(value.db, engine)
+            : legacyDatabaseIdentity(engine)),
+          connectionId: "",
+        }
+      : undefined;
+    if (
+      value.dbCommitUncertain !== undefined &&
+      typeof value.dbCommitUncertain !== "boolean"
+    )
+      throw new Error("恢复数据库提交状态无效");
+    const filePath =
+      typeof value.sourcePath === "string" ? value.sourcePath : undefined;
+    // 老快照统一标记为 GeoJSON；按已关联路径识别格式，缺失 CRS/CSV 配置时禁止危险回写。
+    const fileKind = /\.csv$/i.test(filePath ?? "")
+      ? "csv"
+      : /\.(shp|zip)$/i.test(filePath ?? "")
+        ? "shp"
+        : value.sourceKind === "csv" || value.sourceKind === "shp"
+          ? value.sourceKind
+          : "geojson";
+    const kind = engine ?? (filePath ? fileKind : "geojson");
+    const csvConfig = value.csvConfig;
+    if (
+      csvConfig !== undefined &&
+      (!csvConfig ||
+        typeof csvConfig !== "object" ||
+        Object.values(csvConfig).some(
+          (v) => typeof v !== "string" && typeof v !== "boolean",
+        ))
+    )
+      throw new Error("恢复 CSV 配置无效");
+    return makeLayer(value.name, features, kind, {
+      ...(typeof value.id === "string" &&
+      /^mcp-publication-[A-Za-z0-9_-]+$/.test(value.id)
+        ? { id: value.id }
+        : {}),
       displayName: value.displayName?.trim(),
       visible: value.visible !== false,
       color:
@@ -403,9 +564,18 @@ export function restoreLayers(raw: string): DocumentLayer[] {
           : 2,
       dirty: value.dirty ?? true,
       sourcePath:
-        typeof value.sourcePath === "string" ? value.sourcePath : undefined,
+        !engine && typeof value.sourcePath === "string"
+          ? value.sourcePath
+          : undefined,
       sourceHash:
-        typeof value.sourceHash === "string" ? value.sourceHash : undefined,
+        !engine && typeof value.sourceHash === "string"
+          ? value.sourceHash
+          : undefined,
+      originalCrs:
+        typeof value.originalCrs === "string" ? value.originalCrs : undefined,
+      csvConfig,
+      zipMember:
+        typeof value.zipMember === "string" ? value.zipMember : undefined,
       restored: true,
       restoredFrom:
         typeof value.restoredFrom === "string"
@@ -413,9 +583,32 @@ export function restoreLayers(raw: string): DocumentLayer[] {
           : typeof value.sourceKind === "string"
             ? value.sourceKind
             : "geojson",
-      warnings: ["已恢复为本地 GeoJSON 副本，请另存文件。"],
+      warnings: [
+        engine
+          ? "已恢复数据库工作稿；保存前重新连接来源并核对原始记录。"
+          : filePath
+            ? "已恢复文件工作副本；保存前检查来源指纹。"
+            : "已恢复为工作区图层，保存需选择格式与路径。",
+      ],
       geometryType: value.geometryType,
       fieldNames: value.fieldNames,
+      ...(db
+        ? {
+            db,
+            dbBaseline:
+              value.dbBaseline === undefined
+                ? undefined
+                : safeDatabaseBaseline(value.dbBaseline),
+            dbNeedsVerification: true,
+            dbReadLimit: safeDatabaseReadLimit(value.dbReadLimit),
+            dbBounds: safeDatabaseBounds(value.dbBounds),
+            dbCommitUncertain: value.dbCommitUncertain,
+            schemaChanges:
+              value.schemaChanges === undefined
+                ? undefined
+                : safeSchemaChanges(value.schemaChanges),
+          }
+        : {}),
     });
   });
 }
@@ -459,9 +652,17 @@ export function snapshotWorkspace(
       let sessionJson = JSON.stringify(draft).slice(0, -1);
       if (history) {
         const { undo, redo, baseline, ...fields } = history;
-        const entries = [`"undo":[${undo.map(featureJson).join(",")}]`, `"redo":[${redo.map(featureJson).join(",")}]`];
-        for (const [key, value] of Object.entries(fields)) if (value !== undefined) entries.push(`${JSON.stringify(key)}:${JSON.stringify(value)}`);
-        if (baseline) entries.push(`"baseline":${JSON.stringify({ ...baseline, features: undefined }).slice(0, -1)},"features":${featureJson(baseline.features)}}`);
+        const entries = [
+          `"undo":[${undo.map(featureJson).join(",")}]`,
+          `"redo":[${redo.map(featureJson).join(",")}]`,
+        ];
+        for (const [key, value] of Object.entries(fields))
+          if (value !== undefined)
+            entries.push(`${JSON.stringify(key)}:${JSON.stringify(value)}`);
+        if (baseline)
+          entries.push(
+            `"baseline":${JSON.stringify({ ...baseline, features: undefined }).slice(0, -1)},"features":${featureJson(baseline.features)}}`,
+          );
         sessionJson += `,"history":{${entries.join(",")}}`;
       }
       body += `,"session":${sessionJson}}`;

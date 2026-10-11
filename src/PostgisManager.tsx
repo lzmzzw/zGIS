@@ -124,15 +124,22 @@ export default function PostgisManager({
   onActive,
   onSourcesChange,
   inUseConnectionIds,
+  inUseSourceIds = [],
   engine = "postgis",
 }: {
   engine?: "postgis" | "mysql";
   open: boolean;
   onClose(): void;
-  onLoad(connectionId: string, config: DbConnection, layer: DbLayer): void;
-  onActive(connectionId: string, config: DbConnection): void;
+  onLoad(
+    connectionId: string,
+    config: DbConnection,
+    layer: DbLayer,
+    sourceId: string,
+  ): void;
+  onActive(connectionId: string, config: DbConnection, sourceId?: string): void;
   onSourcesChange?(count: number): void;
   inUseConnectionIds: string[];
+  inUseSourceIds?: string[];
 }) {
   const mysql = engine === "mysql";
   const engineLabel = mysql ? "Mysql" : "PostGIS";
@@ -272,7 +279,7 @@ export default function PostgisManager({
     setError("");
     const s = sources.find((s) => s.id === id),
       runtime = sessions[id];
-    if (s) onActive(runtime?.connectionId ?? "", { ...s, password: "" });
+    if (s) onActive(runtime?.connectionId ?? "", { ...s, password: "" }, s.id);
   }
   function startDialog(kind: "add" | "connect" | "delete") {
     dialogTrigger.current = document.activeElement as HTMLElement | null;
@@ -309,6 +316,20 @@ export default function PostgisManager({
   }
   async function connect(test = false) {
     if (busy || !configValid || !ready) return;
+    if (
+      !test &&
+      dialog === "connect" &&
+      source &&
+      inUseSourceIds.includes(sourceId) &&
+      (["host", "port", "database", "user", "sslMode"] as const).some(
+        (key) => draft[key] !== source[key],
+      )
+    ) {
+      setDialogError(
+        "数据源仍被图层引用，不能更换原连接目标；请先移除相关图层",
+      );
+      return;
+    }
     if (!test && session && inUseConnectionIds.includes(session.connectionId)) {
       setDialogError("请先移除引用此数据源的图层，再重新连接");
       return;
@@ -362,7 +383,7 @@ export default function PostgisManager({
       setSchema(catalog.schemas[0] ?? "");
       setTableKey("");
       setSearch("");
-      onActive(connectionId, { ...saved, password: "" });
+      onActive(connectionId, { ...saved, password: "" }, saved.id);
       id = undefined;
       setDraft(initialDraft);
       setDialog(undefined);
@@ -380,7 +401,10 @@ export default function PostgisManager({
   }
   async function remove() {
     if (!source || busy || !ready) return;
-    if (session && inUseConnectionIds.includes(session.connectionId)) {
+    if (
+      inUseSourceIds.includes(sourceId) ||
+      (session && inUseConnectionIds.includes(session.connectionId))
+    ) {
       setDialogError("请先移除引用此数据源的图层，再删除数据源");
       return;
     }
@@ -413,6 +437,7 @@ export default function PostgisManager({
       onActive(
         nextSession?.connectionId ?? "",
         next[0] ? { ...next[0], password: "" } : defaults,
+        next[0]?.id,
       );
     } catch (e) {
       setDialogError(message(e));
@@ -701,6 +726,7 @@ export default function PostgisManager({
                                 ? Number(assumedSrid)
                                 : geom.srid,
                           },
+                          source.id,
                         );
                     }}
                   >
@@ -729,6 +755,7 @@ export default function PostgisManager({
                             geometryKind: "wkt",
                             srid: 4326,
                           },
+                          source.id,
                         )
                       }
                     >

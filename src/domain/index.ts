@@ -409,7 +409,7 @@ export async function importFiles(
         sourcePath: pick("shp")?.sourcePath,
         sourceHash: pick("shp")?.sourceHash,
         originalCrs: decoder.decode(new Uint8Array(pick("prj")!.bytes)),
-        warnings: ["SHP 可编辑；编辑结果另存新文件，不覆盖原 SHP 文件组"],
+        warnings: ["SHP 保存回写来源文件组；字段和几何须符合 Shapefile 格式限制"],
       }),
     );
   }
@@ -482,6 +482,7 @@ export async function importFiles(
       layers.push(
         ...imported.map((layer) => ({
           ...layer,
+          zipMember: layer.name,
           sourceId: file.sourceId,
           sourcePath: file.sourcePath,
           sourceHash: file.sourceHash,

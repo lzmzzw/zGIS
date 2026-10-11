@@ -40,12 +40,14 @@ export interface DocumentLayer {
   sourceId?: string;
   sourcePath?: string;
   sourceHash?: string;
+  zipMember?: string;
   crs: string;
   originalCrs?: string;
   dirty: boolean;
   csvConfig?: ImportOptions;
   db?: {
     engine?: "postgis" | "mysql";
+    sourceId?: string;
     connectionId: string;
     schema: string;
     table: string;
@@ -62,6 +64,12 @@ export interface DocumentLayer {
     }[];
   };
   warnings?: string[];
+  dbBaseline?: GeoFeature[];
+  dbReadLimit?: number;
+  dbBounds?: number[];
+  dbNeedsVerification?: boolean;
+  dbConnectionError?: string;
+  dbCommitUncertain?: boolean;
 }
 export interface InputFile {
   name: string;

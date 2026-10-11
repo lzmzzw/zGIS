@@ -21,9 +21,11 @@
 | command | 参数 | 返回 |
 | --- | --- | --- |
 | `rename_source_file` | `{sourceId:string,newName:string}` | `{sourceId,name,path}`；只重命名已打开文件，保留扩展名，SHP 同步组件，检测外部修改且拒绝覆盖；失败回滚 |
-| `open_files` | 无 | `[{name,bytes:number[],sourceId}]`，取消返回空数组 |
-| `save_file` | `{sourceId?:string,sourcePath?:string,sourceHash?:string,suggestedName,content,overwrite}` | `{sourceId,name,path,sourceHash}|null`，覆盖保存按来源指纹校验，取消返回 null |
+| `open_files` | 无 | `[{name,bytes:number[],sourceId,sourcePath,sourceHash}]`，取消返回空数组 |
+| `save_file` | `{sourceId?:string,sourcePath?:string,sourceHash?:string,suggestedName,content,overwrite,preserveExtension?:string}` | `{sourceId,name,path,sourceHash}|null`，覆盖保存按来源指纹校验，取消返回 null |
 | `export_shapefile` | `{features:Feature[],suggestedName:string,crs?:string}` | `{sourceId,name,path}\|null`，取消返回 null；只保存新的 ZIP |
+| `save_shapefile_source` | `{features:Feature[],sourceId?:string,sourcePath?:string,sourceHash?:string,crs?:string,zipMember?:string}` | `{sourceId,name,path,sourceHash}`；回写 SHP 文件组或 ZIP 中指定图层，指纹冲突拒绝，失败回滚；ZIP 保留其他成员 |
+| `save_shapefile_folder` | `{features:Feature[],suggestedName,crs?:string}` | `{sourceId,name,path,sourceHash}\|null`；选择文件夹保存新 SHP 文件组，拒绝同名目标 |
 | `save_recovery` | `{content:string}`，合法 JSON | 无 |
 | `load_recovery` | 无 | `string|null` |
 | `connect_database` | `{config:{host,port,database,user,password,sslMode}}` | `connectionId` |
@@ -78,3 +80,5 @@ MCP 工具及计算边界见 [空间分析说明](../docs/spatial-mcp.md)。zGIS
 
 - `gis_run_analysis {operation,parameters,source,target?,jobId?}`：后台纯内存分析，桌面与 MCP 共用 2 个槽位和 120 秒协作式截止时间；jobId 可选。
 - `gis_cancel_analysis {jobId}`：仅取消桌面命名空间任务，返回是否接受取消；不代表底层几何调用已经停止。
+
+SHP 的 sourceHash 为整组内容指纹，包含配套与索引文件；ZIP 为整个压缩包指纹。保存成功同步同源句柄与前端图层指纹。恢复仅保存文件关联元数据，不保存运行期句柄；缺失来源 CRS/CSV 配置的旧快照不可直接回写。

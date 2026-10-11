@@ -1,3 +1,10 @@
+import {
+  assertDatabaseUnchanged,
+  synchronizeDatabaseLayer,
+  resolveDatabaseConflicts,
+  type DatabaseSynchronization,
+} from "./databaseRecovery";
+import { layerSource } from "./layerSource";
 import { sameFeatures } from "./featureEquality";
 import { createRecoveryWriter } from "./recoveryWriter";
 import { searchFeatures } from "./attributeSearch";
@@ -488,6 +495,7 @@ export default function App() {
     | "database"
     | "db-load"
     | "db-sources"
+    | "db-conflicts"
     | "postgis-manager"
     | "mysql-manager"
     | "rename-field"
@@ -518,7 +526,9 @@ export default function App() {
   const [newField, setNewField] = useState("");
   const [fieldTarget, setFieldTarget] = useState("");
   const [recoveryReady, setRecoveryReady] = useState(!desktop);
-  const snapshotWriter = useRef(createRecoveryWriter(content => api.backup(content)));
+  const snapshotWriter = useRef(
+    createRecoveryWriter((content) => api.backup(content)),
+  );
   const exitPending = useRef(false);
   const exitPreviousModal = useRef<typeof modal>(null);
   const busyRef = useRef(false);
@@ -526,6 +536,22 @@ export default function App() {
   const recoveryBlocked = useRef(false);
   const histories = useRef(new Map<string, History>());
   const [, refreshHistory] = useState(0);
+  const [databaseConflicts, setDatabaseConflicts] = useState<
+    Record<
+      string,
+      {
+        remote: GeoFeature[];
+        records: DatabaseSynchronization["conflictRecords"];
+      }
+    >
+  >({});
+  const [conflictChoices, setConflictChoices] = useState<
+    Record<string, "local" | "remote">
+  >({});
+  const connectionSources = useRef(new Map<string, string>());
+  const recoveredConnections = useRef(new Map<string, Promise<string>>());
+  const recoveryReconnects = useRef(new Set<string>());
+  const databaseRuntimeAlive = useRef(true);
   const dbBaselines = useRef(new Map<string, GeoFeature[]>());
   const dbReadLimits = useRef(new Map<string, number>());
   const input = useRef<HTMLInputElement>(null);
@@ -587,7 +613,10 @@ export default function App() {
     [layers, activeId],
   );
   const mcpSyncQueue = useRef<Promise<unknown>>(Promise.resolve());
-  const mcpSyncBaseline = useRef<Map<string, { features: GeoFeature[]; name: string }> | null>(null);
+  const mcpSyncBaseline = useRef<Map<
+    string,
+    { features: GeoFeature[]; name: string }
+  > | null>(null);
   const [mcpSyncRetry, setMcpSyncRetry] = useState(0);
   const mcpSyncFailures = useRef(0);
   useEffect(() => {
@@ -600,10 +629,19 @@ export default function App() {
         // IPC 进行中只保留最新待同步状态；基线始终对应最后成功写入的版本。
         if (disposed) return;
         const previous = mcpSyncBaseline.current;
-        const next = new Map(layers.map(layer => [layer.id, { features: layer.features, name: layer.displayName ?? layer.name }]));
-        const changed = layers.filter(layer => {
+        const next = new Map(
+          layers.map((layer) => [
+            layer.id,
+            { features: layer.features, name: layer.displayName ?? layer.name },
+          ]),
+        );
+        const changed = layers.filter((layer) => {
           const before = previous?.get(layer.id);
-          return !before || before.features !== layer.features || before.name !== (layer.displayName ?? layer.name);
+          return (
+            !before ||
+            before.features !== layer.features ||
+            before.name !== (layer.displayName ?? layer.name)
+          );
         });
         await api.mcpSync(
           changed.map((layer) => ({
@@ -617,18 +655,31 @@ export default function App() {
             })),
           })),
           activeId,
-          { incremental: previous !== null, removedLayerIds: previous ? [...previous.keys()].filter(id => !next.has(id)) : [] },
+          {
+            incremental: previous !== null,
+            removedLayerIds: previous
+              ? [...previous.keys()].filter((id) => !next.has(id))
+              : [],
+          },
         );
         // 即使这次 Effect 已被新状态清理，后端仍已接收这个版本。
         mcpSyncBaseline.current = next;
         mcpSyncFailures.current = 0;
-        if (!disposed) setError(current => current.startsWith("空间分析图层同步失败：") ? "" : current);
+        if (!disposed)
+          setError((current) =>
+            current.startsWith("空间分析图层同步失败：") ? "" : current,
+          );
       })
       .catch((reason) => {
         if (!disposed) {
           setError(`空间分析图层同步失败：${errorText(reason)}`);
-          const delay = Math.min(30_000, 1000 * 2 ** Math.min(mcpSyncFailures.current++, 5));
-          retryTimer = setTimeout(() => { if (!disposed) setMcpSyncRetry(value => value + 1); }, delay);
+          const delay = Math.min(
+            30_000,
+            1000 * 2 ** Math.min(mcpSyncFailures.current++, 5),
+          );
+          retryTimer = setTimeout(() => {
+            if (!disposed) setMcpSyncRetry((value) => value + 1);
+          }, delay);
         }
       });
     return () => {
@@ -640,34 +691,47 @@ export default function App() {
   const analysisInFlight = useRef<Promise<void> | null>(null);
   async function importPendingAnalysis(forExit = false) {
     if (
-      !recoveryReady || recoveryBlocked.current ||
+      !recoveryReady ||
+      recoveryBlocked.current ||
       !pendingAnalysis.current.length ||
       (!forExit && (cellDraft || modal || editingLayerId))
     )
       return;
-    const publications = [...new Map(pendingAnalysis.current.map(result => [result.id, result])).values()];
-    const existing = new Set(currentLayers.current.map(layer => layer.id));
-    const added = publications.filter(result => !existing.has(`mcp-publication-${result.id}`)).map((result) =>
-      makeLayer(
-        result.name,
-        importGeoJSON(
-          JSON.stringify({
-            type: "FeatureCollection",
-            features: result.features,
-          }),
+    const publications = [
+      ...new Map(
+        pendingAnalysis.current.map((result) => [result.id, result]),
+      ).values(),
+    ];
+    const existing = new Set(currentLayers.current.map((layer) => layer.id));
+    const added = publications
+      .filter((result) => !existing.has(`mcp-publication-${result.id}`))
+      .map((result) =>
+        makeLayer(
+          result.name,
+          importGeoJSON(
+            JSON.stringify({
+              type: "FeatureCollection",
+              features: result.features,
+            }),
+          ),
+          "geojson",
+          {
+            id: `mcp-publication-${result.id}`,
+            dirty: true,
+            warnings: ["空间分析结果副本，核对后可保存或导出。"],
+          },
         ),
-        "geojson",
-        { id: `mcp-publication-${result.id}`, dirty: true, warnings: ["空间分析结果副本，核对后可保存或导出。"] },
-      ),
-    );
+      );
     const next = [...currentLayers.current, ...added];
     currentLayers.current = next;
     setLayers(next);
     // A publication remains in Rust until its stable layer ID is durable.
     await writeSnapshot(next);
-    await api.mcpResultsAck(publications.map(result => result.id));
-    const acknowledged = new Set(publications.map(result => result.id));
-    pendingAnalysis.current = pendingAnalysis.current.filter(result => !acknowledged.has(result.id));
+    await api.mcpResultsAck(publications.map((result) => result.id));
+    const acknowledged = new Set(publications.map((result) => result.id));
+    pendingAnalysis.current = pendingAnalysis.current.filter(
+      (result) => !acknowledged.has(result.id),
+    );
     if (!forExit && added.length) {
       setActiveId(added.at(-1)?.id);
       setLayersOpen(true);
@@ -686,7 +750,15 @@ export default function App() {
       analysisInFlight.current = (async () => {
         try {
           const incoming = await api.mcpResults();
-          if (incoming?.length) pendingAnalysis.current = [...new Map([...pendingAnalysis.current, ...incoming].map(result => [result.id, result])).values()];
+          if (incoming?.length)
+            pendingAnalysis.current = [
+              ...new Map(
+                [...pendingAnalysis.current, ...incoming].map((result) => [
+                  result.id,
+                  result,
+                ]),
+              ).values(),
+            ];
           // Save/close may begin while IPC is pending; keep drained data until safe.
           if (alive && !busyRef.current && !exitPending.current)
             await importAnalysisRef.current();
@@ -930,7 +1002,9 @@ export default function App() {
       try {
         if (localStorage.getItem("zgis.editRecovery") === persisted)
           localStorage.removeItem("zgis.editRecovery");
-      } catch { /* Native snapshot is durable. */ }
+      } catch {
+        /* Native snapshot is durable. */
+      }
     });
   }
   async function requestExit() {
@@ -945,7 +1019,15 @@ export default function App() {
     try {
       await analysisInFlight.current;
       const incoming = await api.mcpResults();
-      if (incoming?.length) pendingAnalysis.current = [...new Map([...pendingAnalysis.current, ...incoming].map(result => [result.id, result])).values()];
+      if (incoming?.length)
+        pendingAnalysis.current = [
+          ...new Map(
+            [...pendingAnalysis.current, ...incoming].map((result) => [
+              result.id,
+              result,
+            ]),
+          ).values(),
+        ];
       await importAnalysisRef.current();
     } catch (reason) {
       exitPending.current = false;
@@ -1013,6 +1095,34 @@ export default function App() {
       disposed = true;
     };
   }, []);
+  useEffect(() => {
+    databaseRuntimeAlive.current = true;
+    return () => {
+      databaseRuntimeAlive.current = false;
+      for (const [key, pending] of recoveredConnections.current) {
+        void pending
+          .then((id) =>
+            key.startsWith("mysql/")
+              ? api.disconnectMysql(id)
+              : api.disconnect(id),
+          )
+          .catch(() => {});
+      }
+    };
+  }, []);
+  useEffect(() => {
+    if (!desktop || !recoveryReady) return;
+    for (const layer of layers) {
+      if (
+        !layer.db ||
+        layer.db.connectionId ||
+        recoveryReconnects.current.has(layer.id)
+      )
+        continue;
+      recoveryReconnects.current.add(layer.id);
+      void reconnectDatabaseLayer(layer).catch(() => {});
+    }
+  }, [recoveryReady, layers]);
   const exitHandler = useRef(requestExit);
   exitHandler.current = requestExit;
   useEffect(() => {
@@ -1259,7 +1369,12 @@ export default function App() {
       setStatus(`${definition.label}完成`);
       return { report: result, durationMs: performance.now() - start };
     } catch (reason) {
-      setStatus(errorText(reason).includes("取消") || errorText(reason).includes("CANCEL") ? `${definition.label}已取消` : `${definition.label}失败`);
+      setStatus(
+        errorText(reason).includes("取消") ||
+          errorText(reason).includes("CANCEL")
+          ? `${definition.label}已取消`
+          : `${definition.label}失败`,
+      );
       throw reason;
     } finally {
       analysisJob.current = null;
@@ -1771,51 +1886,47 @@ export default function App() {
       });
       return;
     }
-    if (active.sourceKind === "shp" && asNew) {
+    if (layerSource(active) === "workspace") {
+      exportSaveLayerId.current = active.id;
+      setExportMode("geojson");
+      setExportCrs("EPSG:4326");
+      setExportFilename(
+        (active.displayName ?? active.name).replace(/\.[^.]+$/, "") +
+          ".geojson",
+      );
+      setError("");
+      setModal("export");
+      return;
+    }
+    if (active.sourceKind === "shp") {
       await task(async () => {
-        const result = await api.saveShapefileFolder(
-          active.features,
-          (active.displayName ?? active.name).replace(/\.[^.]+$/, "") + ".shp",
-          active.originalCrs ?? "EPSG:4326",
-        );
+        if (!desktop) throw new Error("SHP 保存仅在桌面版提供");
+        if (!asNew && active.restored && !active.originalCrs)
+          throw new Error(
+            "旧恢复副本缺少 SHP 来源坐标系，请重新打开来源文件或另存为",
+          );
+        const result = asNew
+          ? await api.saveShapefileFolder(
+              active.features,
+              (active.displayName ?? active.name).replace(/\.[^.]+$/, "") +
+                ".shp",
+              active.originalCrs ?? "EPSG:4326",
+            )
+          : await api.saveShapefileSource(active);
         if (!result) {
           setStatus("已取消另存，工作区仍保留");
           return;
         }
-        const updated = {
-          ...active,
-          sourceId: result.sourceId,
-          name: result.name,
-          dirty: false,
-          restored: false,
-        };
-        setLayers((old) =>
-          old.map((layer) => (layer.id === active.id ? updated : layer)),
-        );
-        currentLayers.current = currentLayers.current.map((layer) =>
-          layer.id === active.id ? updated : layer,
-        );
+        applySavedFile(active, result, {
+          zipMember: asNew ? undefined : active.zipMember,
+        });
         if (editing) {
           if (stopEditing) finishEditing(active.id);
           else markEditingSaved(active.id);
         }
-        setStatus("另存完成：SHP 文件组");
+        setStatus(asNew ? "另存完成：SHP 文件组" : "源文件已保存");
         if (desktop) await writeSnapshot(currentLayers.current);
       });
-      return;
-    }
-    if (active.sourceKind === "shp") {
-      exportSaveLayerId.current = editing ? active.id : undefined;
-      if (desktop) {
-        setExportMode("shp");
-        setExportFilename(
-          (active.displayName ?? active.name).replace(/\.[^.]+$/, "") + ".zip",
-        );
-        setError("");
-        setModal("export");
-        return;
-      }
-      openModal("export");
       return;
     }
     await task(async () => {
@@ -1842,7 +1953,9 @@ export default function App() {
     refreshHistory((n) => n + 1);
     if (sessionRef.current)
       sessionRef.current = { ...sessionRef.current, history: undefined };
-    setStatus("源文件已保存，可继续编辑");
+    setStatus(
+      layer?.db ? "数据库已提交，可继续编辑" : "源文件已保存，可继续编辑",
+    );
   }
   function activateLayer(id: string) {
     if (cellDraft || gestureActive) return false;
@@ -1867,10 +1980,57 @@ export default function App() {
     setNodeCount(0);
     setTool("select");
   }
+  function applySavedFile(
+    doc: DocumentLayer,
+    result: {
+      sourceId: string;
+      name: string;
+      path: string;
+      sourceHash: string;
+    },
+    metadata: Partial<DocumentLayer> = {},
+  ) {
+    const updated = {
+      ...doc,
+      ...metadata,
+      sourceId: result.sourceId,
+      sourcePath: result.path,
+      sourceHash: result.sourceHash,
+      name: result.name,
+      dirty: false,
+      restored: false,
+      restoredFrom: undefined,
+      warnings: [],
+    };
+    const syncSource = (layer: DocumentLayer) =>
+      layer.id === doc.id
+        ? updated
+        : doc.sourceKind === "shp" &&
+            Boolean(doc.zipMember) &&
+            layer.zipMember !== doc.zipMember &&
+            ((doc.sourcePath && layer.sourcePath === doc.sourcePath) ||
+              (doc.sourceId && layer.sourceId === doc.sourceId)) &&
+            (result.path === doc.sourcePath ||
+              (!doc.sourcePath && result.sourceId === doc.sourceId))
+          ? { ...layer, sourceHash: result.sourceHash }
+          : layer;
+    setLayers((old) => old.map(syncSource));
+    currentLayers.current = currentLayers.current.map(syncSource);
+    return updated;
+  }
   async function saveDocument(
     doc: DocumentLayer,
     asNew = false,
   ): Promise<DocumentLayer | null> {
+    if (
+      !asNew &&
+      doc.restored &&
+      layerSource(doc) === "file" &&
+      (!doc.originalCrs || (doc.sourceKind === "csv" && !doc.csvConfig))
+    )
+      throw new Error(
+        "旧恢复副本缺少来源坐标系或 CSV 配置，请重新打开来源文件或另存为",
+      );
     const content =
       doc.sourceKind === "csv"
         ? exportCsv(doc.features, {
@@ -1878,7 +2038,7 @@ export default function App() {
             mode: doc.csvConfig?.wktColumn ? "wkt" : "xy",
             crs: doc.originalCrs,
           })
-        : exportGeoJSON(doc.features, asNew ? doc.originalCrs : undefined);
+        : exportGeoJSON(doc.features, doc.originalCrs);
     let updated = { ...doc, dirty: false, restored: false };
     const filename =
       doc.sourceKind === "csv"
@@ -1940,6 +2100,116 @@ export default function App() {
       }
     });
   }
+  async function saveWorkspaceLayer() {
+    if (!active || exportSaveLayerId.current !== active.id) return;
+    await task(async () => {
+      const stem = exportFilename
+        .trim()
+        .replace(/\.(geojson|json|csv|shp|zip)$/i, "");
+      if (!stem) throw new Error("请填写文件名");
+      const sourceKind =
+        exportMode === "shp"
+          ? "shp"
+          : exportMode === "geojson"
+            ? "geojson"
+            : "csv";
+      const filename =
+        stem +
+        (sourceKind === "shp"
+          ? ".shp"
+          : sourceKind === "csv"
+            ? ".csv"
+            : ".geojson");
+      const previousCsv =
+        active.sourceKind === "csv" ? active.csvConfig : undefined;
+      const geometryFields = new Set(
+        [
+          previousCsv?.wktColumn,
+          previousCsv?.xColumn,
+          previousCsv?.yColumn,
+        ].filter(Boolean),
+      );
+      const businessFields = new Set(
+        active.features
+          .flatMap((feature) => Object.keys(feature.properties))
+          .filter((field) => !geometryFields.has(field)),
+      );
+      function geometryColumn(base: string) {
+        let name = base;
+        for (let suffix = 2; businessFields.has(name); suffix++)
+          name = `${base}_${suffix}`;
+        return name;
+      }
+      const csvConfig: ImportOptions | undefined =
+        sourceKind === "csv"
+          ? exportMode === "xy"
+            ? {
+                geometryMode: "xy",
+                xColumn: geometryColumn("X"),
+                yColumn: geometryColumn("Y"),
+                crs: exportCrs,
+              }
+            : {
+                geometryMode: "wkt",
+                wktColumn: geometryColumn("WKT"),
+                crs: exportCrs,
+              }
+          : undefined;
+      const content =
+        sourceKind === "shp"
+          ? undefined
+          : sourceKind === "geojson"
+            ? exportGeoJSON(active.features, exportCrs)
+            : exportCsv(active.features, {
+                ...previousCsv,
+                ...csvConfig,
+                mode: exportMode === "xy" ? "xy" : "wkt",
+                crs: exportCrs,
+              });
+      if (desktop) {
+        const result =
+          sourceKind === "shp"
+            ? await api.saveShapefileFolder(
+                active.features,
+                filename,
+                exportCrs,
+              )
+            : await api.save(
+                content!,
+                filename,
+                undefined,
+                undefined,
+                undefined,
+                false,
+                filename.split(".").pop(),
+              );
+        if (!result) {
+          setStatus("已取消保存，工作区仍保留");
+          return;
+        }
+        applySavedFile(active, result, {
+          sourceKind,
+          originalCrs: exportCrs,
+          csvConfig,
+          zipMember: undefined,
+        });
+      } else {
+        if (!content) throw new Error("SHP 保存仅在桌面版提供");
+        download(content, filename);
+        // 浏览器下载无法关联可回写的路径，仍保留工作区图层与未保存状态。
+        setStatus("已下载副本，图层仍仅在工作区");
+        setModal(null);
+        return;
+      }
+      if (editing) {
+        if (saveStopsEditing.current) finishEditing(active.id);
+        else markEditingSaved(active.id);
+      }
+      setStatus("源文件已保存");
+      setModal(null);
+      await writeSnapshot(currentLayers.current);
+    });
+  }
   async function doExport() {
     if (!active) return;
     await task(async () => {
@@ -1988,17 +2258,6 @@ export default function App() {
           }
         } else download(content, name);
         setStatus("导出完成");
-      }
-      if (exportSaveLayerId.current === active.id && exportMode !== "postgis") {
-        const updated = { ...active, dirty: false, restored: false };
-        setLayers((old) =>
-          old.map((layer) => (layer.id === active.id ? updated : layer)),
-        );
-        currentLayers.current = currentLayers.current.map((layer) =>
-          layer.id === active.id ? updated : layer,
-        );
-        if (saveStopsEditing.current) finishEditing(active.id);
-        else markEditingSaved(active.id);
       }
       setModal(null);
       if (desktop) await writeSnapshot(currentLayers.current);
@@ -2052,7 +2311,11 @@ export default function App() {
                 !/geometry|geography/i.test(c.type),
             )
             .map((c) => c.name),
+          dbBaseline: cloneFeatures(result.features),
+          dbReadLimit: dbLimit,
+          dbBounds: bbox,
           db: {
+            sourceId: connectionSources.current.get(connectionId),
             connectionId,
             ...layer,
             keyColumns: result.writable === false ? [] : layer.keyColumns,
@@ -2070,30 +2333,408 @@ export default function App() {
       setModal(null);
     });
   }
+  function updateDatabaseLayer(
+    id: string,
+    update: (layer: DocumentLayer) => DocumentLayer,
+  ) {
+    setLayers((old) =>
+      old.map((layer) => (layer.id === id ? update(layer) : layer)),
+    );
+    currentLayers.current = currentLayers.current.map((layer) =>
+      layer.id === id ? update(layer) : layer,
+    );
+  }
+  function registerDatabaseConnection(
+    engine: "postgis" | "mysql",
+    connectionId: string,
+    sourceId?: string,
+  ) {
+    if (!connectionId || !sourceId) return;
+    connectionSources.current.set(connectionId, sourceId);
+    const key = `${engine}/${sourceId}`;
+    const previous = recoveredConnections.current.get(key);
+    recoveredConnections.current.set(key, Promise.resolve(connectionId));
+    if (previous)
+      void previous
+        .then((id) => {
+          if (id !== connectionId)
+            return engine === "mysql"
+              ? api.disconnectMysql(id)
+              : api.disconnect(id);
+        })
+        .catch(() => {});
+    const replaceConnection = (layer: DocumentLayer) =>
+      layer.db?.sourceId === sourceId &&
+      (layer.db.engine ?? "postgis") === engine
+        ? {
+            ...layer,
+            db: { ...layer.db, connectionId },
+            dbConnectionError: undefined,
+            dbNeedsVerification: true,
+          }
+        : layer;
+    setLayers((old) => old.map(replaceConnection));
+    currentLayers.current = currentLayers.current.map(replaceConnection);
+  }
+  async function reconnectDatabaseLayer(
+    doc: DocumentLayer,
+  ): Promise<DocumentLayer> {
+    if (!doc.db) throw new Error("图层没有数据库来源");
+    const engine = doc.db.engine ?? "postgis";
+    const sourceId = doc.db.sourceId;
+    let acquiredConnection: string | undefined;
+    let awaitingConnection: Promise<string> | undefined;
+    const sourceKey = `${engine}/${sourceId}`;
+    try {
+      if (!sourceId)
+        throw new Error(
+          "旧恢复副本缺少原数据源标识，请重新添加原表并核对编辑；不会转为文件保存",
+        );
+      const key = `${engine}/${sourceId}`;
+      let pending = recoveredConnections.current.get(key);
+      if (!pending) {
+        pending = (async () => {
+          const sources = await (engine === "mysql"
+            ? api.mysqlSources()
+            : api.databaseSources());
+          const source = sources.find((item) => item.id === sourceId);
+          if (!source)
+            throw new Error("原数据源不存在，请在数据源管理中恢复原配置");
+          const password = await api.databaseSourcePassword(engine, sourceId);
+          return (engine === "mysql" ? api.connectMysql : api.connect)({
+            ...source,
+            password: password ?? "",
+          });
+        })();
+        recoveredConnections.current.set(key, pending);
+        void pending.catch(() => {
+          if (recoveredConnections.current.get(key) === pending)
+            recoveredConnections.current.delete(key);
+        });
+      }
+      awaitingConnection = pending;
+      const connectionId = await pending;
+      if (recoveredConnections.current.get(key) !== pending)
+        return reconnectDatabaseLayer(
+          currentLayers.current.find((layer) => layer.id === doc.id) ?? doc,
+        );
+      acquiredConnection = connectionId;
+      if (!databaseRuntimeAlive.current)
+        throw new Error("应用已关闭，已取消重连");
+      connectionSources.current.set(connectionId, sourceId);
+      const latest =
+        currentLayers.current.find((layer) => layer.id === doc.id) ?? doc;
+      const updated = {
+        ...latest,
+        db: { ...doc.db, connectionId },
+        dbConnectionError: undefined,
+        dbNeedsVerification: true,
+      };
+      updateDatabaseLayer(doc.id, (layer) => ({
+        ...layer,
+        db: updated.db,
+        dbConnectionError: undefined,
+        dbNeedsVerification: true,
+      }));
+      const refreshed = await refreshDatabaseLayer(updated);
+      setStatus(
+        refreshed.dbConnectionError ??
+          "数据库已重连并刷新；保存前将核对原始记录",
+      );
+      return refreshed;
+    } catch (reason) {
+      const currentConnection = recoveredConnections.current.get(sourceKey);
+      if (currentConnection && currentConnection !== awaitingConnection)
+        return reconnectDatabaseLayer(
+          currentLayers.current.find((layer) => layer.id === doc.id) ?? doc,
+        );
+      const message = `数据库连接或刷新失败，请重连：${errorText(reason)}。编辑已保留`;
+      if (
+        !acquiredConnection &&
+        (!currentConnection || currentConnection === awaitingConnection)
+      )
+        recoveredConnections.current.delete(sourceKey);
+      if (databaseRuntimeAlive.current) {
+        updateDatabaseLayer(doc.id, (layer) => ({
+          ...layer,
+          db: { ...layer.db!, connectionId: acquiredConnection ?? "" },
+          dbConnectionError: message,
+          dbNeedsVerification: true,
+        }));
+        setError(message);
+      }
+      throw new Error(message);
+    }
+  }
+  async function refreshDatabaseLayer(
+    doc: DocumentLayer,
+  ): Promise<DocumentLayer> {
+    const db = doc.db!;
+    const catalog = await (db.engine === "mysql"
+      ? api.mysqlCatalog(db.connectionId)
+      : api.databaseCatalog(db.connectionId));
+    const table = catalog.tables.find(
+      (table) => table.schema === db.schema && table.table === db.table,
+    );
+    if (!table) throw new Error("原表不存在，草稿已保留，请核对原数据源");
+    const latest =
+      currentLayers.current.find((layer) => layer.id === doc.id) ?? doc;
+    if (latest.db?.connectionId !== db.connectionId) return latest;
+    const schemaChanged =
+      !sameDatabaseColumns(table.columns, db.columns) ||
+      JSON.stringify(table.keyColumns) !== JSON.stringify(db.keyColumns);
+    if (schemaChanged && (latest.dirty || latest.schemaChanges?.length))
+      throw new Error("原表结构已变化，草稿已保留，请核对原表后再提交");
+    const nextDb = {
+      ...db,
+      columns: table.columns,
+      keyColumns: db.keyColumns.length ? table.keyColumns : [],
+    };
+    if (db.geometryKind === "geometry") {
+      const geometryColumn = table.geometryColumns.find(
+        (column) => column.name === db.geometryColumn,
+      );
+      if (!geometryColumn)
+        throw new Error("来源几何列已变化，草稿已保留，请核对原表");
+      if (
+        geometryColumn.srid &&
+        geometryColumn.srid !== db.srid &&
+        latest.dirty
+      )
+        throw new Error("来源坐标系已变化，草稿已保留，请核对原表");
+      nextDb.srid = geometryColumn.srid || db.srid;
+    }
+    const result = await api.query(
+      db.connectionId,
+      nextDb,
+      doc.dbReadLimit ?? 10000,
+      doc.dbBounds,
+    );
+    result.features.forEach((feature) => {
+      const issues = validateGeometry(feature.geometry);
+      if (issues.length) throw new Error(issues.join("；"));
+    });
+    const currentDoc =
+      currentLayers.current.find((layer) => layer.id === doc.id) ?? latest;
+    if (currentDoc.db?.connectionId !== db.connectionId) return currentDoc;
+    if (result.writable === false) nextDb.keyColumns = [];
+    if (!nextDb.keyColumns.length && currentDoc.dirty)
+      throw new Error("原表不可写，编辑已保留，请核对主键与数据类型");
+    // 截断重读不能推断缺行即删除；保留草稿并拒绝不完整的自动同步。
+    if (result.truncated && currentDoc.dirty)
+      throw new Error(
+        "原表读取范围不足，无法完整刷新和核对；编辑已保留，请核对原表",
+      );
+    const synchronized = nextDb.keyColumns.length
+      ? synchronizeDatabaseLayer(currentDoc, result.features)
+      : {
+          features: result.features,
+          baseline: [],
+          conflicts: false,
+          conflictRecords: [],
+        };
+    setDatabaseConflicts((old) => {
+      const next = { ...old };
+      if (synchronized.conflicts)
+        next[doc.id] = {
+          remote: result.features,
+          records: synchronized.conflictRecords,
+        };
+      else delete next[doc.id];
+      return next;
+    });
+    if (synchronized.conflicts)
+      setError("原表与本地编辑存在冲突，请选择保留的版本后同步；编辑已保留");
+    const updated: DocumentLayer = {
+      ...currentDoc,
+      db: nextDb,
+      features: synchronized.features,
+      dbBaseline: synchronized.baseline,
+      dbNeedsVerification: true,
+      dbConnectionError: synchronized.conflicts
+        ? "原表与本地编辑存在冲突，编辑已保留，请核对后再提交"
+        : undefined,
+      fieldNames: currentDoc.schemaChanges?.length
+        ? currentDoc.fieldNames
+        : table.columns
+            .filter(
+              (column) =>
+                column.name !== db.geometryColumn &&
+                !/geometry|geography/i.test(column.type),
+            )
+            .map((column) => column.name),
+    };
+    if (
+      editingBaseline.current?.id === doc.id &&
+      currentDoc.dbBaseline &&
+      nextDb.keyColumns.length
+    ) {
+      const previousEditing = editingBaseline.current;
+      const rebasedEditing = synchronizeDatabaseLayer(
+        { ...currentDoc, features: previousEditing.features },
+        result.features,
+      );
+      editingBaseline.current = {
+        ...previousEditing,
+        features: rebasedEditing.features,
+      };
+    }
+    histories.current.delete(doc.id);
+    refreshHistory((value) => value + 1);
+    if (sessionRef.current?.layerId === doc.id)
+      sessionRef.current = { ...sessionRef.current, history: undefined };
+    dbBaselines.current.set(doc.id, cloneFeatures(updated.dbBaseline!));
+    updateDatabaseLayer(doc.id, () => updated);
+    return updated;
+  }
+  function sameDatabaseColumns(
+    left: NonNullable<DocumentLayer["db"]>["columns"],
+    right: NonNullable<DocumentLayer["db"]>["columns"],
+  ) {
+    const normalize = (columns: typeof left) =>
+      columns.map((column) => ({
+        name: column.name,
+        type: column.type,
+        nullable: column.nullable,
+        generated: column.generated ?? false,
+        hasDefault: column.hasDefault ?? false,
+      }));
+    return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
+  }
+  async function applyDatabaseConflictChoices() {
+    if (!active?.db || !activeDatabaseConflicts) return;
+    const doc = active;
+    const pending = activeDatabaseConflicts;
+    await task(async () => {
+      const current = await api.query(
+        doc.db!.connectionId,
+        doc.db!,
+        doc.dbReadLimit ?? 10000,
+        doc.dbBounds,
+      );
+      try {
+        assertDatabaseUnchanged(pending.remote, current.features);
+        assertDatabaseUnchanged(current.features, pending.remote);
+      } catch {
+        await refreshDatabaseLayer(doc);
+        setConflictChoices({});
+        setError("数据库在选择期间再次变化，请重新选择版本");
+        return;
+      }
+      const resolved = resolveDatabaseConflicts(
+        doc,
+        current.features,
+        conflictChoices,
+      );
+      const updated = {
+        ...doc,
+        features: resolved.features,
+        dbBaseline: resolved.baseline,
+        dbConnectionError: undefined,
+        dirty:
+          databaseChanges(resolved.baseline, resolved.features).length > 0 ||
+          Boolean(doc.schemaChanges?.length),
+        dbNeedsVerification: true,
+      };
+      updateDatabaseLayer(doc.id, () => updated);
+      dbBaselines.current.set(doc.id, cloneFeatures(resolved.baseline));
+      try { await commitLayer(updated); }
+      catch (reason) {
+        setModal(null);
+        await refreshDatabaseLayer(updated).catch(() => {});
+        throw reason;
+      }
+      setDatabaseConflicts(old => { const next = { ...old }; delete next[doc.id]; return next; });
+      if (editing) markEditingSaved(doc.id);
+      setModal(null);
+      setError("");
+      setStatus("冲突已按所选版本同步");
+      if (desktop) await writeSnapshot(currentLayers.current);
+    });
+  }
+  async function verifyRecoveredDatabase(
+    doc: DocumentLayer,
+    before: GeoFeature[],
+  ) {
+    const db = doc.db!;
+    const catalog = await (db.engine === "mysql"
+      ? api.mysqlCatalog(db.connectionId)
+      : api.databaseCatalog(db.connectionId));
+    const table = catalog.tables.find(
+      (table) => table.schema === db.schema && table.table === db.table,
+    );
+    if (
+      !table ||
+      JSON.stringify(table.keyColumns) !== JSON.stringify(db.keyColumns) ||
+      !sameDatabaseColumns(table.columns, db.columns)
+    )
+      throw new Error("原表结构已变化，编辑已保留，请核对原表后再提交");
+    const current = await api.query(
+      db.connectionId,
+      db,
+      doc.dbReadLimit ?? 10000,
+      doc.dbBounds,
+    );
+    try {
+      assertDatabaseUnchanged(before, current.features);
+    } catch (reason) {
+      if (current.truncated)
+        throw new Error(
+          "原记录发生变化或读取范围不足，无法完整核对原记录；编辑已保留，请核对原表",
+        );
+      throw reason;
+    }
+  }
   async function commitLayer(doc: DocumentLayer): Promise<DocumentLayer> {
-    if (!doc.db || !doc.db.keyColumns.length || uncertainDocs.has(doc.id))
+    if (doc.db && !doc.db.connectionId) doc = await reconnectDatabaseLayer(doc);
+    if (
+      !doc.db ||
+      !doc.db.keyColumns.length ||
+      doc.dbCommitUncertain ||
+      uncertainDocs.has(doc.id)
+    )
       throw new Error("当前副本不可提交，请重新载入来源");
-    const before = dbBaselines.current.get(doc.id);
+    const before = doc.dbBaseline ?? dbBaselines.current.get(doc.id);
     if (!before) throw new Error("提交基线缺失，请重新载入来源");
+    if (doc.dbNeedsVerification) {
+      try {
+        await verifyRecoveredDatabase(doc, before);
+      } catch (reason) {
+        const message = errorText(reason);
+        if (/连接|connection|断开|超时/i.test(message)) {
+          recoveredConnections.current.delete(
+            `${doc.db.engine ?? "postgis"}/${doc.db.sourceId}`,
+          );
+          updateDatabaseLayer(doc.id, (layer) => ({
+            ...layer,
+            db: { ...layer.db!, connectionId: "" },
+            dbConnectionError: "核验连接失败，请重连；编辑已保留",
+          }));
+        }
+        if (/修改|删除|冲突/.test(message)) await refreshDatabaseLayer(doc).catch(() => {});
+        throw reason;
+      }
+    }
     const changes = databaseChanges(before, doc.features);
     const schemaChanges = doc.schemaChanges ?? [];
     if (!changes.length && !schemaChanges.length) {
-      const updated = { ...doc, dirty: false };
+      const updated = { ...doc, dirty: false, dbConnectionError: undefined };
       setLayers((old) =>
         old.map((layer) => (layer.id === doc.id ? updated : layer)),
+      );
+      currentLayers.current = currentLayers.current.map((layer) =>
+        layer.id === doc.id ? updated : layer,
       );
       setStatus("没有待提交修改");
       return updated;
     }
     const blockRetry = (message: string) => {
       setUncertainDocs((old) => new Set([...old, doc.id]));
-      setLayers((old) =>
-        old.map((layer) =>
-          layer.id === doc.id
-            ? { ...layer, warnings: [...(layer.warnings ?? []), message] }
-            : layer,
-        ),
-      );
+      updateDatabaseLayer(doc.id, (layer) => ({
+        ...layer,
+        dbCommitUncertain: true,
+        warnings: [...(layer.warnings ?? []), message],
+      }));
     };
     try {
       await api.commit(doc.db.connectionId, doc.db, changes, schemaChanges);
@@ -2127,8 +2768,8 @@ export default function App() {
       .query(
         doc.db.connectionId,
         nextDb,
-        dbReadLimits.current.get(doc.id) ?? 10000,
-        dbBounds.current.get(doc.id),
+        doc.dbReadLimit ?? dbReadLimits.current.get(doc.id) ?? 10000,
+        doc.dbBounds ?? dbBounds.current.get(doc.id),
       )
       .then((result) => {
         result.features.forEach((feature) => {
@@ -2148,6 +2789,10 @@ export default function App() {
     const updated = {
       ...doc,
       db: nextDb,
+      dbBaseline: cloneFeatures(result.features),
+      dbNeedsVerification: doc.dbNeedsVerification,
+      dbConnectionError: undefined,
+      dbCommitUncertain: false,
       schemaChanges: [],
       fieldNames: nextColumns
         .filter(
@@ -2160,7 +2805,7 @@ export default function App() {
       dirty: false,
       warnings: result.truncated
         ? [
-            `已达到 ${dbReadLimits.current.get(doc.id) ?? 10000} 条读取上限，当前不是全表`,
+            `已达到 ${doc.dbReadLimit ?? dbReadLimits.current.get(doc.id) ?? 10000} 条读取上限，当前不是全表`,
           ]
         : [],
     };
@@ -2308,7 +2953,10 @@ export default function App() {
     const timer = setTimeout(() => setSearchQuery(search), 120);
     return () => clearTimeout(timer);
   }, [search]);
-  const filtered = useMemo(() => searchFeatures(active?.features ?? [], searchQuery), [active?.features, searchQuery]);
+  const filtered = useMemo(
+    () => searchFeatures(active?.features ?? [], searchQuery),
+    [active?.features, searchQuery],
+  );
   const pageSize = 100;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const effectivePage = Math.min(page, totalPages - 1);
@@ -2387,19 +3035,31 @@ export default function App() {
     tableMaximized,
     context?.kind,
   ]);
+  const activeDatabaseConflicts = active
+    ? databaseConflicts[active.id]
+    : undefined;
   const h = active ? histories.current.get(active.id) : undefined;
   const canEdit =
     Boolean(active) &&
     (!active?.db ||
       (Boolean(active.db?.keyColumns.length) &&
-        !uncertainDocs.has(active.id!)));
+        !uncertainDocs.has(active.id!) &&
+        !active.dbCommitUncertain));
   const editable = canEdit && editing;
   const sourceSaveState = active
-    ? !(active.sourceId || (active.sourcePath && active.sourceHash))
+    ? layerSource(active) === "workspace"
       ? "仅工作区副本"
-      : active.dirty
-        ? "源文件未保存"
-        : "源文件已保存"
+      : layerSource(active) === "database"
+        ? active.dbCommitUncertain
+          ? "数据库提交待核对"
+          : active.dbConnectionError || !active.db?.connectionId
+            ? "数据库待重连或核对"
+            : active.dirty
+              ? "数据库未提交"
+              : "数据库已同步"
+        : active.dirty
+          ? "源文件未保存"
+          : "源文件已保存"
     : "";
   let draftSummary = "";
   let draftError = "";
@@ -2991,14 +3651,20 @@ export default function App() {
           hidden
           onChange={async (e) => {
             const list = Array.from(e.target.files ?? []);
-            if (list.some(f => f.size > 100 * 1024 * 1024) || list.reduce((n, f) => n + f.size, 0) > 100 * 1024 * 1024) {
+            if (
+              list.some((f) => f.size > 100 * 1024 * 1024) ||
+              list.reduce((n, f) => n + f.size, 0) > 100 * 1024 * 1024
+            ) {
               setError("单文件及一批文件总量均不能超过 100 MB");
               e.target.value = "";
               return;
             }
             const files: InputFile[] = [];
             for (const file of list) {
-              files.push({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+              files.push({
+                name: file.name,
+                bytes: new Uint8Array(await file.arrayBuffer()),
+              });
             }
             await acceptFiles(files);
             e.target.value = "";
@@ -3549,8 +4215,14 @@ export default function App() {
                     if (busyKind === "parse") cancelParsing();
                     else if (analysisJob.current) {
                       try {
-                        const accepted = await api.cancelAnalysis(analysisJob.current);
-                        setStatus(accepted ? "已请求取消，等待计算结束…" : "分析已结束或当前任务不可取消，等待结果…");
+                        const accepted = await api.cancelAnalysis(
+                          analysisJob.current,
+                        );
+                        setStatus(
+                          accepted
+                            ? "已请求取消，等待计算结束…"
+                            : "分析已结束或当前任务不可取消，等待结果…",
+                        );
                         if (!accepted) setCancelling(false);
                       } catch (reason) {
                         setError(errorText(reason));
@@ -3559,7 +4231,11 @@ export default function App() {
                     }
                   }}
                 >
-                  {cancelling ? "正在取消…" : busyKind === "analysis" ? "取消分析" : "取消解析"}
+                  {cancelling
+                    ? "正在取消…"
+                    : busyKind === "analysis"
+                      ? "取消分析"
+                      : "取消解析"}
                 </button>
               )}
 
@@ -4235,6 +4911,20 @@ export default function App() {
             </RightSidebar>
           )}
         </main>
+        {activeDatabaseConflicts && !modal && (
+          <div className="error-banner" role="status">
+            原表与本地编辑存在 {activeDatabaseConflicts.records.length} 条冲突
+            <button
+              disabled={busy || Boolean(cellDraft) || Boolean(drawDraft)}
+              onClick={() => {
+                setConflictChoices({});
+                openModal("db-conflicts");
+              }}
+            >
+              处理同步冲突
+            </button>
+          </div>
+        )}
         {error && !modal && (
           <div className="error-banner" role="alert">
             <span>{error}</span>
@@ -4246,6 +4936,90 @@ export default function App() {
         <div className="operation-status sr-only" role="status">
           {status}
         </div>
+        {modal === "db-conflicts" && active && activeDatabaseConflicts && (
+          <Modal
+            title="数据库同步冲突"
+            onClose={() => {
+              if (!busy) openModal(null);
+            }}
+          >
+            <p className="form-note">
+              逐条选择保留的版本。同步会保存当前图层的编辑到原表；未选择时保留草稿。
+            </p>
+            <div className="database-conflict-list">
+              {activeDatabaseConflicts.records.map((record, index) => (
+                <section className="database-conflict-record" key={record.key}>
+                  <h3>记录 {index + 1}</h3>
+                  <div className="database-conflict-versions">
+                    {[
+                      { label: "本地版本", feature: record.local },
+                      { label: "数据库版本", feature: record.remote },
+                    ].map((version) => (
+                      <div key={version.label}>
+                        <strong>{version.label}</strong>
+                        {version.feature ? (
+                          <>
+                            <pre>
+                              {JSON.stringify(
+                                version.feature.properties,
+                                null,
+                                2,
+                              )}
+                            </pre>
+                            <pre>
+                              {version.feature.geometry
+                                ? geometryToWkt(version.feature.geometry)
+                                : "无几何"}
+                            </pre>
+                          </>
+                        ) : (
+                          <p>记录已删除</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <label>
+                    保留版本
+                    <select
+                      aria-label={`冲突版本 ${index + 1}`}
+                      disabled={busy}
+                      value={conflictChoices[record.key] ?? ""}
+                      onChange={(event) =>
+                        setConflictChoices((old) => ({
+                          ...old,
+                          [record.key]: event.target.value as
+                            "local" | "remote",
+                        }))
+                      }
+                    >
+                      <option value="" disabled>
+                        请选择保留的版本
+                      </option>
+                      <option value="local">保留本地版本</option>
+                      <option value="remote">保留数据库版本</option>
+                    </select>
+                  </label>
+                </section>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button disabled={busy} onClick={() => openModal(null)}>
+                暂不处理
+              </button>
+              <button
+                disabled={
+                  busy ||
+                  activeDatabaseConflicts.records.some(
+                    (record) => !conflictChoices[record.key],
+                  )
+                }
+                onClick={() => void applyDatabaseConflictChoices()}
+              >
+                同步所选版本
+              </button>
+            </div>
+          </Modal>
+        )}
         {modal === "import" && (
           <Modal
             title={
@@ -4278,13 +5052,16 @@ export default function App() {
         )}
         {modal === "export" && active && (
           <Modal
-            title="导出为"
+            title={
+              exportSaveLayerId.current === active.id ? "保存图层" : "导出为"
+            }
             showError={false}
             onClose={() => {
               if (!busy) openModal(null);
             }}
           >
             <ExportPanel
+              saving={exportSaveLayerId.current === active.id}
               layer={active}
               mode={exportMode}
               crs={exportCrs}
@@ -4299,9 +5076,11 @@ export default function App() {
                 setExportMode(value);
                 setExportFilename((name) =>
                   name.replace(
-                    /\.(geojson|json|csv|zip)$/i,
+                    /\.(geojson|json|csv|shp|zip)$/i,
                     value === "shp"
-                      ? ".zip"
+                      ? exportSaveLayerId.current === active.id
+                        ? ".shp"
+                        : ".zip"
                       : value === "geojson"
                         ? ".geojson"
                         : ".csv",
@@ -4313,7 +5092,11 @@ export default function App() {
               onFilename={setExportFilename}
               onSchema={setTargetSchema}
               onTable={setTargetTable}
-              onExport={() => void doExport()}
+              onExport={() =>
+                void (exportSaveLayerId.current === active.id
+                  ? saveWorkspaceLayer()
+                  : doExport())
+              }
               onClose={() => openModal(null)}
             />
           </Modal>
@@ -4322,14 +5105,21 @@ export default function App() {
           open={modal === "postgis-manager"}
           onSourcesChange={setPostgisSourceCount}
           onClose={() => openModal(null)}
+          inUseSourceIds={layers.flatMap((layer) =>
+            layer.db?.engine !== "mysql" && layer.db?.sourceId
+              ? [layer.db.sourceId]
+              : [],
+          )}
           inUseConnectionIds={layers.flatMap((l) =>
             l.db ? [l.db.connectionId] : [],
           )}
-          onActive={(id, config) => {
+          onActive={(id, config, sourceId) => {
+            registerDatabaseConnection("postgis", id, sourceId);
             setConnectionId(id);
             setConnection(config);
           }}
-          onLoad={(id, config, layer) => {
+          onLoad={(id, config, layer, sourceId) => {
+            registerDatabaseConnection("postgis", id, sourceId);
             if (editingLayerId || cellDraft) {
               setError("请先保存并退出当前图层编辑，再加载数据源");
               return;
@@ -4349,11 +5139,19 @@ export default function App() {
           onSourcesChange={setMysqlSourceCount}
           open={modal === "mysql-manager"}
           onClose={() => openModal(null)}
+          inUseSourceIds={layers.flatMap((layer) =>
+            layer.db?.engine === "mysql" && layer.db.sourceId
+              ? [layer.db.sourceId]
+              : [],
+          )}
           inUseConnectionIds={layers.flatMap((l) =>
             l.db ? [l.db.connectionId] : [],
           )}
-          onActive={() => {}}
-          onLoad={(id, config, layer) => {
+          onActive={(id, _config, sourceId) =>
+            registerDatabaseConnection("mysql", id, sourceId)
+          }
+          onLoad={(id, config, layer, sourceId) => {
+            registerDatabaseConnection("mysql", id, sourceId);
             if (editingLayerId || cellDraft) {
               setError("请先保存并退出当前图层编辑，再加载数据源");
               return;
@@ -4428,13 +5226,42 @@ export default function App() {
                 {active.restored && (
                   <p className="form-note">恢复副本 · {active.restoredFrom}</p>
                 )}
+                {active.db && (
+                  <>
+                    <p className="form-note">
+                      {active.dbConnectionError ??
+                        (active.dbNeedsVerification
+                          ? "数据库已恢复；保存前核对原表记录，编辑仍保留。"
+                          : "保存提交到原数据库表。")}
+                    </p>
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void task(async () => {
+                          await reconnectDatabaseLayer(active);
+                        })
+                      }
+                    >
+                      重连原数据源
+                    </button>
+                  </>
+                )}
                 <dl>
+                  <dt>保存位置</dt>
+                  <dd>
+                    {active.db
+                      ? `${active.db.schema}.${active.db.table}`
+                      : (active.sourcePath ??
+                        (layerSource(active) === "workspace"
+                          ? "仅工作区 · 保存需选择格式与路径"
+                          : "已关联文件"))}
+                  </dd>
                   <dt>来源名称</dt>
                   <dd>{active.name}</dd>
                   <dt>格式</dt>
                   <dd>
                     {active.sourceKind === "shp"
-                      ? "Shapefile · 可编辑 / 另存"
+                      ? "Shapefile"
                       : active.sourceKind}
                   </dd>
                   <dt>来源 CRS</dt>
