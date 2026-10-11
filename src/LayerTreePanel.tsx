@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { ChevronDown, ChevronRight, Folder, LockKeyhole } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  LockKeyhole,
+  X,
+} from "lucide-react";
 import type { DocumentLayer } from "./domain";
 import type { LayerTreeNode, DropPosition } from "./layerTree";
 import ContextMenu, {
@@ -81,7 +87,7 @@ export default function LayerTree(props: Props) {
   >();
   const [name, setName] = useState("");
   const [drop, setDrop] = useState<{ id: string; position: DropPosition }>();
-  const dialogRef = useRef<HTMLFormElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const dragId = useRef<string | undefined>(undefined);
   const pointerDrag = useRef<
     | {
@@ -105,7 +111,7 @@ export default function LayerTree(props: Props) {
   );
   useEffect(() => {
     if (!dialog) return;
-    const form = dialogRef.current;
+    const modal = dialogRef.current;
     const returnId = dialog.kind === "new-group" ? dialog.parentId : dialog.id;
     const returnTarget = returnId
       ? [
@@ -114,13 +120,14 @@ export default function LayerTree(props: Props) {
           ),
         ].find((row) => row.dataset.nodeId === returnId)
       : document.querySelector<HTMLElement>(".layer-tree");
-    const guardFocus = (event: FocusEvent) => {
-      if (form && !form.contains(event.target as Node))
-        form.querySelector<HTMLElement>("input, button")?.focus();
-    };
-    document.addEventListener("focusin", guardFocus);
+    modal?.showModal();
+    const input = modal?.querySelector<HTMLInputElement>("input");
+    if (input && !input.disabled) {
+      input.focus();
+      input.select();
+    } else modal?.querySelector<HTMLButtonElement>("[data-cancel]")?.focus();
     return () => {
-      document.removeEventListener("focusin", guardFocus);
+      modal?.close();
       if (returnTarget?.isConnected) returnTarget.focus();
       else document.querySelector<HTMLElement>(".layer-tree")?.focus();
     };
@@ -474,7 +481,8 @@ export default function LayerTree(props: Props) {
     shortcut?: string,
     danger?: boolean,
   ) => {
-    const blocked = id === "remove-layer" ? (props.removalBusy ?? props.busy) : props.busy;
+    const blocked =
+      id === "remove-layer" ? (props.removalBusy ?? props.busy) : props.busy;
     items.push({
       id,
       label,
@@ -630,38 +638,75 @@ export default function LayerTree(props: Props) {
           />
         )}
       {dialog && (
-        <div
-          className="layer-group-backdrop"
+        <dialog
+          ref={dialogRef}
+          className="modal layer-group-dialog"
+          aria-labelledby="layer-group-title"
+          aria-describedby={
+            dialog.kind === "delete-group" || dialog.kind === "dissolve-group"
+              ? "layer-group-description"
+              : undefined
+          }
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
+            if (event.key !== "Tab") return;
+            const controls = [
+              ...event.currentTarget.querySelectorAll<HTMLElement>(
+                "input:not(:disabled), button:not(:disabled)",
+              ),
+            ];
+            const first = controls[0];
+            const last = controls.at(-1);
+            if (event.shiftKey && document.activeElement === first) {
               event.preventDefault();
-              setDialog(undefined);
-            } else if (event.key === "Tab") {
-              const focusable = [
-                ...(dialogRef.current?.querySelectorAll<HTMLElement>(
-                  "input:not(:disabled), button:not(:disabled)",
-                ) ?? []),
-              ];
-              const first = focusable[0];
-              const last = focusable.at(-1);
-              if (event.shiftKey && document.activeElement === first) {
-                event.preventDefault();
-                last?.focus();
-              } else if (!event.shiftKey && document.activeElement === last) {
-                event.preventDefault();
-                first?.focus();
-              }
+              last?.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first?.focus();
             }
           }}
-          onClick={() => setDialog(undefined)}
+          onCancel={(event) => {
+            event.preventDefault();
+            setDialog(undefined);
+          }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              const rect = event.currentTarget.getBoundingClientRect();
+              if (
+                event.clientX < rect.left ||
+                event.clientX > rect.right ||
+                event.clientY < rect.top ||
+                event.clientY > rect.bottom
+              )
+                setDialog(undefined);
+            }
+          }}
         >
+          <header>
+            <h2 id="layer-group-title">
+              {dialog.kind === "new-group"
+                ? dialog.parentId
+                  ? "新建子分组"
+                  : "新建分组"
+                : dialog.kind === "alias-layer"
+                  ? "设置别名"
+                  : dialog.kind === "rename-layer"
+                    ? "重命名"
+                    : dialog.kind === "rename-group"
+                      ? "重命名分组"
+                      : dialog.kind === "delete-group"
+                        ? "删除分组"
+                        : "解散分组"}
+            </h2>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="关闭"
+              onClick={() => setDialog(undefined)}
+            >
+              <X />
+            </button>
+          </header>
           <form
-            ref={dialogRef}
-            className="layer-group-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="layer-group-title"
-            onClick={(event) => event.stopPropagation()}
             onSubmit={(event) => {
               event.preventDefault();
               if (
@@ -686,27 +731,12 @@ export default function LayerTree(props: Props) {
               }
             }}
           >
-            <h3 id="layer-group-title">
-              {dialog.kind === "new-group"
-                ? dialog.parentId
-                  ? "新建子分组"
-                  : "新建分组"
-                : dialog.kind === "alias-layer"
-                  ? "设置别名"
-                  : dialog.kind === "rename-layer"
-                    ? "重命名"
-                    : dialog.kind === "rename-group"
-                      ? "重命名分组"
-                      : dialog.kind === "delete-group"
-                        ? "删除分组"
-                        : "解散分组"}
-            </h3>
             {dialog.kind === "delete-group" ? (
-              <p className="layer-rename-help">
+              <p id="layer-group-description" className="layer-rename-help">
                 删除此分组及其全部子分组、图层？未保存的修改将丢弃，磁盘文件保留。
               </p>
             ) : dialog.kind === "dissolve-group" ? (
-              <p className="layer-rename-help">
+              <p id="layer-group-description" className="layer-rename-help">
                 解散“
                 {dialogTarget?.kind === "group" ? dialogTarget.name : "分组"}
                 ”？图层和子分组将按原有结构移到根层。
@@ -731,9 +761,10 @@ export default function LayerTree(props: Props) {
                 />
               </>
             )}
-            <div>
+            <div className="modal-actions">
               <button
                 type="button"
+                data-cancel
                 autoFocus={
                   dialog.kind === "dissolve-group" ||
                   dialog.kind === "delete-group"
@@ -744,6 +775,9 @@ export default function LayerTree(props: Props) {
               </button>
               <button
                 type="submit"
+                className={
+                  dialog.kind === "delete-group" ? "danger" : undefined
+                }
                 disabled={
                   (dialog.kind !== "dissolve-group" &&
                     dialog.kind !== "delete-group" &&
@@ -762,7 +796,7 @@ export default function LayerTree(props: Props) {
               </button>
             </div>
           </form>
-        </div>
+        </dialog>
       )}
     </>
   );

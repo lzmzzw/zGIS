@@ -121,44 +121,21 @@
   box-shadow: inset 0 0 0 1px var(--accent);
   background: var(--selected);
 }
-.layer-group-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 130;
-  background: #0005;
-  display: grid;
-  place-items: center;
+.modal.layer-group-dialog {
+  width: 380px;
 }
-.layer-group-dialog {
-  width: min(340px, calc(100vw - 32px));
-  padding: 20px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
-  box-shadow: 0 12px 40px #0005;
+.layer-group-dialog form {
   display: grid;
   gap: 12px;
-}
-.layer-group-dialog h3 {
-  margin: 0 0 4px;
-  font-size: var(--font-size-dialog);
-  font-weight: var(--font-weight-medium);
 }
 .layer-group-dialog label {
   color: var(--muted);
 }
 .layer-group-dialog input {
   min-width: 0;
-  height: 34px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface);
-  padding: 0 9px;
+  width: 100%;
 }
-.layer-group-dialog > div {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+.layer-group-dialog .modal-actions {
   margin-top: 4px;
 }
 .layer-rename-help {
@@ -168,4 +145,7 @@
   line-height: 1.5;
 }
 
-.layer-expander, .tree-row > .lucide { --icon-size: var(--icon-size-sm); }
+.layer-expander,
+.tree-row > .lucide {
+  --icon-size: var(--icon-size-sm);
+}

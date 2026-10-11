@@ -449,7 +449,7 @@ for (const theme of ["dark", "light"]) {
     await cell(page, 1).click({ button: "right" });
     await expect(page.getByRole("menu")).toHaveCSS("width", "192px");
     await expect(page.getByRole("menu")).toHaveCSS("font-size", "13px");
-    await expect(item(page, "复制单元格")).toHaveCSS("height", "30px");
+    await expect(item(page, "复制单元格")).toHaveCSS("height", "32px");
     await expect(item(page, "定位到要素")).toBeFocused();
     await page.screenshot({
       path: `output/playwright/workspace-context-menu-${theme}.png`,

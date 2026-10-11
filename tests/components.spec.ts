@@ -58,7 +58,7 @@ test("picker Escape retains import dialog and terminal follows theme without rem
   await expect(terminal).toHaveAttribute("data-test-session", "retained");
   await expect(page.locator(".gis-agent-panel")).toHaveCSS(
     "background-color",
-    "rgb(245, 245, 242)",
+    "rgb(240, 241, 243)",
   );
   await page.getByRole("button", { name: "隐藏助手侧栏" }).click();
   await page.locator("input[type=file]").setInputFiles({

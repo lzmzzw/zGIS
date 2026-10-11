@@ -48,18 +48,46 @@ test("configured services stay single-select, toggle preserves selection and vec
   await page.getByRole("button", { name: "返回地图", exact: true }).click();
   await page.getByRole("button", { name: "底图", exact: true }).click();
   await expect(page.getByRole("radio")).toHaveCount(3);
-  await page
-    .locator(".basemap-card")
-    .filter({
-      has: page.getByRole("radio", { name: "测试影像", exact: true }),
-    })
-    .click();
+  const imageryCard = page.locator(".basemap-card").filter({
+    has: page.getByRole("radio", { name: "测试影像", exact: true }),
+  });
+  const previewBounds = await imageryCard
+    .locator(".basemap-preview")
+    .boundingBox();
+  await page.mouse.move(
+    previewBounds!.x + previewBounds!.width / 2,
+    previewBounds!.y + previewBounds!.height / 2,
+  );
+  await page.mouse.down();
+  // Keep the press across frames: blur must not close the panel before click.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+  await expect(page.getByRole("region", { name: "底图服务" })).toBeVisible();
+  await page.mouse.up();
   await expect(
     page.getByRole("radio", { name: "测试影像", exact: true }),
   ).toBeChecked();
   await expect
     .poll(() => requests.some((url) => url.includes("test-imagery")))
     .toBe(true);
+  await expect(page.locator(".basemap-source")).toHaveCount(0);
+  await page.getByRole("radio", { name: "测试影像", exact: true }).focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(
+    page.getByRole("radio", { name: "OpenStreetMap" }),
+  ).toBeChecked();
+  const nameBounds = await imageryCard.locator("strong").boundingBox();
+  await page.mouse.click(
+    nameBounds!.x + nameBounds!.width / 2,
+    nameBounds!.y + nameBounds!.height / 2,
+  );
+  await expect(
+    page.getByRole("radio", { name: "测试影像", exact: true }),
+  ).toBeChecked();
   await page.getByLabel("显示底图", { exact: true }).uncheck();
   await page
     .locator(".basemap-card")

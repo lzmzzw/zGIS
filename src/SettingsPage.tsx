@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowUp,
@@ -52,11 +52,14 @@ function BasemapServiceDialog({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
+  const urlInput = useRef<HTMLInputElement>(null);
+  const errorId = useId();
   const [name, setName] = useState(service?.name ?? "");
   const [url, setUrl] = useState(service?.url ?? "");
   const [attribution, setAttribution] = useState(service?.attribution ?? "");
   const [enabled, setEnabled] = useState(service?.enabled !== false);
   const [error, setError] = useState("");
+  const [invalidField, setInvalidField] = useState<"name" | "url" | null>(null);
   const [saving, setSaving] = useState(false);
   const request = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -102,15 +105,20 @@ function BasemapServiceDialog({
           if (request.current) return;
           if (!name.trim()) {
             setError("请输入底图名称。");
+            setInvalidField("name");
+            nameInput.current?.focus();
             return;
           }
           if (!validateXyzUrl(url.trim())) {
             setError("XYZ 地址须为 HTTP(S)，并包含 {z}、{x}、{y}。");
+            setInvalidField("url");
+            urlInput.current?.focus();
             return;
           }
           const controller = new AbortController();
           request.current = controller;
           setError("");
+          setInvalidField(null);
           setSaving(true);
           let previewImage =
             service?.url?.trim() === url.trim()
@@ -149,22 +157,39 @@ function BasemapServiceDialog({
           <input
             aria-label={service ? "底图名称" : "新底图名称"}
             ref={nameInput}
+            aria-invalid={invalidField === "name" || undefined}
+            aria-describedby={invalidField === "name" ? errorId : undefined}
             autoFocus
             disabled={saving}
             maxLength={100}
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) => {
+              setName(event.target.value);
+              if (invalidField === "name") {
+                setInvalidField(null);
+                setError("");
+              }
+            }}
           />
         </label>
         <label>
           XYZ 地址
           <input
             aria-label="XYZ 瓦片地址"
+            ref={urlInput}
+            aria-invalid={invalidField === "url" || undefined}
+            aria-describedby={invalidField === "url" ? errorId : undefined}
             type="text"
             disabled={saving}
             placeholder="https://example.com/{z}/{x}/{y}.png"
             value={url}
-            onChange={(event) => setUrl(event.target.value)}
+            onChange={(event) => {
+              setUrl(event.target.value);
+              if (invalidField === "url") {
+                setInvalidField(null);
+                setError("");
+              }
+            }}
           />
         </label>
         <label>
@@ -188,7 +213,7 @@ function BasemapServiceDialog({
           在地图中显示
         </label>
         {error && (
-          <p className="warning" role="alert">
+          <p id={errorId} className="warning" role="alert">
             {error}
           </p>
         )}
@@ -212,11 +237,25 @@ export default function SettingsPage(props: Props) {
     returnFocus: HTMLButtonElement | null;
   } | null>(null);
   const addButton = useRef<HTMLButtonElement>(null);
+  const undoButton = useRef<HTMLButtonElement>(null);
+  const serviceButtons = useRef(
+    new globalThis.Map<string, HTMLButtonElement>(),
+  );
+  const pendingFocus = useRef<string | "undo" | null>(null);
   const [removed, setRemoved] = useState<{
     service: BasemapService;
     index: number;
   } | null>(null);
   const back = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const target = pendingFocus.current;
+    if (!target) return;
+    pendingFocus.current = null;
+    (target === "undo"
+      ? undoButton.current
+      : (serviceButtons.current.get(target) ?? addButton.current)
+    )?.focus();
+  }, [props.services, removed]);
   const closeRef = useRef(props.onClose);
   closeRef.current = props.onClose;
   useEffect(() => {
@@ -350,6 +389,11 @@ export default function SettingsPage(props: Props) {
                       <button
                         className="icon-button"
                         aria-label={`编辑 ${service.name}`}
+                        ref={(element) => {
+                          if (element)
+                            serviceButtons.current.set(service.id, element);
+                          else serviceButtons.current.delete(service.id);
+                        }}
                         title="编辑"
                         onClick={(event) =>
                           setServiceDialog({
@@ -365,6 +409,7 @@ export default function SettingsPage(props: Props) {
                         aria-label={`删除 ${service.name}`}
                         title="删除"
                         onClick={() => {
+                          pendingFocus.current = "undo";
                           setRemoved({ service, index });
                           props.onServices(
                             props.services.filter(
@@ -391,8 +436,10 @@ export default function SettingsPage(props: Props) {
                 <p className="basemap-undo" role="status">
                   已移除 {removed.service.name}
                   <button
+                    ref={undoButton}
                     className="quiet"
                     onClick={() => {
+                      pendingFocus.current = removed.service.id;
                       const next = [...props.services];
                       next.splice(
                         Math.min(removed.index, next.length),

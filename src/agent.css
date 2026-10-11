@@ -18,12 +18,12 @@
   padding: 12px 16px 0;
 }
 .gis-agent-toolbar > button:first-child:not(:disabled) {
-  background: var(--sidebar-primary);
-  border-color: var(--sidebar-primary);
-  color: var(--sidebar-primary-text);
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
 }
 .gis-agent-toolbar > button:first-child:hover:not(:disabled) {
-  background: var(--sidebar-primary-hover);
+  background: var(--primary-hover);
 }
 .gis-agent-hint {
   font-size: var(--font-size-sm);

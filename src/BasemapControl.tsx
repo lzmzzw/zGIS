@@ -48,28 +48,56 @@ export default function BasemapControl(props: Props) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null),
     trigger = useRef<HTMLButtonElement>(null);
+  const blurFrame = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (blurFrame.current !== null) cancelAnimationFrame(blurFrame.current);
+    },
+    [],
+  );
   useEffect(() => {
     if (!open) return;
+    const selected = root.current?.querySelector<HTMLInputElement>(
+      'input[type="radio"]:checked',
+    );
+    (
+      selected ??
+      root.current?.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    )?.focus();
     const outside = (e: PointerEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
     const escape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
         e.stopPropagation();
         setOpen(false);
         trigger.current?.focus();
       }
     };
     document.addEventListener("pointerdown", outside);
-    document.addEventListener("keydown", escape);
+    root.current?.addEventListener("keydown", escape);
+    const element = root.current;
     return () => {
       document.removeEventListener("pointerdown", outside);
-      document.removeEventListener("keydown", escape);
+      element?.removeEventListener("keydown", escape);
     };
   }, [open]);
   const available = availableBasemaps(props.services);
   return (
-    <div ref={root} className="basemap-control">
+    <div
+      ref={root}
+      className="basemap-control"
+      onBlur={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null))
+          return;
+        if (blurFrame.current !== null) cancelAnimationFrame(blurFrame.current);
+        blurFrame.current = requestAnimationFrame(() => {
+          blurFrame.current = null;
+          if (!root.current?.contains(document.activeElement)) setOpen(false);
+        });
+      }}
+    >
       {open && (
         <section
           id="basemap-services"
@@ -123,21 +151,6 @@ export default function BasemapControl(props: Props) {
               </label>
             ))}
           </div>
-          <p className="basemap-source">
-            {props.services.find((service) => service.id === props.value)
-              ?.attribution === "© OpenStreetMap contributors" ? (
-              <a
-                href="https://www.openstreetmap.org/copyright"
-                target="_blank"
-                rel="noreferrer"
-              >
-                © OpenStreetMap contributors
-              </a>
-            ) : (
-              (props.services.find((service) => service.id === props.value)
-                ?.attribution ?? "")
-            )}
-          </p>
           {!available.length && <p className="form-note">暂无可显示的底图</p>}
         </section>
       )}

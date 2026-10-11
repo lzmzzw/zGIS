@@ -94,7 +94,7 @@ test("custom XYZ services share settings order, selection and restart state", as
   await expect(
     page.getByRole("radio", { name: "自定义测试底图", exact: true }),
   ).toBeChecked();
-  await expect(page.getByText("测试服务来源", { exact: true })).toBeVisible();
+  await expect(page.getByText("测试服务来源", { exact: true })).toHaveCount(0);
   await expect.poll(() => tiles.length).toBeGreaterThan(0);
   await page.keyboard.press("Escape");
   await page.reload();
@@ -170,7 +170,7 @@ test("editing cancels cleanly, saves a changed URL and preserves selection after
   await expect(
     page.getByRole("radio", { name: "已编辑底图", exact: true }),
   ).toBeChecked();
-  await expect(page.getByText("更新的来源", { exact: true })).toBeVisible();
+  await expect(page.getByText("更新的来源", { exact: true })).toHaveCount(0);
   await expect
     .poll(() => requests.some((url) => url.includes("new-tiles.example")))
     .toBe(true);
@@ -267,7 +267,7 @@ test("the default OSM service can be edited, removed and undone; all-hidden stat
   await expect(
     page.getByRole("radio", { name: "OSM 镜像", exact: true }),
   ).toBeChecked();
-  await expect(page.getByText("测试镜像来源", { exact: true })).toBeVisible();
+  await expect(page.getByText("测试镜像来源", { exact: true })).toHaveCount(0);
   await expect.poll(() => requests.length).toBeGreaterThan(0);
   await page.keyboard.press("Escape");
   await openSettings(page);

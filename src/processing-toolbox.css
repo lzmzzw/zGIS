@@ -304,13 +304,13 @@
 .processing-run {
   flex-shrink: 0;
   width: 100%;
-  border-color: var(--sidebar-primary);
-  background: var(--sidebar-primary);
-  color: var(--sidebar-primary-text);
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-text);
   font-weight: var(--font-weight-medium);
 }
 .processing-run:hover:not(:disabled) {
-  background: var(--sidebar-primary-hover);
+  background: var(--primary-hover);
 }
 .processing-run:disabled {
   border-color: var(--border);

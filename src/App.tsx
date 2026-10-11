@@ -1,3 +1,4 @@
+import HeaderMenu from "./HeaderMenu";
 import {
   createContext,
   useContext,
@@ -238,46 +239,6 @@ interface History {
   futureFields?: string[][];
   pastSchemas?: DocumentLayer["schemaChanges"][];
   futureSchemas?: DocumentLayer["schemaChanges"][];
-}
-function HeaderMenu({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  const ref = useRef<HTMLDetailsElement>(null);
-  useEffect(() => {
-    const close = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node))
-        ref.current?.removeAttribute("open");
-    };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, []);
-  return (
-    <details
-      ref={ref}
-      className="header-menu"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          ref.current?.removeAttribute("open");
-          ref.current?.querySelector("summary")?.focus();
-        }
-      }}
-    >
-      <summary>{label}</summary>
-      <div
-        className="menu-items"
-        onClick={(event) => {
-          if ((event.target as Element).closest("button:not(:disabled)"))
-            ref.current?.removeAttribute("open");
-        }}
-      >
-        {children}
-      </div>
-    </details>
-  );
 }
 export default function App() {
   const [context, setContext] = useState<WorkspaceContext>();
@@ -2520,6 +2481,7 @@ export default function App() {
         (event.target as Element)?.closest(
           "input, textarea, select, [contenteditable=true]",
         ) ||
+        document.querySelector("dialog[open]") ||
         modal ||
         busy ||
         gestureActive

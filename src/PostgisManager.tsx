@@ -42,75 +42,81 @@ function ManagerDialog({
   children,
   onClose,
   busy,
+  returnFocus,
 }: {
   title: string;
   children: ReactNode;
   onClose(): void;
   busy: boolean;
+  returnFocus: HTMLElement | null;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDialogElement>(null);
+  const initialFocusPending = useRef(true);
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    ref.current?.querySelector<HTMLElement>("input,button")?.focus();
-    const guard = (e: FocusEvent) => {
-      if (!ref.current?.contains(e.target as Node))
-        ref.current?.querySelector<HTMLElement>("input,button")?.focus();
-    };
-    document.addEventListener("focusin", guard);
+    initialFocusPending.current = true;
+    const element = ref.current;
+    element?.showModal();
     return () => {
-      document.removeEventListener("focusin", guard);
-      previous?.focus();
+      element?.close();
+      if (returnFocus?.isConnected) returnFocus.focus();
     };
-  }, []);
+  }, [returnFocus]);
+  useEffect(() => {
+    if (busy || !initialFocusPending.current) return;
+    const target =
+      ref.current?.querySelector<HTMLElement>("input:not(:disabled)") ??
+      ref.current?.querySelector<HTMLElement>("button:not(:disabled)");
+    if (target) {
+      target.focus();
+      initialFocusPending.current = false;
+    }
+  }, [busy]);
   return (
-    <div
-      className="pg-backdrop"
-      onKeyDown={(e) => {
-        if (e.key === "Escape") {
-          e.stopPropagation();
-          if (!busy) onClose();
-        }
-        if (e.key === "Tab") {
-          const items = [
-            ...ref.current!.querySelectorAll<HTMLElement>(
-              "input:not(:disabled),textarea:not(:disabled),select:not(:disabled),button:not(:disabled)",
-            ),
-          ];
-          const first = items[0],
-            last = items.at(-1);
-          if (e.shiftKey && document.activeElement === first) {
-            e.preventDefault();
-            last?.focus();
-          } else if (!e.shiftKey && document.activeElement === last) {
-            e.preventDefault();
-            first?.focus();
-          }
+    <dialog
+      className="modal pg-dialog"
+      ref={ref}
+      aria-label={title}
+      aria-busy={busy}
+      onKeyDown={(event) => {
+        if (event.key !== "Tab") return;
+        const items = [
+          ...event.currentTarget.querySelectorAll<HTMLElement>(
+            "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex='0']",
+          ),
+        ];
+        const first = items[0],
+          last = items.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
         }
       }}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onClose();
+      }}
     >
-      <div
-        className="pg-dialog"
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
-        <div className="pg-line pg-spread">
-          <h2>{title}</h2>
-          <button
-            className="icon-button"
-            aria-label="关闭"
-            disabled={busy}
-            onClick={onClose}
-          >
-            <X />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+      <header className="pg-line pg-spread">
+        <h2>{title}</h2>
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="关闭"
+          title="关闭"
+          disabled={busy}
+          onClick={onClose}
+        >
+          <X />
+        </button>
+      </header>
+      {children}
+    </dialog>
   );
 }
+
 export default function PostgisManager({
   open,
   onClose,
@@ -171,6 +177,16 @@ export default function PostgisManager({
   const [testStatus, setTestStatus] = useState("");
   const [assumedSrid, setAssumedSrid] = useState("");
   const [geometryColumn, setGeometryColumn] = useState("");
+  const backButton = useRef<HTMLButtonElement>(null);
+  const dialogTrigger = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    backButton.current?.focus();
+    return () => {
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [open]);
   const sequence = useRef(0);
   const alive = useRef(true);
   const source = sources.find((s) => s.id === sourceId);
@@ -259,6 +275,7 @@ export default function PostgisManager({
     if (s) onActive(runtime?.connectionId ?? "", { ...s, password: "" });
   }
   function startDialog(kind: "add" | "connect" | "delete") {
+    dialogTrigger.current = document.activeElement as HTMLElement | null;
     setDialogError("");
     setShowPassword(false);
     setTestStatus("");
@@ -423,10 +440,31 @@ export default function PostgisManager({
     <section
       className="pg-manager"
       hidden={!open}
+      onKeyDown={(event) => {
+        if (
+          event.key !== "Escape" ||
+          event.defaultPrevented ||
+          busy ||
+          dialog ||
+          document.querySelector("dialog[open]")
+        )
+          return;
+        const target = event.target as HTMLElement;
+        if (target.closest("input, textarea, select, [contenteditable=true]"))
+          return;
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }}
       aria-label={engineLabel + " 数据源管理"}
     >
       <header className="pg-heading">
-        <button className="quiet" disabled={busy} onClick={onClose}>
+        <button
+          ref={backButton}
+          className="quiet"
+          disabled={busy}
+          onClick={onClose}
+        >
           <ArrowLeft />
           返回地图
         </button>
@@ -466,6 +504,7 @@ export default function PostgisManager({
             <button
               key={s.id}
               className={`pg-source ${sourceId === s.id ? "selected" : ""}`}
+              aria-pressed={sourceId === s.id}
               disabled={busy}
               onClick={() => activate(s.id)}
             >
@@ -533,6 +572,7 @@ export default function PostgisManager({
               ? available.map((t) => (
                   <button
                     className={`pg-table ${tableKey === key(t) ? "selected" : ""}`}
+                    aria-pressed={tableKey === key(t)}
                     key={key(t)}
                     onClick={() => {
                       setTableKey(key(t));
@@ -568,6 +608,7 @@ export default function PostgisManager({
                         .map((t) => (
                           <button
                             className={`pg-table ${tableKey === key(t) ? "selected" : ""}`}
+                            aria-pressed={tableKey === key(t)}
                             key={key(t)}
                             onClick={() => {
                               setTableKey(key(t));
@@ -588,7 +629,7 @@ export default function PostgisManager({
                     )}
                   </div>
                 ))}
-            {mysql && session && !available.length && (
+            {session && !available.length && (
               <p className="pg-note">此筛选下没有数据表</p>
             )}
           </div>
@@ -771,9 +812,16 @@ export default function PostgisManager({
                   </button>
                 </div>
               ) : previewBusy ? (
-                <div className="pg-empty">读取预览…</div>
+                <div className="pg-empty" role="status">
+                  读取预览…
+                </div>
               ) : (
-                <div className="pg-preview-scroll">
+                <div
+                  className="pg-preview-scroll"
+                  tabIndex={0}
+                  role="region"
+                  aria-label="数据预览记录"
+                >
                   <table>
                     <thead>
                       <tr>
@@ -828,6 +876,7 @@ export default function PostgisManager({
       </div>
       {dialog && (
         <ManagerDialog
+          returnFocus={dialogTrigger.current}
           title={
             dialog === "delete"
               ? "删除数据源"
@@ -980,7 +1029,7 @@ export default function PostgisManager({
                 <button type="button" disabled={busy} onClick={closeDialog}>
                   取消
                 </button>
-                <button disabled={busy || !configValid}>
+                <button className="primary" disabled={busy || !configValid}>
                   {busy ? "连接中" : dialog === "add" ? "添加并连接" : "连接"}
                 </button>
               </div>

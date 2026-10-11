@@ -20,6 +20,13 @@
   --icon-size-map: 20px;
   --control-height: 32px;
   --control-radius: 4px;
+  --dialog-radius: 6px;
+  --menu-item-height: 32px;
+  --primary: #d6d7db;
+  --primary-hover: #eeeef0;
+  --primary-text: #202022;
+  --neutral-accent: #bdbdbd;
+  --overlay-backdrop: #0008;
   font-family: var(--font-ui);
   font-size: var(--font-size-base);
   font-synthesis: none;
@@ -30,11 +37,11 @@
   --chrome: #111113;
   --surface: #202022;
   --elevated: #262629;
-  --control-border: #55565c;
+  --control-border: #70737c;
   --disabled-text: #85878e;
   --overlay-shadow: 0 8px 28px #0005;
   --text: #eff0f2;
-  --muted: #a1a3a8;
+  --muted: #a4a4a4;
   --accent: #78a8ff;
   --border: #ffffff19;
   --hover: #ffffff0e;
@@ -57,15 +64,15 @@
   --chrome: #e6e8eb;
   --surface: #ffffff;
   --elevated: #ffffff;
-  --control-border: #a4a9b2;
+  --control-border: #858d99;
   --disabled-text: #7a808a;
   --overlay-shadow: 0 8px 28px #0002;
   --text: #22252a;
-  --muted: #5d646e;
+  --muted: #666666;
   --accent: #3264c1;
   --border: #00000022;
   --hover: #00000008;
-  --selected: #3e73d818;
+  --selected: #0000000d;
   --map: #edf0ef;
   --table: #ffffff;
   --table-selected: #d8e7ff;
@@ -74,6 +81,10 @@
   --danger-fill: #b83e3e0e;
   --warning: #805b17;
   --warning-fill: #805b170d;
+  --primary: #37393e;
+  --primary-hover: #24272c;
+  --primary-text: #ffffff;
+  --neutral-accent: #626873;
 }
 * {
   box-sizing: border-box;
@@ -103,6 +114,9 @@ button {
   border-radius: var(--control-radius);
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 button:hover:not(:disabled) {
   background: var(--hover);
@@ -119,6 +133,11 @@ textarea:focus-visible,
 summary:focus-visible,
 [role="separator"]:focus-visible,
 [role="treeitem"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+a:focus-visible,
+[tabindex="0"]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -401,18 +420,28 @@ details button {
   display: grid;
   padding: 5px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--dialog-radius);
   background: var(--elevated);
   box-shadow: var(--overlay-shadow);
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 64px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .menu-items > button {
   justify-content: flex-start;
   background: transparent;
   border: 0;
   margin: 0;
+  height: var(--menu-item-height);
+  padding: 0 9px;
 }
 .menu-items > button:hover {
   background: var(--hover);
+}
+.menu-items > button:focus-visible {
+  background: var(--hover);
+  outline-offset: -2px;
 }
 .menu-items > button[aria-pressed="true"] {
   color: var(--accent);
@@ -954,14 +983,15 @@ dd {
   max-width: calc(100vw - 30px);
   max-height: 90dvh;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--dialog-radius);
   padding: 0 20px 18px;
   color: var(--text);
   background: var(--panel);
-  box-shadow: 0 12px 45px #0003;
+  box-shadow: var(--overlay-shadow);
+  overscroll-behavior: contain;
 }
 .modal::backdrop {
-  background: #0008;
+  background: var(--overlay-backdrop);
 }
 .modal > header {
   display: flex;
@@ -998,6 +1028,7 @@ dd {
 }
 .modal-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 20px;
@@ -1005,12 +1036,23 @@ dd {
   border-top: 1px solid var(--border);
 }
 .modal-actions button:last-child {
-  background: var(--accent);
-  color: var(--panel);
-  border-color: var(--accent);
+  background: var(--primary);
+  color: var(--primary-text);
+  border-color: var(--primary);
+}
+.modal-actions button:last-child:hover:not(:disabled),
+.modal-actions button:last-child:active:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 .modal-actions button.danger {
   background: var(--danger);
+  border-color: var(--danger);
+  color: var(--panel);
+}
+.modal-actions button.danger:hover:not(:disabled),
+.modal-actions button.danger:active:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 85%, var(--text));
   border-color: var(--danger);
 }
 .modal:has(.editor-layout) {
@@ -1390,6 +1432,12 @@ select[aria-invalid="true"] {
   height: 38px;
   padding: 0 12px;
 }
+.settings-page-nav button[aria-current="page"] {
+  color: var(--text);
+  background: var(--selected);
+  font-weight: var(--font-weight-semibold);
+  box-shadow: inset 3px 0 var(--neutral-accent);
+}
 .settings-page-content {
   min-width: 0;
   overflow: auto;
@@ -1476,6 +1524,8 @@ select {
   border-color: var(--control-border);
   cursor: pointer;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
 }
 select option {
   background: var(--elevated);
@@ -1570,6 +1620,11 @@ input::placeholder,
 textarea::placeholder {
   color: var(--muted);
   opacity: 1;
+}
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--danger);
 }
 button:not(:disabled):active {
   background: var(--selected);
