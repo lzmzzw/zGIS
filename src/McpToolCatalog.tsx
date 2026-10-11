@@ -18,6 +18,8 @@ const labels: Record<string, [string, string]> = {
   dissolve: ["空间分析", "合并面"],
   read_result: ["分析结果", "读取结果"],
   publish_result: ["分析结果", "发布结果图层"],
+  list_results: ["分析结果", "查看结果缓存"],
+  release_result: ["分析结果", "释放结果缓存"],
 };
 
 export default function McpToolCatalog() {

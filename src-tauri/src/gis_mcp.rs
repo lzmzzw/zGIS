@@ -175,7 +175,7 @@ impl GisMcp {
             "unknown_tool"
         };
         let mut i = self.inner.lock().unwrap();
-        i.audit.push_back(json!({"tool":safe_name,"risk":if name=="publish_result"{"local_layer_add"}else{"read_only"},"status":if ok{"ok"}else{"error"},"summary":if ok{"完成"}else{"拒绝或执行失败"}}));
+        i.audit.push_back(json!({"tool":safe_name,"risk":match name {"publish_result"=>"local_layer_add","release_result"=>"transient_cache_release",_=>"read_only"},"affectedDomain":if name=="release_result"{"analysis_cache"}else{"gis"},"status":if ok{"ok"}else{"error"},"summary":if ok{"完成"}else{"拒绝或执行失败"}}));
         while i.audit.len() > 200 {
             i.audit.pop_front();
         }
@@ -351,7 +351,12 @@ async fn handle(
                 Ok(v) => {
                     json!({"content":[{"type":"text","text":v.to_string()}],"structuredContent":v,"isError":false})
                 }
-                Err(e) => json!({"content":[{"type":"text","text":e}],"isError":true}),
+                Err(e) => {
+                    let code = if e.starts_with("RESULT_ITEM_TOO_LARGE:") { "RESULT_ITEM_TOO_LARGE" }
+                        else if e.starts_with("RESULT_CACHE_FULL:") { "RESULT_CACHE_FULL" }
+                        else { "TOOL_ERROR" };
+                    json!({"content":[{"type":"text","text":e}],"structuredContent":{"error":{"code":code,"message":e}},"isError":true})
+                },
             })
         }
         _ => Err("未知JSON-RPC方法".to_string()),
@@ -365,7 +370,7 @@ async fn handle(
     ))
 }
 fn def(name: &str, description: &str, properties: Value, required: &[&str]) -> Value {
-    json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":name!="publish_result","destructiveHint":false,"idempotentHint":true,"openWorldHint":!matches!(name,"list_layers"|"describe_layer"|"read_features"|"read_result"|"publish_result")}})
+    json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":!matches!(name,"publish_result"|"release_result"),"destructiveHint":name=="release_result","idempotentHint":true,"openWorldHint":!matches!(name,"list_layers"|"describe_layer"|"read_features"|"read_result"|"publish_result"|"list_results"|"release_result")}})
 }
 #[tauri::command]
 pub fn gis_mcp_tool_catalog() -> Vec<Value> {
@@ -390,8 +395,8 @@ fn build_definitions() -> Vec<Value> {
         ),
         def(
             "read_features",
-            "分页读取当前图层（最多100条）",
-            json!({"layerId":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),
+            "分页读取当前图层（最多100条）；properties选择属性字段，includeGeometry=false省略几何；按nextOffset推进，超大单条明确报错",
+            page_schema("layerId"),
             &["layerId"],
         ),
         def(
@@ -402,8 +407,8 @@ fn build_definitions() -> Vec<Value> {
         ),
         def(
             "read_result",
-            "分页读取分析缓存（最多100条）",
-            json!({"resultId":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),
+            "分页读取分析缓存或质量问题（最多100条）；要素可选择properties及includeGeometry；按nextOffset推进，超大单条明确报错",
+            page_schema("resultId"),
             &["resultId"],
         ),
         def(
@@ -413,6 +418,8 @@ fn build_definitions() -> Vec<Value> {
             &["resultId", "name"],
         ),
     ];
+    d.push(def("list_results", "列举未过期分析缓存、剩余预算及到期秒数；不读取源文件、不占用新缓存", json!({}), &[]));
+    d.push(def("release_result", "仅释放指定resultId的临时分析缓存；不可撤销，后续引用失效；不删除已发布图层或待导入副本，重复释放安全", json!({"resultId":{"type":"string","minLength":1,"maxLength":100}}), &["resultId"]));
     let mut spatial = super::spatial::tool_definitions();
     for tool in &mut spatial {
         tool["annotations"]["openWorldHint"] = json!(true);
@@ -425,6 +432,11 @@ fn build_definitions() -> Vec<Value> {
     }
     d.extend(spatial);
     d
+}
+fn page_schema(id: &str) -> Value {
+    let mut schema = json!({"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100},"properties":{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":256}},"includeGeometry":{"type":"boolean"}});
+    schema[id] = json!({"type":"string","minLength":1});
+    schema
 }
 fn validate(value: &Value, schema: &Value) -> Result<(), String> {
     match schema["type"].as_str() {
@@ -596,10 +608,11 @@ fn cache(
         || i.results.values().map(|r| r.features.len()).sum::<usize>() + features.len() > 200_000
         || i.results.values().map(|r| r.bytes).sum::<usize>() + bytes > 100 * 1024 * 1024
     {
-        return Err("结果缓存已满，请关闭重启MCP清理".into());
+        return Err("RESULT_CACHE_FULL: 结果缓存已满，请使用list_results查看并通过release_result释放不再需要的中间结果".into());
     }
     let id = uuid::Uuid::new_v4().to_string();
-    let result = json!({"resultId":id,"summary":compact_summary(&summary),"featureCount":features.len(),"sample":bounded_sample(&features)});
+    let sample = bounded_sample(&features);
+    let result = json!({"resultId":id,"summary":compact_summary(&summary),"featureCount":features.len(),"sampleTruncated":sample.len()<features.len(),"sample":sample});
     i.results.insert(
         id,
         Cached {
@@ -634,6 +647,21 @@ fn call_expected(m: &GisMcp, name: &str, args: &Value, generation: u64) -> Resul
             .retain(|_, r| r.created.elapsed() < Duration::from_secs(1800));
     }
     match name {
+        "list_results" => {
+            let i = m.inner.lock().unwrap();
+            let used_bytes: usize = i.results.values().map(|r| r.bytes).sum();
+            let used_features: usize = i.results.values().map(|r| r.features.len()).sum();
+            let mut results: Vec<Value> = i.results.iter().map(|(id, r)| json!({"resultId":id,"featureCount":r.features.len(),"bytes":r.bytes,"expiresInSeconds":1800u64.saturating_sub(r.created.elapsed().as_secs()),"publishable":r.publishable,"published":r.published,"stale":stale(&i,r)})).collect();
+            results.sort_by(|a,b| a["resultId"].as_str().cmp(&b["resultId"].as_str()));
+            Ok(json!({"results":results,"remaining":{"results":20usize.saturating_sub(i.results.len()),"features":200_000usize.saturating_sub(used_features),"bytes":(100*1024*1024usize).saturating_sub(used_bytes)}}))
+        }
+        "release_result" => {
+            let mut i = m.inner.lock().unwrap();
+            if i.generation != generation { return Err("会话授权已改变".into()); }
+            let id = args["resultId"].as_str().unwrap();
+            let removed = i.results.remove(id);
+            Ok(json!({"resultId":id,"released":removed.is_some(),"freedBytes":removed.map(|r|r.bytes).unwrap_or(0)}))
+        }
         "list_layers" => {
             let i = m.inner.lock().unwrap();
             Ok(
@@ -659,16 +687,16 @@ fn call_expected(m: &GisMcp, name: &str, args: &Value, generation: u64) -> Resul
                     json!({"id":l["id"],"name":l["name"],"featureCount":f.len(),"fields":fields,"version":fingerprint(l)}),
                 )
             } else {
-                Ok(page(f, args, json!({"version":fingerprint(l)})))
+                page(f, args, json!({"version":fingerprint(l)}), "features")
             }
         }
         "load_vector_file" => {
-                let f = super::vector_files::load(args["path"].as_str().unwrap(), args)?;
-            let count = f.len();
+            let loaded = super::vector_files::load_with_metadata(args["path"].as_str().unwrap(), args)?;
+            let count = loaded.features.len();
             cache(
                 m,
-                f,
-                json!({"operation":name,"featureCount":count}),
+                loaded.features,
+                json!({"operation":name,"featureCount":count,"sourceCrs":loaded.source_crs,"workingCrs":loaded.working_crs}),
                 vec![],
                 generation,
                 true,
@@ -681,25 +709,15 @@ fn call_expected(m: &GisMcp, name: &str, args: &Value, generation: u64) -> Resul
                 .get(args["resultId"].as_str().unwrap())
                 .ok_or("结果不存在或已过期")?;
             if let Some(issues) = r.summary["issues"].as_array() {
-                let offset = args["offset"].as_u64().unwrap_or(0) as usize;
-                let limit = args["limit"].as_u64().unwrap_or(100) as usize;
-                let items = bounded_sample(
-                    &issues
-                        .iter()
-                        .skip(offset)
-                        .take(limit)
-                        .cloned()
-                        .collect::<Vec<_>>(),
-                );
-                return Ok(
-                    json!({"summary":compact_summary(&r.summary),"total":issues.len(),"offset":offset,"issues":items,"stale":stale(&i,r)}),
-                );
+                let mut summary = compact_summary(&r.summary);
+                summary.as_object_mut().unwrap().remove("issues");
+                return page(issues, args, json!({"summary":summary,"stale":stale(&i,r)}), "issues");
             }
-            Ok(page(
+            page(
                 &r.features,
                 args,
-                json!({"summary":compact_summary(&r.summary),"stale":stale(&i,r)}),
-            ))
+                json!({"summary":compact_summary(&r.summary),"stale":stale(&i,r)}), "features",
+            )
         }
         "publish_result" => {
             let mut i = m.inner.lock().unwrap();
@@ -788,23 +806,180 @@ fn compact_summary(summary: &Value) -> Value {
     }
     Value::Object(v)
 }
-fn page(f: &[Value], args: &Value, mut extra: Value) -> Value {
+fn page(f: &[Value], args: &Value, mut extra: Value, kind: &str) -> Result<Value, String> {
     let offset = args["offset"].as_u64().unwrap_or(0) as usize;
     let limit = args["limit"].as_u64().unwrap_or(100).min(100) as usize;
     extra["total"] = json!(f.len());
     extra["offset"] = json!(offset);
-    extra["features"] = json!(bounded_sample(
-        &f.iter()
-            .skip(offset)
-            .take(limit)
-            .cloned()
-            .collect::<Vec<_>>()
-    ));
-    extra
+    extra["resultKind"] = json!(kind);
+    let include_geometry = args["includeGeometry"].as_bool().unwrap_or(true);
+    let fields = args["properties"].as_array();
+    if kind == "features" { extra["projection"] = json!({"includeGeometry":include_geometry,"properties":fields}); }
+    let mut budget = (512 * 1024usize).saturating_sub(super::bounded_json_size(&extra, 512*1024).map_err(|_| "分页元数据超过响应上限")? + 256);
+    let mut items = Vec::new();
+    for (index, original) in f.iter().enumerate().skip(offset).take(limit) {
+        let mut item = original.clone();
+        if kind == "features" {
+            if let Some(fields) = fields {
+                if let Some(properties) = item["properties"].as_object_mut() {
+                    properties.retain(|key, _| fields.iter().any(|field| field.as_str()==Some(key)));
+                }
+            }
+            if !include_geometry {
+                if let Some(object) = item.as_object_mut() {
+                    object.remove("geometry"); object.remove("bbox");
+                }
+            }
+        }
+        match super::bounded_json_size(&item, budget.saturating_sub(1)) {
+            Ok(bytes) => { budget = budget.saturating_sub(bytes+1); items.push(item); }
+            Err(_) if items.is_empty() => return Err(format!("RESULT_ITEM_TOO_LARGE: offset={index} 的单条记录超过512KiB响应预算；请指定properties字段或includeGeometry=false后重试")),
+            Err(_) => break,
+        }
+    }
+    let next = offset.saturating_add(items.len());
+    extra["returnedCount"] = json!(items.len());
+    extra["nextOffset"] = if next < f.len() { json!(next) } else { Value::Null };
+    extra["hasMore"] = json!(next < f.len());
+    extra["truncated"] = json!(items.len() < limit.min(f.len().saturating_sub(offset)));
+    extra[kind] = json!(items);
+    Ok(extra)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn test_feature(text_bytes: usize) -> Value {
+        json!({"type":"Feature","geometry":{"type":"Point","coordinates":[1,1]},"properties":{"name":"保留","large":"x".repeat(text_bytes)}})
+    }
+    #[tokio::test]
+    async fn http_external_file_pagination_and_cache_release_roundtrip() {
+        let m=GisMcp::default();
+        m.enable_at("127.0.0.1:0",false).await.unwrap();
+        let (endpoint,token)=m.access().unwrap();
+        let client=reqwest::Client::builder().timeout(Duration::from_secs(5)).build().unwrap();
+        let invoke=|name: &'static str,args: Value| {
+            let request=client.post(&endpoint).bearer_auth(&token).header("Content-Type","application/json").body(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":args}}).to_string());
+            async move { serde_json::from_str::<Value>(&request.send().await.unwrap().text().await.unwrap()).unwrap()["result"].clone() }
+        };
+        let dir=tempfile::tempdir().unwrap();
+        let path=dir.path().join("projected.geojson");
+        let mut feature=test_feature(600*1024);
+        feature["geometry"]["coordinates"]=json!([0,0]);
+        feature["bbox"]=json!([0,0,0,0]);
+        feature["crs"]=json!({"type":"name","properties":{"name":"EPSG:3857"}});
+        std::fs::write(&path,feature.to_string()).unwrap();
+        let loaded=invoke("load_vector_file",json!({"path":path})).await;
+        assert_eq!(loaded["isError"],false);
+        assert_eq!(loaded["structuredContent"]["summary"]["sourceCrs"],"EPSG:3857");
+        assert_eq!(loaded["structuredContent"]["summary"]["workingCrs"],"EPSG:4326");
+        let id=loaded["structuredContent"]["resultId"].clone();
+        let blocked=invoke("read_result",json!({"resultId":id})).await;
+        assert_eq!(blocked["isError"],true);
+        assert_eq!(blocked["structuredContent"]["error"]["code"],"RESULT_ITEM_TOO_LARGE");
+        let projected=invoke("read_result",json!({"resultId":id,"properties":["name"]})).await;
+        assert_eq!(projected["isError"],false);
+        assert_eq!(projected["structuredContent"]["returnedCount"],1);
+        assert!(projected["structuredContent"]["features"][0].get("bbox").is_none());
+        assert!(projected["structuredContent"]["features"][0].get("crs").is_none());
+        let released=invoke("release_result",json!({"resultId":id})).await;
+        assert_eq!(released["structuredContent"]["released"],true);
+        assert_eq!(invoke("list_results",json!({})).await["structuredContent"]["remaining"]["results"],20);
+        assert_eq!(invoke("read_result",json!({"resultId":id})).await["isError"],true);
+        m.disable().await;
+    }
+    #[test]
+    fn oversized_feature_requires_explicit_projection_and_never_returns_empty_success() {
+        let m = GisMcp::default();
+        let original = test_feature(600*1024);
+        m.inner.lock().unwrap().layers.push(json!({"id":"large","name":"large","features":[original.clone()]}));
+        let result = cache(&m, vec![original.clone()], json!({}), vec![], 0, true).unwrap();
+        assert_eq!(result["sampleTruncated"], true);
+        for (tool, id) in [("read_result",json!({"resultId":result["resultId"]})),("read_features",json!({"layerId":"large"}))] {
+            assert!(call(&m,tool,&id).unwrap_err().starts_with("RESULT_ITEM_TOO_LARGE:"));
+            let mut projected = id.clone();
+            projected["properties"] = json!(["name"]);
+            let page = call(&m,tool,&projected).unwrap();
+            assert_eq!(page["features"][0]["properties"],json!({"name":"保留"}));
+            assert_eq!(page["returnedCount"],1);
+            assert!(page["nextOffset"].is_null());
+            assert_eq!(page["hasMore"],false);
+        }
+        assert_eq!(m.inner.lock().unwrap().layers[0]["features"][0],original);
+        assert_eq!(m.inner.lock().unwrap().results[result["resultId"].as_str().unwrap()].features[0],original);
+        let geometry = json!({"type":"Feature","geometry":{"type":"LineString","coordinates":vec![[1.,1.];70_000]},"properties":{"name":"line"}});
+        assert!(page(&[geometry.clone()],&json!({}),json!({}),"features").is_err());
+        let projected = page(&[geometry],&json!({"includeGeometry":false}),json!({}),"features").unwrap();
+        assert!(projected["features"][0].get("geometry").is_none());
+    }
+    #[test]
+    fn pagination_advances_by_returned_rows_and_reports_blocked_offset() {
+        let rows = vec![test_feature(300*1024),test_feature(300*1024),test_feature(600*1024),test_feature(0)];
+        let first = page(&rows,&json!({"limit":100}),json!({}),"features").unwrap();
+        assert_eq!(first["returnedCount"],1);
+        assert_eq!(first["nextOffset"],1);
+        assert_eq!(first["truncated"],true);
+        assert!(first.to_string().len()<512*1024);
+        let second=page(&rows,&json!({"offset":1}),json!({}),"features").unwrap();
+        assert_eq!(second["nextOffset"],2);
+        assert!(page(&rows,&json!({"offset":2}),json!({}),"features").unwrap_err().contains("offset=2"));
+        let projected=page(&rows,&json!({"offset":2,"properties":[]}),json!({}),"features").unwrap();
+        assert_eq!(projected["returnedCount"],2);
+        assert!(projected["nextOffset"].is_null());
+        let beyond=page(&rows,&json!({"offset":999}),json!({}),"features").unwrap();
+        assert_eq!(beyond["returnedCount"],0);
+        assert!(beyond["nextOffset"].is_null());
+    }
+    #[test]
+    fn cache_lifecycle_supports_long_workflows_without_touching_layers_or_publications() {
+        let m=GisMcp::default();
+        let layer=json!({"id":"a","name":"a","features":[test_feature(0)]});
+        m.inner.lock().unwrap().layers.push(layer.clone());
+        for _ in 0..100 {
+            let result=call(&m,"centroid",&json!({"source":{"layerId":"a"}})).unwrap();
+            assert_eq!(call(&m,"list_results",&json!({})).unwrap()["remaining"]["results"],19);
+            let id=result["resultId"].clone();
+            assert_eq!(call(&m,"release_result",&json!({"resultId":id})).unwrap()["released"],true);
+            assert!(call(&m,"read_result",&json!({"resultId":id})).is_err());
+            assert_eq!(call(&m,"release_result",&json!({"resultId":id})).unwrap()["released"],false);
+        }
+        let mut ids=Vec::new();
+        for _ in 0..20 { ids.push(cache(&m,vec![test_feature(0)],json!({}),vec![],0,true).unwrap()["resultId"].clone()); }
+        assert!(cache(&m,vec![],json!({}),vec![],0,true).unwrap_err().starts_with("RESULT_CACHE_FULL:"));
+        call(&m,"publish_result",&json!({"resultId":ids[0],"name":"output"})).unwrap();
+        let queued=m.inner.lock().unwrap().queue.clone();
+        call(&m,"release_result",&json!({"resultId":ids[0]})).unwrap();
+        cache(&m,vec![],json!({}),vec![],0,true).unwrap();
+        assert_eq!(m.inner.lock().unwrap().queue,queued);
+        assert_eq!(m.inner.lock().unwrap().layers[0],layer);
+        let expired=ids[1].as_str().unwrap();
+        m.inner.lock().unwrap().results.get_mut(expired).unwrap().created=Instant::now()-Duration::from_secs(1801);
+        assert_eq!(call(&m,"list_results",&json!({})).unwrap()["remaining"]["results"],1);
+        assert!(call(&m,"read_result",&json!({"resultId":expired})).is_err());
+    }
+    #[tokio::test]
+    async fn result_release_has_auth_generation_schema_and_redacted_audit_boundaries() {
+        let m=GisMcp::default();
+        let result=cache(&m,vec![test_feature(0)],json!({}),vec![],0,true).unwrap();
+        { let mut inner=m.inner.lock().unwrap(); inner.endpoint=Some("http://127.0.0.1:9420/mcp".into()); inner.token=Some("test-only".into()); }
+        let state=HttpState{mcp:m.clone(),limit:Arc::new(Semaphore::new(2)),generation:0};
+        let body=Bytes::from(json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"release_result","arguments":{"resultId":result["resultId"]}}}).to_string());
+        let mut headers=HeaderMap::new(); headers.insert("host","127.0.0.1:9420".parse().unwrap());
+        assert_eq!(handle(State(state.clone()),headers.clone(),body.clone()).await.unwrap_err(),StatusCode::UNAUTHORIZED);
+        assert_eq!(m.inner.lock().unwrap().results.len(),1);
+        assert!(call_expected(&m,"release_result",&json!({"resultId":result["resultId"]}),1).is_err());
+        assert!(call(&m,"release_result",&json!({"resultId":result["resultId"],"path":"forbidden"})).is_err());
+        assert!(call(&m,"read_result",&json!({"resultId":result["resultId"],"includeGeometry":"false"})).is_err());
+        headers.insert("authorization","Bearer test-only".parse().unwrap());
+        let (_,Json(out))=handle(State(state),headers,body).await.unwrap();
+        assert_eq!(out["result"]["structuredContent"]["released"],true);
+        let audit=m.inner.lock().unwrap().audit.clone();
+        assert_eq!(audit.back().unwrap()["risk"],"transient_cache_release");
+        assert!(!serde_json::to_string(&audit).unwrap().contains("test-only"));
+        assert!(!serde_json::to_string(&audit).unwrap().contains(result["resultId"].as_str().unwrap()));
+        let definition=definitions().into_iter().find(|v|v["name"]=="release_result").unwrap();
+        assert_eq!(definition["annotations"]["readOnlyHint"],false);
+        assert_eq!(definition["annotations"]["destructiveHint"],true);
+    }
     #[test]
     fn streaming_fingerprint_preserves_existing_versions() {
         use sha2::{Digest, Sha256};

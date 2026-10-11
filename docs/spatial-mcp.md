@@ -55,6 +55,7 @@ Agent 对 zGIS 内部图层的操作统一使用 zGIS MCP，具体操作以工�
 | `layer_summary` | 几何、字段、范围摘要 |
 | `read_result` | 分页读取结果或拓扑问题 |
 | `publish_result` | 导入独立未保存结果图层 |
+| `list_results` / `release_result` | 查看缓存预算、到期时间，释放指定临时结果 |
 
 分析的 `source` / `target` 三选一：`{"layerId":"图层ID"}`、`{"resultId":"缓存结果ID"}`、`{"path":"Agent 已判断可访问的文件路径","crs":"EPSG:4326"}`。文件参数另支持 `wktField`、`xField`、`yField`；以工具返回的 schema 为准。示例 tools/call arguments：
 
@@ -74,7 +75,15 @@ Agent 对 zGIS 内部图层的操作统一使用 zGIS MCP，具体操作以工�
 
 发布前检查源图层版本，源已修改则拒绝；同一结果重复发布不会重复创建图层。结果独立于源图层，用户使用现有保存/导出入口处理，不自动写文件或数据库。
 
-当前共 28 个 MCP 工具，其中 22 项为分析。`simplify` 的 `toleranceMeters` 须 >0 且 ≤100000；`dissolve` 可传非空 `groupBy` 字段，按标量类型和值分组。相交的目标属性采用 `target_` 前缀，字段冲突继续加下划线；新字段避免覆盖原属性。输出要素、顶点及字节预算在生成过程中检查，超限不返回部分结果。具体语义见工具箱说明与实际 schema。
+当前共 30 个 MCP 工具，其中 22 项为分析。`simplify` 的 `toleranceMeters` 须 >0 且 ≤100000；`dissolve` 可传非空 `groupBy` 字段，按标量类型和值分组。相交的目标属性采用 `target_` 前缀，字段冲突继续加下划线；新字段避免覆盖原属性。输出要素、顶点及字节预算在生成过程中检查，超限不返回部分结果。具体语义见工具箱说明与实际 schema。
+
+### 分页与缓存生命周期
+
+`read_features` 和 `read_result` 返回 `resultKind`、`returnedCount`、`nextOffset`、`hasMore`、`truncated`。按返回的 `nextOffset` 继续，不按请求 limit 推算；末页游标为 null。拓扑报告使用 `issues`，矢量结果使用 `features`。矢量分页可传 `properties:["字段名"]` 只读取指定属性（空数组表示不读属性），以及 `includeGeometry:false` 省略几何及 bbox；投影不修改缓存或源图层。超过响应预算的首条记录明确返回 `RESULT_ITEM_TOO_LARGE`，调整字段/几何选择后重试，不返回无法推进的空成功页。加载/分析预览使用 `sampleTruncated` 提示样本不完整。
+
+`load_vector_file` 的结果摘要包含独立的 `sourceCrs` 与 `workingCrs`。分析中间结果使用完毕后，先用 `list_results` 查看 `resultId`、剩余结果数/要素数/字节数和 `expiresInSeconds`，再调用 `release_result({resultId})`。释放仅影响指定临时缓存，后续读取或分析引用失效；已发布图层和待导入副本不变，重复释放返回 `released:false`。释放与正在执行的分析使用互斥锁协调：分析已取得的独立输入快照不受后续释放影响。没有自动淘汰仍在引用的有效结果。
+
+缓存满返回 `RESULT_CACHE_FULL` 并提示释放中间结果，无需重启应用。上述错误码位于 `structuredContent.error.code`；原有 text 错误消息和 `isError` 保留。缓存释放属于可重算的临时结果操作，标记为非只读、幂等、局部破坏性；沿用 MCP 鉴权与会话代次检查，审计仅记录工具、临时缓存影响域和结果，不记录要素内容、凭据或结果 ID。
 
 ## 数据与计算边界
 

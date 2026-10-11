@@ -32,8 +32,9 @@ try {
   const server = inventory.data.find(server => server.name === "zgis");
   assert.ok(server, "Codex configuration must include zgis");
   assert.ok(server.toolsError === null, "Codex must authenticate using the configured header helper");
-  assert.equal(Object.keys(server.tools).length, 28, "Codex must discover all zGIS tools");
-  console.log("PASS: Codex reads its persisted configuration, authenticates with the fixed keyring token and discovers all 28 zGIS MCP tools; no model inference");
+  assert.ok(Object.keys(server.tools).length >= 30, "Codex must discover the zGIS analysis and cache tools");
+  for (const name of ["list_results", "release_result"]) assert.ok(Object.keys(server.tools).some(key => key.endsWith(name)), `Missing ${name}`);
+  console.log("PASS: Codex reads its persisted configuration, authenticates with the fixed keyring token and discovers the zGIS analysis and cache tools; no model inference");
 } finally {
   for (const request of pending.values()) clearTimeout(request.timer);
   lines.close(); child.stdin.end(); child.kill();
