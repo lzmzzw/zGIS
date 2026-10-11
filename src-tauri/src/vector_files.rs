@@ -138,10 +138,66 @@ fn read(path: &Path) -> Result<Vec<u8>, String> {
     }
     Ok(bytes)
 }
+/// 来源坐标系与工作几何分离，不占用或覆盖用户属性及 GeoJSON foreign members。
+#[derive(Debug)]
+pub struct LoadedVector {
+    pub features: Vec<Value>,
+    pub source_crs: String,
+    pub working_crs: &'static str,
+}
+
 pub fn load(path: &str, args: &Value) -> Result<Vec<Value>, String> {
+    Ok(load_with_metadata(path, args)?.features)
+}
+
+fn declared_geojson_crs(v: &Value) -> Result<Option<&'static str>, String> {
+    let Some(crs) = v.get("crs") else { return Ok(None); };
+    let name = if crs["type"] == "name" { crs["properties"]["name"].as_str() } else { None };
+    let name = name.ok_or("GeoJSON坐标系标记无效或不支持")?.to_ascii_uppercase();
+    let code = name.strip_prefix("EPSG:")
+        .or_else(|| name.strip_prefix("URN:OGC:DEF:CRS:EPSG:").and_then(|tail| tail.split_once(':').filter(|(_, code)| !code.contains(':')).map(|(_, code)| code)))
+        .or_else(|| name.strip_prefix("HTTP://WWW.OPENGIS.NET/DEF/CRS/EPSG/0/"))
+        .or_else(|| name.strip_prefix("HTTPS://WWW.OPENGIS.NET/DEF/CRS/EPSG/0/"));
+    Ok(Some(match code {
+        Some("4326") => "EPSG:4326", Some("4490") => "EPSG:4490", Some("3857") => "EPSG:3857",
+        _ if name == "URN:OGC:DEF:CRS:OGC:1.3:CRS84" || name == "OGC:CRS84" => "EPSG:4326",
+        _ => return Err("GeoJSON坐标系标记无效或不支持".into()),
+    }))
+}
+
+/// 只遍历 GeoJSON 语义节点，业务 properties 和其他 foreign members 必须原样保留。
+fn normalize_geojson_metadata(v: &mut Value, source_crs: &str) -> Result<(), String> {
+    if let Some(declared) = declared_geojson_crs(v)? {
+        if declared != source_crs { return Err("GeoJSON嵌套crs标记与来源坐标系冲突，不支持混合坐标系".into()); }
+    }
+    match v["type"].as_str() {
+        Some("FeatureCollection") => {
+            if let Some(features) = v.get_mut("features").and_then(Value::as_array_mut) {
+                for feature in features { normalize_geojson_metadata(feature, source_crs)?; }
+            }
+        }
+        Some("Feature") => {
+            if let Some(geometry) = v.get_mut("geometry") { normalize_geojson_metadata(geometry, source_crs)?; }
+        }
+        Some("GeometryCollection") => {
+            if let Some(geometries) = v.get_mut("geometries").and_then(Value::as_array_mut) {
+                for geometry in geometries { normalize_geojson_metadata(geometry, source_crs)?; }
+            }
+        }
+        _ => {}
+    }
+    if let Some(object) = v.as_object_mut() {
+        object.remove("bbox");
+        object.remove("crs");
+    }
+    Ok(())
+}
+
+pub fn load_with_metadata(path: &str, args: &Value) -> Result<LoadedVector, String> {
     // 解析实际文件位置，使 SHP 符号链接仍能找到目标文件组的配套文件。
     let p = Path::new(path).canonicalize().map_err(|_| "文件不存在或不可访问")?;
     let bytes = read(&p)?;
+    let mut source_crs = args["crs"].as_str().unwrap_or("EPSG:4326").to_owned();
     let mut features = match p
         .extension()
         .and_then(|e| e.to_str())
@@ -152,24 +208,14 @@ pub fn load(path: &str, args: &Value) -> Result<Vec<Value>, String> {
         "json" | "geojson" => {
             let mut v: Value = serde_json::from_slice(&bytes).map_err(|_| "无效GeoJSON")?;
             preserve_property_numbers(&mut v);
-            let declared = if let Some(crs) = v.get("crs") {
-                let name = if crs["type"] == "name" { crs["properties"]["name"].as_str() } else { None };
-                let name = name.ok_or("GeoJSON坐标系标记无效或不支持")?.to_ascii_uppercase();
-                let code = name.strip_prefix("EPSG:")
-                    .or_else(|| name.strip_prefix("URN:OGC:DEF:CRS:EPSG:").and_then(|tail| tail.split_once(':').filter(|(_, code)| !code.contains(':')).map(|(_, code)| code)))
-                    .or_else(|| name.strip_prefix("HTTP://WWW.OPENGIS.NET/DEF/CRS/EPSG/0/"))
-                    .or_else(|| name.strip_prefix("HTTPS://WWW.OPENGIS.NET/DEF/CRS/EPSG/0/"));
-                Some(match code {
-                    Some("4326") => "EPSG:4326", Some("4490") => "EPSG:4490", Some("3857") => "EPSG:3857",
-                    _ if name == "URN:OGC:DEF:CRS:OGC:1.3:CRS84" || name == "OGC:CRS84" => "EPSG:4326",
-                    _ => return Err("GeoJSON坐标系标记无效或不支持".into()),
-                })
-            } else { None };
+            let declared = declared_geojson_crs(&v)?;
             if let (Some(explicit), Some(declared)) = (args["crs"].as_str(), declared) {
                 if explicit != declared { return Err("指定坐标系与GeoJSON crs标记冲突".into()); }
             }
             let crs = args["crs"].as_str().or(declared).unwrap_or("EPSG:4326");
             let crs = crs.to_owned();
+            source_crs = crs.clone();
+            normalize_geojson_metadata(&mut v, &crs)?;
             let mut out = match v["type"].as_str() {
                 Some("FeatureCollection") => {
                     let features = v["features"].as_array().ok_or("缺少features")?;
@@ -207,7 +253,9 @@ pub fn load(path: &str, args: &Value) -> Result<Vec<Value>, String> {
                     parts.insert(ext.into(), part);
                 }
             }
-            shp_features(parts, args)?
+            let loaded = shp_features(parts, args)?;
+            source_crs = loaded.source_crs;
+            loaded.features
         }
         "zip" => {
             let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|_| "无效ZIP")?;
@@ -250,7 +298,9 @@ pub fn load(path: &str, args: &Value) -> Result<Vec<Value>, String> {
                     }
                 }
             }
-            shp_features(parts, args)?
+            let loaded = shp_features(parts, args)?;
+            source_crs = loaded.source_crs;
+            loaded.features
         }
         _ => return Err("仅支持GeoJSON、CSV、SHP及SHP ZIP".into()),
     };
@@ -272,7 +322,7 @@ pub fn load(path: &str, args: &Value) -> Result<Vec<Value>, String> {
         }
         validate_geometry(&f["geometry"])?;
     }
-    Ok(features)
+    Ok(LoadedVector { features, source_crs, working_crs: "EPSG:4326" })
 }
 fn csv_features(bytes: &[u8], args: &Value) -> Result<Vec<Value>, String> {
     let mut r = csv::Reader::from_reader(bytes);
@@ -337,7 +387,7 @@ fn csv_features(bytes: &[u8], args: &Value) -> Result<Vec<Value>, String> {
     transform(&mut out, args["crs"].as_str().unwrap_or("EPSG:4326"))?;
     Ok(out)
 }
-fn shp_features(mut parts: HashMap<String, Vec<u8>>, args: &Value) -> Result<Vec<Value>, String> {
+fn shp_features(mut parts: HashMap<String, Vec<u8>>, args: &Value) -> Result<LoadedVector, String> {
     let crs = if let Some(c) = args["crs"].as_str() {
         c.to_string()
     } else {
@@ -418,7 +468,7 @@ fn shp_features(mut parts: HashMap<String, Vec<u8>>, args: &Value) -> Result<Vec
         }
     }
     transform(&mut out, &crs)?;
-    Ok(out)
+    Ok(LoadedVector { features: out, source_crs: crs, working_crs: "EPSG:4326" })
 }
 fn reject_lossy_dbf_numbers(bytes: &[u8]) -> Result<(), String> {
     if bytes.len() < 32 {
@@ -570,6 +620,82 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_geojson_spatial_metadata_without_touching_business_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("metadata.geojson");
+        for crs in ["EPSG:3857", "EPSG:4326", "EPSG:4490"] {
+            let declared = json!({"type":"name","properties":{"name":crs}});
+            let x = if crs == "EPSG:3857" { 111319.49079327357 } else { 1.0 };
+            let properties = json!({"crs":"business-crs","bbox":[8,9],"sourceCrs":"customer-value","nested":{"type":"Point","crs":"opaque","bbox":[0]}});
+            let feature = json!({"type":"Feature","id":"point-1","crs":declared,"bbox":[x,0,3,x,0,3],"geometry":{"type":"Point","coordinates":[x,0,3],"bbox":[x,0,3,x,0,3],"crs":declared},"properties":properties,"sourceCrs":"foreign-member"});
+            for collection in [false, true] {
+                let document = if collection { json!({"type":"FeatureCollection","bbox":[x,0,x,0],"crs":declared,"features":[feature]}) } else { feature.clone() };
+                fs::write(&path, document.to_string()).unwrap();
+                let loaded = load_with_metadata(path.to_str().unwrap(), &json!({})).unwrap();
+                assert_eq!(loaded.source_crs, crs);
+                assert_eq!(loaded.working_crs, "EPSG:4326");
+                let out = &loaded.features[0];
+                assert!(out.get("crs").is_none());
+                assert!(out.get("bbox").is_none());
+                assert!(out["geometry"].get("crs").is_none());
+                assert!(out["geometry"].get("bbox").is_none());
+                assert!((out["geometry"]["coordinates"][0].as_f64().unwrap() - 1.0).abs() < 1e-8);
+                assert_eq!(out["geometry"]["coordinates"][2], 3);
+                assert_eq!(out["properties"], properties);
+                assert_eq!(out["sourceCrs"], "foreign-member");
+                assert_eq!(out["id"], "point-1");
+                // 归一化产物再次读入时不再被旧投影标记转换第二次。
+                fs::write(&path, out.to_string()).unwrap();
+                assert_eq!(load(path.to_str().unwrap(), &json!({})).unwrap(), loaded.features);
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_conflicting_nested_crs_and_preserves_inheritance() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mixed.geojson");
+        let projected = json!({"type":"name","properties":{"name":"EPSG:3857"}});
+        let geographic = json!({"type":"name","properties":{"name":"EPSG:4326"}});
+        let feature = json!({"type":"Feature","geometry":{"type":"Point","coordinates":[111319.49079327357,0,7]},"properties":{}});
+        let mut inherited = json!({"type":"FeatureCollection","crs":projected,"features":[feature.clone()]});
+        fs::write(&path, inherited.to_string()).unwrap();
+        let out = load_with_metadata(path.to_str().unwrap(), &json!({})).unwrap();
+        assert_eq!(out.source_crs, "EPSG:3857");
+        assert!((out.features[0]["geometry"]["coordinates"][0].as_f64().unwrap() - 1.0).abs() < 1e-8);
+        for geometry_level in [false, true] {
+            let node = if geometry_level { &mut inherited["features"][0]["geometry"] } else { &mut inherited["features"][0] };
+            node["crs"] = geographic.clone();
+            fs::write(&path, inherited.to_string()).unwrap();
+            assert!(load(path.to_str().unwrap(), &json!({})).unwrap_err().contains("混合坐标系"));
+            inherited["features"][0] = feature.clone();
+        }
+        // 无顶层声明时默认 WGS84；不能从任一子节点猜测整个集合的 CRS。
+        inherited.as_object_mut().unwrap().remove("crs");
+        inherited["features"][0]["geometry"]["crs"] = projected;
+        fs::write(&path, inherited.to_string()).unwrap();
+        assert!(load(path.to_str().unwrap(), &json!({})).is_err());
+        assert!(load(path.to_str().unwrap(), &json!({"crs":"EPSG:3857"})).is_ok());
+        inherited["features"][0]["geometry"]["crs"] = json!({"type":"name","properties":{"name":"EPSG:9999"}});
+        fs::write(&path, inherited.to_string()).unwrap();
+        assert!(load(path.to_str().unwrap(), &json!({"crs":"EPSG:3857"})).is_err());
+    }
+
+    #[test]
+    fn metadata_cleanup_handles_collection_nodes_but_not_property_objects() {
+        let mut document = json!({"type":"FeatureCollection","bbox":[0],"features":[{"type":"Feature","bbox":[0],"geometry":{"type":"GeometryCollection","bbox":[0],"geometries":[{"type":"Point","bbox":[0],"coordinates":[1,2]}]},"properties":{"bbox":[5]}}]});
+        normalize_geojson_metadata(&mut document, "EPSG:4326").unwrap();
+        assert!(document.get("bbox").is_none());
+        assert!(document["features"][0].get("bbox").is_none());
+        let geometry = &document["features"][0]["geometry"];
+        assert!(geometry.get("bbox").is_none());
+        assert!(geometry["geometries"][0].get("bbox").is_none());
+        assert_eq!(document["features"][0]["properties"], json!({"bbox":[5]}));
+        // 元数据清理不扩大支持的几何类型。
+        assert!(validate_geometry(geometry).is_err());
+    }
+
+    #[test]
     fn geojson_crs_metadata_and_override() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("point.geojson");
@@ -658,8 +784,10 @@ mod tests {
             } else { panic!("Expected point"); }
             let path = dir.path().join("points.zip");
             fs::write(&path, bytes).unwrap();
-            let out = load(path.to_str().unwrap(), &json!({})).unwrap();
-            let xy = &out[0]["geometry"]["coordinates"];
+            let out = load_with_metadata(path.to_str().unwrap(), &json!({})).unwrap();
+            assert_eq!(out.source_crs, crs);
+            assert_eq!(out.working_crs, "EPSG:4326");
+            let xy = &out.features[0]["geometry"]["coordinates"];
             assert!((xy[0].as_f64().unwrap() - 116.4).abs() < 1e-8);
             assert!((xy[1].as_f64().unwrap() - 39.9).abs() < 1e-8);
         }
@@ -708,6 +836,10 @@ mod tests {
         .unwrap();
         assert!((f[0]["geometry"]["coordinates"][0].as_f64().unwrap() - 1.).abs() < 1e-9);
         assert_eq!(f[0]["properties"]["name"], "北京");
+        let loaded = load_with_metadata(p.to_str().unwrap(), &json!({"xField":"east","yField":"north","crs":"EPSG:3857"})).unwrap();
+        assert_eq!(loaded.source_crs, "EPSG:3857");
+        assert_eq!(loaded.working_crs, "EPSG:4326");
+        assert_eq!(loaded.features, f);
     }
     #[test]
     fn reads_chinese_shp_zip() {
