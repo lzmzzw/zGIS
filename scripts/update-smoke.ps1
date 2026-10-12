@@ -83,7 +83,8 @@ if ($Worker) {
     if ($job.expectedExecutable -and $report.installedHash -ne $report.expectedHash) { throw '覆盖安装后的物理程序与目标发行版不一致。' }
     $report.installedFileVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($job.executable).FileVersion
     $expectedFileVersion = [version]$job.version
-    if ([version]$report.installedFileVersion -ne [version]::new($expectedFileVersion.Major, $expectedFileVersion.Minor, $expectedFileVersion.Build, 0)) { throw '物理程序 PE FileVersion 与目标版本不一致。' }
+    $installedFileVersion = [version]$report.installedFileVersion
+    if ($installedFileVersion.Major -ne $expectedFileVersion.Major -or $installedFileVersion.Minor -ne $expectedFileVersion.Minor -or $installedFileVersion.Build -ne $expectedFileVersion.Build -or $installedFileVersion.Revision -gt 0) { throw '物理程序 PE FileVersion 与目标版本不一致。' }
     & node (Join-Path $PSScriptRoot 'update-smoke.mjs') verify $testProcess.Id $job.version $job.directory
     if ($LASTEXITCODE -ne 0) { throw '更新后版本或恢复数据验证失败。' }
     if (-not $testProcess.WaitForExit(10000)) { throw '新版测试程序没有正常退出。' }
