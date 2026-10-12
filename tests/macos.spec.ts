@@ -6,6 +6,7 @@ const snapshot = JSON.stringify([
     id: "mac-layer",
     name: "mac.geojson",
     sourceKind: "geojson",
+    originalCrs: "EPSG:4326",
     sourcePath: "/Users/test/mac.geojson",
     sourceHash: "original-hash",
     visible: true,

@@ -287,6 +287,9 @@ for (const kind of ["Point", "LineString", "Polygon"] as const) {
     }
     const final = (await readRecovery(page))!.layers[0].features;
     await button(page, "保存编辑").click();
+    await expect(page.getByRole("dialog", { name: "保存图层", exact: true })).toBeVisible();
+    await expect(page.getByLabel("输出格式", { exact: true })).toHaveValue("geojson");
+    await page.getByRole("button", { name: "选择路径并保存", exact: true }).click();
     await expect(page.getByLabel("矢量编辑提示")).toContainText("已保存");
     await expect(button(page, "退出编辑")).toBeEnabled();
     await expect(button(page, "编辑顶点")).toBeVisible();

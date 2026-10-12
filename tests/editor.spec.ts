@@ -492,7 +492,8 @@ test("desktop SHP export preserves edits on cancellation, error and success", as
     .getByRole("textbox", { name: "属性 name", exact: true })
     .fill("新北京");
   await page.locator(".cell-editor input").press("Enter");
-  await page.keyboard.press("Control+s");
+  await fileAction(page, "导出为");
+  await page.getByRole("combobox", { name: "输出格式" }).selectOption("shp");
   await expect(page.getByRole("combobox", { name: "输出格式" })).toHaveValue(
     "shp",
   );

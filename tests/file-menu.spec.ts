@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 
 async function dropFile(page: Page, name: string, buffer: Buffer) {
   await expect(page.getByRole("button", { name: "设置", exact: true })).toBeEnabled();
@@ -87,6 +88,8 @@ test("file menu contains only four actions and projected GeoJSON save-as preserv
 test("CSV save-as keeps WKT columns and SHP save-as uses a folder without an export dialog", async ({
   page,
 }) => {
+  // 独立生成夹具，避免并行运行时依赖 editor.spec.ts 的执行顺序。
+  execFileSync("node", ["scripts/create-fixtures.mjs", "output/file-menu/fixtures"]);
   await installDesktopMock(page);
   await page.goto("/");
   await dropFile(
@@ -109,7 +112,7 @@ test("CSV save-as keeps WKT columns and SHP save-as uses a folder without an exp
   await dropFile(
     page,
     "cities.zip",
-    readFileSync("output/smoke/fixtures/cities.zip"),
+    readFileSync("output/file-menu/fixtures/cities.zip"),
   );
   await expect(page.locator(".layer-text")).toHaveCount(2);
   await page

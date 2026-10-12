@@ -201,7 +201,11 @@ test("field menus support keyboard access, restore focus and open an editable fi
 });
 
 test("file field menus add, rename and delete with undo and redo preserving values", async ({page}) => {
-  await setup(page);
+  const source = JSON.parse(snapshot);
+  source[0].sourcePath = "F:/test/context.geojson";
+  source[0].sourceHash = "context-original-hash";
+  source[0].originalCrs = "EPSG:4326";
+  await setup(page, JSON.stringify(source));
   await page.getByRole("button", {name:"编辑",exact:true}).click();
   const fieldMenu = async (field: string) => page.locator(`.attribute-panel th[title="${field}"]`).click({button:"right"});
   await fieldMenu("name"); await item(page, "添加字段").click();
@@ -227,7 +231,7 @@ test("file field menus add, rename and delete with undo and redo preserving valu
   await page.getByRole("button", {name:"退出编辑",exact:true}).click();
   if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
     await page.getByRole("button", {name:"保存并退出",exact:true}).click();
-  expect(await page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "save_file"))).toHaveLength(1);
+  await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "save_file").length)).toBe(1);
   expect(await page.evaluate(() => window.__ZG_TEST__.calls.some(c => c.command === "commit_changes" || c.command === "commit_mysql_changes"))).toBe(false);
 });
 

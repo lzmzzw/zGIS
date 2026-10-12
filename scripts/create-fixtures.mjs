@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { zipSync } from 'fflate';
-const root = 'output/smoke/fixtures';
+const root = process.argv[2] ?? 'output/smoke/fixtures';
 mkdirSync(root, {recursive:true});
 const points = [[116.4074,39.9042],[121.4737,31.2304]];
 function header(bytes) {
