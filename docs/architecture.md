@@ -14,7 +14,7 @@ zGIS 是 Tauri 2 桌面应用。React 保存编辑工作副本，OpenLayers 展�
 | 数据库 | `lib.rs`、`postgis_catalog.rs`、`mysql_catalog.rs`、`database_passwords.rs` | 每连接串行、不同连接隔离；查询限制、完整基线、事务与不确定提交保护 |
 | 矢量与分析 | `vector_files.rs`、`shapefile_export.rs`、`spatial.rs`、`processing.rs` | 外部矢量读取、格式保真边界、内存分析及输出预算 |
 | MCP 与 Agent | `gis_mcp.rs`、`mcp_credentials.rs`、`codex_agent.rs` | 本机认证、快照、分析缓存、结果发布及所属 Agent 进程生命周期；不直连数据库 |
-| 产品与网络信息 | `app_info.rs`、`basemap_preview.rs` | 固定项目链接、版本比较、受限图片预览请求 |
+| 产品与网络信息 | `app_info.rs`、`app_update.rs`、`basemap_preview.rs` | 固定项目链接、版本比较、正式发行下载与 SHA-256 校验、Windows 退出后覆盖安装、受限图片预览请求 |
 | 交付 | `scripts/build.ps1`、`install.ps1`、`.github/workflows/` | 锁文件构建、版本门禁、包外安装验证、标签发布与校验文件 |
 
 ## 数据流
