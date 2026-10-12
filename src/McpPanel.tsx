@@ -1,9 +1,11 @@
+import { t, useLocale } from "./i18n";
 import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { api, type McpStatus } from "./bridge";
 import McpToolCatalog from "./McpToolCatalog";
 
 export default function McpPanel() {
+  useLocale();
   const [status, setStatus] = useState<McpStatus>({ enabled: false });
   const [showToken, setShowToken] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -31,11 +33,13 @@ export default function McpPanel() {
     <div className="mcp-panel">
       <div className="mcp-service-row">
         <strong className={status.enabled ? "mcp-running" : undefined}>
-          {status.enabled ? "运行中" : "已停止"}
+          {status.enabled ? t("运行中") : t("已停止")}
         </strong>
         <div className="mcp-service-actions">
           <button
-            title={status.enabled ? "停止本次运行的 MCP 服务" : "启用 MCP 服务"}
+            title={
+              status.enabled ? t("停止本次运行的 MCP 服务") : t("启用 MCP 服务")
+            }
             disabled={busy}
             onClick={() =>
               void action(async () => {
@@ -44,33 +48,33 @@ export default function McpPanel() {
               })
             }
           >
-            {status.enabled ? "停止 MCP" : "启用 MCP"}
+            {status.enabled ? t("停止 MCP") : t("启用 MCP")}
           </button>
           <button
             className="quiet"
             disabled={busy}
             onClick={() => void action(refresh)}
           >
-            刷新状态
+            {t("刷新状态")}
           </button>
         </div>
       </div>
       <dl className="summary-list mcp-address">
-        <dt>地址</dt>
+        <dt>{t("地址")}</dt>
         <dd>{status.endpoint ?? "—"}</dd>
       </dl>
       {status.startupError && (
         <p className="warning" role="alert">
-          {status.startupError}
+          {t(status.startupError)}
         </p>
       )}
       {status.enabled && (
         <>
           <div className="mcp-token-row">
             <label>
-              访问令牌
+              {t("访问令牌")}
               <input
-                aria-label="MCP 访问令牌"
+                aria-label={t("MCP 访问令牌")}
                 readOnly
                 type={showToken ? "text" : "password"}
                 value={status.token ?? ""}
@@ -82,19 +86,19 @@ export default function McpPanel() {
                 checked={showToken}
                 onChange={(e) => setShowToken(e.target.checked)}
               />
-              显示固定令牌
+              {t("显示固定令牌")}
             </label>
           </div>
           <details className="settings-disclosure">
             <summary>
               <ChevronRight />
-              连接配置
+              {t("连接配置")}
             </summary>
             <div className="settings-disclosure-content">
               <pre>{`[mcp_servers.zgis]\nurl = ${JSON.stringify(status.endpoint)}\nhttp_headers_helper = ${JSON.stringify(status.headersHelper)}`}</pre>
               <dl className="summary-list">
-                <dt>文件访问</dt>
-                <dd>Agent 负责授权</dd>
+                <dt>{t("文件访问")}</dt>
+                <dd>{t("Agent 负责授权")}</dd>
               </dl>
             </div>
           </details>
@@ -103,7 +107,7 @@ export default function McpPanel() {
       <McpToolCatalog />
       {error && (
         <p className="warning" role="alert">
-          {error}
+          {t(error)}
         </p>
       )}
     </div>

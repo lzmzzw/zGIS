@@ -61,6 +61,7 @@ export interface DatabasePreview {
   truncated: boolean;
 }
 export const api = {
+  setLocale: (locale: "zh-CN" | "en") => invoke<void>("set_locale", { locale }),
   databaseSourcePassword: (engine: "postgis" | "mysql", sourceId: string) =>
     invoke<string | null>("load_database_source_password", {
       engine,

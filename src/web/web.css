@@ -25,6 +25,15 @@
   margin-left: auto;
   color: var(--muted);
 }
+.web-language {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.web-language select {
+  min-width: 90px;
+}
 .web-workspace {
   flex: 1;
   min-height: 0;

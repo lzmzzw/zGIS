@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useEffect, useId, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -51,6 +52,7 @@ function BasemapServiceDialog({
   onPreviewError: (message: string) => void;
   returnFocus: HTMLButtonElement | null;
 }) {
+  useLocale();
   const dialog = useRef<HTMLDialogElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const urlInput = useRef<HTMLInputElement>(null);
@@ -81,19 +83,19 @@ function BasemapServiceDialog({
     <dialog
       ref={dialog}
       className="modal basemap-add-dialog"
-      aria-label={service ? "编辑底图" : "添加底图"}
+      aria-label={service ? t("编辑底图") : t("添加底图")}
       onCancel={(event) => {
         event.preventDefault();
         cancel();
       }}
     >
       <header>
-        <h2>{service ? "编辑底图" : "添加底图"}</h2>
+        <h2>{service ? t("编辑底图") : t("添加底图")}</h2>
         <button
           type="button"
           className="icon-button"
-          aria-label="关闭"
-          title="关闭"
+          aria-label={t("关闭")}
+          title={t("关闭")}
           onClick={cancel}
         >
           <X />
@@ -153,10 +155,8 @@ function BasemapServiceDialog({
           onClose();
         }}
       >
-        <label>
-          名称
-          <input
-            aria-label={service ? "底图名称" : "新底图名称"}
+        <label>{t("名称")}<input
+            aria-label={service ? t("底图名称") : t("新底图名称")}
             ref={nameInput}
             aria-invalid={invalidField === "name" || undefined}
             aria-describedby={invalidField === "name" ? errorId : undefined}
@@ -173,10 +173,8 @@ function BasemapServiceDialog({
             }}
           />
         </label>
-        <label>
-          XYZ 地址
-          <input
-            aria-label="XYZ 瓦片地址"
+        <label>{t("XYZ 地址")}<input
+            aria-label={t("XYZ 瓦片地址")}
             ref={urlInput}
             aria-invalid={invalidField === "url" || undefined}
             aria-describedby={invalidField === "url" ? errorId : undefined}
@@ -193,10 +191,8 @@ function BasemapServiceDialog({
             }}
           />
         </label>
-        <label>
-          来源说明
-          <input
-            aria-label="底图来源说明"
+        <label>{t("来源说明")}<input
+            aria-label={t("底图来源说明")}
             maxLength={300}
             disabled={saving}
             value={attribution}
@@ -205,25 +201,21 @@ function BasemapServiceDialog({
         </label>
         <label className="checkbox-label basemap-enabled-toggle">
           <input
-            aria-label="在地图中显示"
+            aria-label={t("在地图中显示")}
             type="checkbox"
             disabled={saving}
             checked={enabled}
             onChange={(event) => setEnabled(event.target.checked)}
-          />
-          在地图中显示
-        </label>
+          />{t("在地图中显示")}</label>
         {error && (
           <p id={errorId} className="warning" role="alert">
-            {error}
+            {t(error)}
           </p>
         )}
         <div className="modal-actions">
-          <button type="button" onClick={cancel}>
-            取消
-          </button>
+          <button type="button" onClick={cancel}>{t("取消")}</button>
           <button type="submit" disabled={saving}>
-            {saving ? "获取预览…" : service ? "保存" : "添加"}
+            {saving ? t("获取预览…") : service ? t("保存") : t("添加")}
           </button>
         </div>
       </form>
@@ -232,6 +224,7 @@ function BasemapServiceDialog({
 }
 
 export default function SettingsPage(props: Props) {
+  const { locale, setLocale } = useLocale();
   const [previewError, setPreviewError] = useState("");
   const [serviceDialog, setServiceDialog] = useState<{
     service?: BasemapService;
@@ -272,30 +265,30 @@ export default function SettingsPage(props: Props) {
       window.removeEventListener("keydown", escape);
       document
         .querySelector<HTMLButtonElement>(
-          '.header-menus button[aria-label="设置"]',
+          '#settings-trigger',
         )
         ?.focus();
     };
   }, []);
   const selected = categories.find((item) => item.id === props.category)!;
   return (
-    <main className="settings-page" aria-label="后台设置">
+    <main className="settings-page" aria-label={t("后台设置")}>
       <header className="settings-page-heading">
         <button
           ref={back}
           className="icon-button"
-          aria-label="返回地图"
-          title="返回地图"
+          aria-label={t("返回地图")}
+          title={t("返回地图")}
           onClick={props.onClose}
         >
           <ArrowLeft />
         </button>
         <div>
-          <h1>设置</h1>
+          <h1>{t("设置")}</h1>
         </div>
       </header>
       <div className="settings-page-body">
-        <nav className="settings-page-nav" aria-label="设置分类">
+        <nav className="settings-page-nav" aria-label={t("设置分类")}>
           {categories.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -304,7 +297,7 @@ export default function SettingsPage(props: Props) {
               onClick={() => props.onCategory(id)}
             >
               <Icon />
-              {label}
+              {t(label)}
             </button>
           ))}
         </nav>
@@ -313,43 +306,49 @@ export default function SettingsPage(props: Props) {
           aria-labelledby="settings-section-title"
         >
           <header>
-            <h2 id="settings-section-title">{selected.label}</h2>
+            <h2 id="settings-section-title">{t(selected.label)}</h2>
           </header>
           {props.error && (
             <p className="warning" role="alert">
-              {props.error}
+              {t(props.error)}
             </p>
           )}
           {props.category === "appearance" && (
             <div className="settings-fields">
               <label>
-                <span>主题</span>
+                <span>{t("语言")}</span>
+                <select aria-label={t("界面语言")} value={locale}
+                  onChange={(event) => setLocale(event.target.value === "en" ? "en" : "zh-CN")}>
+                  <option value="zh-CN">中文</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+              <label>
+                <span>{t("主题")}</span>
                 <select
-                  aria-label="主题"
+                  aria-label={t("主题")}
                   value={props.theme}
                   onChange={(e) =>
                     props.onTheme(e.target.value as "light" | "dark")
                   }
                 >
-                  <option value="dark">深色</option>
-                  <option value="light">浅色</option>
+                  <option value="dark">{t("深色")}</option>
+                  <option value="light">{t("浅色")}</option>
                 </select>
               </label>
             </div>
           )}
           {props.category === "map" && (
-            <section className="basemap-settings" aria-label="底图服务管理">
+            <section className="basemap-settings" aria-label={t("底图服务管理")}>
               <header className="basemap-settings-heading">
-                <h3>底图服务</h3>
+                <h3>{t("底图服务")}</h3>
                 <button
                   ref={addButton}
                   onClick={(event) =>
                     setServiceDialog({ returnFocus: event.currentTarget })
                   }
                 >
-                  <Plus />
-                  添加底图
-                </button>
+                  <Plus />{t("添加底图")}</button>
               </header>
               <ol className="basemap-service-list">
                 {props.services.map((service, index) => (
@@ -357,14 +356,14 @@ export default function SettingsPage(props: Props) {
                     <div className="basemap-service-name">
                       <strong title={service.name}>{service.name}</strong>
                       {service.enabled === false && (
-                        <span className="basemap-service-badge">已隐藏</span>
+                        <span className="basemap-service-badge">{t("已隐藏")}</span>
                       )}
                     </div>
                     <div className="basemap-service-actions">
                       <button
                         className="icon-button"
-                        aria-label={`上移 ${service.name}`}
-                        title="上移"
+                        aria-label={t(`上移 ${service.name}`)}
+                        title={t("上移")}
                         disabled={index === 0}
                         onClick={() =>
                           props.onServices(
@@ -376,8 +375,8 @@ export default function SettingsPage(props: Props) {
                       </button>
                       <button
                         className="icon-button"
-                        aria-label={`下移 ${service.name}`}
-                        title="下移"
+                        aria-label={t(`下移 ${service.name}`)}
+                        title={t("下移")}
                         disabled={index === props.services.length - 1}
                         onClick={() =>
                           props.onServices(
@@ -389,13 +388,13 @@ export default function SettingsPage(props: Props) {
                       </button>
                       <button
                         className="icon-button"
-                        aria-label={`编辑 ${service.name}`}
+                        aria-label={t(`编辑 ${service.name}`)}
                         ref={(element) => {
                           if (element)
                             serviceButtons.current.set(service.id, element);
                           else serviceButtons.current.delete(service.id);
                         }}
-                        title="编辑"
+                        title={t("编辑")}
                         onClick={(event) =>
                           setServiceDialog({
                             service,
@@ -407,8 +406,8 @@ export default function SettingsPage(props: Props) {
                       </button>
                       <button
                         className="icon-button"
-                        aria-label={`删除 ${service.name}`}
-                        title="删除"
+                        aria-label={t(`删除 ${service.name}`)}
+                        title={t("删除")}
                         onClick={() => {
                           pendingFocus.current = "undo";
                           setRemoved({ service, index });
@@ -426,16 +425,15 @@ export default function SettingsPage(props: Props) {
                 ))}
               </ol>
               {props.services.length === 0 && (
-                <p className="basemap-empty">暂无底图服务</p>
+                <p className="basemap-empty">{t("暂无底图服务")}</p>
               )}
               {previewError && (
                 <p className="warning basemap-preview-warning" role="status">
-                  {previewError}
+                  {t(previewError)}
                 </p>
               )}
               {removed && (
-                <p className="basemap-undo" role="status">
-                  已移除 {removed.service.name}
+                <p className="basemap-undo" role="status">{t("已移除 ")}{removed.service.name}
                   <button
                     ref={undoButton}
                     className="quiet"
@@ -450,9 +448,7 @@ export default function SettingsPage(props: Props) {
                       props.onServices(next);
                       setRemoved(null);
                     }}
-                  >
-                    撤销
-                  </button>
+                  >{t("撤销")}</button>
                 </p>
               )}
               {serviceDialog && (
@@ -478,7 +474,7 @@ export default function SettingsPage(props: Props) {
             (desktop ? (
               <McpPanel />
             ) : (
-              <p className="form-note">MCP 仅在桌面版中提供。</p>
+              <p className="form-note">{t("MCP 仅在桌面版中提供。")}</p>
             ))}
           {props.category === "about" && (
             <AboutSettings onInstall={props.onInstallUpdate} />

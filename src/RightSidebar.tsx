@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useRef, type ReactNode } from "react";
 import "./right-sidebar.css";
 
@@ -16,6 +17,7 @@ export default function RightSidebar({
   onWidthChange: (width: number) => void;
   children: ReactNode;
 }) {
+  useLocale();
   const drag = useRef<{ x: number; width: number } | null>(null);
   const clamp = (value: number) =>
     Math.max(320, Math.min(maxWidth, Math.round(value)));
@@ -24,7 +26,7 @@ export default function RightSidebar({
       <div
         className="right-sidebar-resizer"
         role="separator"
-        aria-label={`调整${label}侧栏宽度`}
+        aria-label={t("调整{0}侧栏宽度", t(label))}
         aria-orientation="vertical"
         aria-valuemin={320}
         aria-valuemax={maxWidth}

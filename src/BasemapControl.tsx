@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useEffect, useRef, useState } from "react";
 import { Map as MapIcon, Check, X } from "lucide-react";
 import "./basemap-control.css";
@@ -17,6 +18,7 @@ function BasemapPreview({
   service: BasemapService;
   selected: boolean;
 }) {
+  useLocale();
   const [failedSource, setFailedSource] = useState<string>();
   const tileUrl = previewTileUrl(service);
   const source = service.previewImage?.startsWith("data:image/png;base64,")
@@ -45,6 +47,7 @@ function BasemapPreview({
   );
 }
 export default function BasemapControl(props: Props) {
+  useLocale();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null),
     trigger = useRef<HTMLButtonElement>(null);
@@ -102,21 +105,21 @@ export default function BasemapControl(props: Props) {
         <section
           id="basemap-services"
           className="basemap-popover"
-          aria-label="底图服务"
+          aria-label={t("底图服务")}
         >
           <header>
-            <h2>底图</h2>
+            <h2>{t("底图")}</h2>
             <label className="checkbox-label">
               <input
                 type="checkbox"
                 checked={props.visible}
                 onChange={(e) => props.onVisible(e.target.checked)}
               />
-              显示底图
+              {t("显示底图")}
             </label>
             <button
               className="icon-button"
-              aria-label="关闭底图面板"
+              aria-label={t("关闭底图面板")}
               onClick={() => {
                 setOpen(false);
                 trigger.current?.focus();
@@ -127,7 +130,7 @@ export default function BasemapControl(props: Props) {
           </header>
           <div
             role="radiogroup"
-            aria-label="底图服务选择"
+            aria-label={t("底图服务选择")}
             className="basemap-cards"
           >
             {available.map((service) => (
@@ -151,14 +154,16 @@ export default function BasemapControl(props: Props) {
               </label>
             ))}
           </div>
-          {!available.length && <p className="form-note">暂无可显示的底图</p>}
+          {!available.length && (
+            <p className="form-note">{t("暂无可显示的底图")}</p>
+          )}
         </section>
       )}
       <button
         ref={trigger}
         className={`basemap-toggle ${open ? "active" : ""}`}
-        aria-label="底图"
-        title="底图"
+        aria-label={t("底图")}
+        title={t("底图")}
         aria-expanded={open}
         aria-controls="basemap-services"
         onClick={() => setOpen((v) => !v)}

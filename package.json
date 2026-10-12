@@ -13,14 +13,15 @@
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "version:check": "node scripts/check-version.mjs",
-    "build": "tsc --noEmit && vite build",
+    "build": "pnpm i18n:check && tsc --noEmit && vite build",
     "build:wasm": "node scripts/build-wasm.mjs",
-    "build:web": "pnpm build:wasm && tsc --noEmit && vite build --mode web && node scripts/finalize-web.mjs",
+    "build:web": "pnpm build:wasm && pnpm i18n:check && tsc --noEmit && vite build --mode web && node scripts/finalize-web.mjs",
     "build:desktop": "tauri build -- --locked",
     "test:web": "playwright test --config playwright.web.config.ts",
     "test": "vitest run",
     "tauri": "tauri",
-    "smoke": "playwright test"
+    "smoke": "playwright test",
+    "i18n:check": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
@@ -37,6 +38,7 @@
     "shpjs": "6.2.0"
   },
   "devDependencies": {
+    "@babel/parser": "^7.28.5",
     "@playwright/test": "1.63.0",
     "@tauri-apps/cli": "2.11.5",
     "@types/geojson": "^7946.0.16",

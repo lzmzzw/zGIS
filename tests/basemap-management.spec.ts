@@ -224,7 +224,7 @@ test("hiding the selected service falls back by display order and hidden service
   await page.keyboard.press("Escape");
   await page
     .getByLabel("地理数据地图", { exact: true })
-    .getByRole("button", { name: "+", exact: true })
+    .getByRole("button", { name: "放大", exact: true })
     .click();
   await page.waitForTimeout(250);
   expect(requests.filter((url) => url.includes("active.example"))).toHaveLength(

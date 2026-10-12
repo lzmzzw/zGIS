@@ -2,17 +2,7 @@ use tauri::{menu::{MenuBuilder, MenuItem, SubmenuBuilder}, Manager};
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn install(app: &tauri::App) -> tauri::Result<()> {
-    // 自定义 Quit 先请求关闭窗口，使未保存内容继续经过前端确认。
-    let quit = MenuItem::with_id(app, "zgis-quit", "退出 zGIS", true, Some("Cmd+Q"))?;
-    let application = SubmenuBuilder::new(app, "zGIS")
-        .services().separator().hide().hide_others().show_all().separator().item(&quit).build()?;
-    let edit = SubmenuBuilder::new(app, "编辑")
-        .cut().copy().paste().select_all().build()?;
-    let close = MenuItem::with_id(app, "zgis-close", "关闭窗口", true, Some("Cmd+W"))?;
-    let window = SubmenuBuilder::new(app, "窗口")
-        .minimize().maximize().fullscreen().separator().item(&close).build()?;
-    let menu = MenuBuilder::new(app).item(&application).item(&edit).item(&window).build()?;
-    app.set_menu(menu)?;
+    update_labels(app.handle())?;
     app.on_menu_event(|app, event| {
         if matches!(event.id().as_ref(), "zgis-quit" | "zgis-close") {
             if let Some(window) = app.get_webview_window("main") {
@@ -22,6 +12,28 @@ pub(crate) fn install(app: &tauri::App) -> tauri::Result<()> {
     });
     #[cfg(target_os = "macos")]
     termination::install(app.handle())?;
+    Ok(())
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn update_labels(app: &tauri::AppHandle) -> tauri::Result<()> {
+    use crate::locale::text;
+    // 自定义 Quit 先请求关闭窗口，使未保存内容继续经过前端确认。
+    let quit = MenuItem::with_id(app, "zgis-quit", crate::locale::text("退出 zGIS", "Quit zGIS"), true, Some("Cmd+Q"))?;
+    let application = SubmenuBuilder::new(app, "zGIS")
+        .services_with_text(text("服务", "Services")).separator()
+        .hide_with_text(text("隐藏 zGIS", "Hide zGIS"))
+        .hide_others_with_text(text("隐藏其他应用", "Hide Others"))
+        .show_all_with_text(text("显示全部", "Show All")).separator().item(&quit).build()?;
+    let edit = SubmenuBuilder::with_id(app, "zgis-edit", crate::locale::text("编辑", "Edit"))
+        .cut_with_text(text("剪切", "Cut")).copy_with_text(text("复制", "Copy"))
+        .paste_with_text(text("粘贴", "Paste")).select_all_with_text(text("全选", "Select All")).build()?;
+    let close = MenuItem::with_id(app, "zgis-close", crate::locale::text("关闭窗口", "Close Window"), true, Some("Cmd+W"))?;
+    let window = SubmenuBuilder::with_id(app, "zgis-window", crate::locale::text("窗口", "Window"))
+        .minimize_with_text(text("最小化", "Minimize")).maximize_with_text(text("缩放", "Zoom"))
+        .fullscreen_with_text(text("进入全屏", "Enter Full Screen")).separator().item(&close).build()?;
+    let menu = MenuBuilder::new(app).item(&application).item(&edit).item(&window).build()?;
+    app.set_menu(menu)?;
     Ok(())
 }
 

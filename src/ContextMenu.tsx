@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import "./context-menu.css";
@@ -36,6 +37,7 @@ export default function ContextMenu({
   items,
   onClose,
 }: ContextMenuProps) {
+  useLocale();
   const menuRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   const closed = useRef(false);
@@ -203,7 +205,7 @@ export default function ContextMenu({
       ref={menuRef}
       className="context-menu"
       role="menu"
-      aria-label={label}
+      aria-label={t(label)}
       tabIndex={-1}
       style={position}
       onKeyDown={handleKeyDown}
@@ -224,14 +226,14 @@ export default function ContextMenu({
             disabled={item.disabled}
             aria-disabled={item.disabled || undefined}
             className={item.danger ? "context-menu-danger" : undefined}
-            title={item.title}
+            title={t(item.title)}
             onClick={() => {
               if (item.disabled || closed.current) return;
               close();
               item.onSelect();
             }}
           >
-            <span className="context-menu-label">{item.label}</span>
+            <span className="context-menu-label">{t(item.label)}</span>
             {item.shortcut && (
               <span className="context-menu-shortcut">{item.shortcut}</span>
             )}

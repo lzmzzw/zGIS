@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Check, ChevronDown, LocateFixed, Play, Search, X } from "lucide-react";
 import type { Geometry } from "geojson";
@@ -122,7 +123,7 @@ function layerIssue(
 function defaultOutput(tool: AnalysisTool, source?: DocumentLayer) {
   return (
     source
-      ? `${layerName(source).replace(/\.[^.]+$/, "")}_${tool.label}`
+      ? `${layerName(source).replace(/\.[^.]+$/, "")}_${t(tool.label)}`
       : tool.label
   ).slice(0, 100);
 }
@@ -160,7 +161,7 @@ function formatNumber(value: unknown): string {
     : "—";
 }
 function featureOrdinal(value: unknown): string {
-  return typeof value === "number" ? `第 ${value + 1} 个` : "—";
+  return typeof value === "number" ? t("第 {0} 个", value + 1) : "—";
 }
 function AnalysisReport({
   operation,
@@ -169,6 +170,7 @@ function AnalysisReport({
   operation: string;
   report: Record<string, unknown>;
 }) {
+  useLocale();
   if (operation === "topology_check") {
     const issues = Array.isArray(report.issues)
       ? report.issues
@@ -184,28 +186,33 @@ function AnalysisReport({
     return (
       <div className="processing-report">
         <p>
-          已检查 {formatNumber(report.featureCount)} 个要素，发现{" "}
-          {issues.length.toLocaleString("zh-CN")} 个问题。
+          {t(
+            "已检查 {0} 个要素，发现 {1} 个问题。",
+            formatNumber(report.featureCount),
+            issues.length.toLocaleString(),
+          )}
         </p>
         {issues.length === 0 ? (
-          <p>未发现本次检查范围内的问题。</p>
+          <p>{t("未发现本次检查范围内的问题。")}</p>
         ) : (
           <>
             <div className="processing-table-scroll">
               <table>
                 <thead>
                   <tr>
-                    <th>问题</th>
-                    <th>输入要素序号</th>
-                    <th>说明</th>
+                    <th>{t("问题")}</th>
+                    <th>{t("输入要素序号")}</th>
+                    <th>{t("说明")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {issues.slice(0, 100).map((issue, index) => (
                     <tr key={index}>
                       <td>
-                        {issueLabels[String(issue.kind)] ??
-                          String(issue.kind ?? "几何问题")}
+                        {t(
+                          issueLabels[String(issue.kind)] ??
+                            String(issue.kind ?? "几何问题"),
+                        )}
                       </td>
                       <td>
                         {Array.isArray(issue.featureIndices)
@@ -214,7 +221,7 @@ function AnalysisReport({
                       </td>
                       <td>
                         {typeof issue.message === "string"
-                          ? issue.message
+                          ? t(issue.message)
                           : "—"}
                       </td>
                     </tr>
@@ -224,13 +231,13 @@ function AnalysisReport({
             </div>
             {issues.length > 100 && (
               <p className="processing-note">
-                显示前 100 个问题，请缩小输入范围逐批检查。
+                {t("显示前 100 个问题，请缩小输入范围逐批检查。")}
               </p>
             )}
           </>
         )}
         <p className="processing-note">
-          检查几何有效性、完全重复和面重叠；不自动修复。
+          {t("检查几何有效性、完全重复和面重叠；不自动修复。")}
         </p>
       </div>
     );
@@ -257,41 +264,41 @@ function AnalysisReport({
     return (
       <div className="processing-report">
         <dl>
-          <dt>要素数量</dt>
+          <dt>{t("要素数量")}</dt>
           <dd>{formatNumber(report.featureCount)}</dd>
-          <dt>坐标系</dt>
+          <dt>{t("坐标系")}</dt>
           <dd>{typeof report.crs === "string" ? report.crs : "WGS84"}</dd>
-          <dt>几何类型</dt>
+          <dt>{t("几何类型")}</dt>
           <dd>
             {Object.entries(types)
               .map(
                 ([type, count]) =>
-                  `${geometryLabels[type] ?? type} ${formatNumber(count)}`,
+                  `${t(geometryLabels[type] ?? type)} ${formatNumber(count)}`,
               )
-              .join("、") || "无几何"}
+              .join("、") || t("无几何")}
           </dd>
-          <dt>字段（{fields.length}）</dt>
+          <dt>{t("字段（{0}）", fields.length)}</dt>
           <dd>
-            {fields.map((field) => field || "（空字段名）").join("、") ||
-              "无属性字段"}
+            {fields.map((field) => field || t("（空字段名）")).join(", ") ||
+              t("无属性字段")}
           </dd>
-          <dt>经度范围</dt>
+          <dt>{t("经度范围")}</dt>
           <dd>
             {bbox
               ? `${formatNumber(bbox[0])} ～ ${formatNumber(bbox[2])}`
-              : "无范围"}
+              : t("无范围")}
           </dd>
-          <dt>纬度范围</dt>
+          <dt>{t("纬度范围")}</dt>
           <dd>
             {bbox
               ? `${formatNumber(bbox[1])} ～ ${formatNumber(bbox[3])}`
-              : "无范围"}
+              : t("无范围")}
           </dd>
         </dl>
       </div>
     );
   }
-  return <p className="processing-note">分析报告已生成。</p>;
+  return <p className="processing-note">{t("分析报告已生成。")}</p>;
 }
 
 export function ProcessingToolbox({
@@ -305,6 +312,7 @@ export function ProcessingToolbox({
   onLocateResult,
   onRunningChange,
 }: ProcessingToolboxProps) {
+  useLocale();
   const [toolId, setToolId] = useState("");
   const [forms, setForms] = useState<Record<string, ToolForm>>({});
   const [query, setQuery] = useState("");
@@ -394,7 +402,7 @@ export function ProcessingToolbox({
           ? "结果图层名称不超过 100 个字符。"
           : "");
   const visibleTools = analysisTools.filter((item) =>
-    `${item.label} ${item.id} ${item.keywords.join(" ")}`
+    `${t(item.label)} ${item.label} ${item.id} ${item.keywords.map((keyword) => t(keyword)).join(" ")} ${item.keywords.join(" ")}`
       .toLocaleLowerCase()
       .includes(query.trim().toLocaleLowerCase()),
   );
@@ -483,16 +491,16 @@ export function ProcessingToolbox({
   return (
     <aside
       className="processing-toolbox"
-      aria-label="空间分析工具"
+      aria-label={t("空间分析工具")}
       aria-busy={running}
     >
       <header className="processing-heading">
-        <strong>工具</strong>
+        <strong>{t("工具")}</strong>
         <button
           type="button"
           className="icon-button"
-          aria-label="关闭工具侧栏"
-          title={running ? "请等待分析完成" : "关闭工具侧栏"}
+          aria-label={t("关闭工具侧栏")}
+          title={running ? t("请等待分析完成") : t("关闭工具侧栏")}
           disabled={running}
           onClick={() => {
             if (!locked.current) onClose();
@@ -502,20 +510,20 @@ export function ProcessingToolbox({
         </button>
       </header>
       <div className="processing-body">
-        <section className="processing-browser" aria-label="分析工具">
+        <section className="processing-browser" aria-label={t("分析工具")}>
           <div className="processing-search">
             <Search size={15} aria-hidden="true" />
             <input
-              aria-label="搜索分析工具"
-              placeholder="搜索工具…"
+              aria-label={t("搜索分析工具")}
+              placeholder={t("搜索工具…")}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               disabled={running}
             />
           </div>
-          <nav className="processing-tool-list" aria-label="工具分类树">
+          <nav className="processing-tool-list" aria-label={t("工具分类树")}>
             {visibleTools.length === 0 ? (
-              <p className="processing-empty">没有匹配的工具。</p>
+              <p className="processing-empty">{t("没有匹配的工具。")}</p>
             ) : (
               analysisToolCategories.map((group, index) => {
                 const items = visibleTools.filter(
@@ -541,12 +549,12 @@ export function ProcessingToolbox({
                       }
                     >
                       <ChevronDown size={14} aria-hidden="true" />
-                      <span>{group}</span>
+                      <span>{t(group)}</span>
                     </button>
                     <div
                       id={`processing-group-${index}`}
                       role="group"
-                      aria-label={group}
+                      aria-label={t(group)}
                       hidden={!expanded}
                     >
                       {items.map((item) => (
@@ -558,7 +566,7 @@ export function ProcessingToolbox({
                           aria-pressed={toolId === item.id}
                           onClick={() => chooseTool(item.id)}
                         >
-                          <span>{item.label}</span>
+                          <span>{t(item.label)}</span>
                           {toolId === item.id && (
                             <Check size={13} aria-hidden="true" />
                           )}
@@ -579,17 +587,17 @@ export function ProcessingToolbox({
             >
               <div className="processing-configuration">
                 <div className="processing-tool-title">
-                  <h3>{tool.label}</h3>
-                  <span>{tool.category}</span>
+                  <h3>{t(tool.label)}</h3>
+                  <span>{t(tool.category)}</span>
                 </div>
-                <p className="processing-description">{tool.description}</p>
+                <p className="processing-description">{t(tool.description)}</p>
                 <div className="processing-parameters">
                   <fieldset disabled={running}>
-                    <legend>输入数据</legend>
+                    <legend>{t("输入数据")}</legend>
                     <label>
-                      <span>输入图层</span>
+                      <span>{t("输入图层")}</span>
                       <select
-                        aria-label="输入图层"
+                        aria-label={t("输入图层")}
                         value={form.sourceId}
                         onChange={(event) => {
                           const next = layers.find(
@@ -605,10 +613,10 @@ export function ProcessingToolbox({
                           });
                         }}
                       >
-                        <option value="">请选择输入图层</option>
+                        <option value="">{t("请选择输入图层")}</option>
                         {form.sourceId && !source && (
                           <option value={form.sourceId}>
-                            原输入图层已移除
+                            {t("原输入图层已移除")}
                           </option>
                         )}
                         {layers.map((layer) => (
@@ -621,7 +629,7 @@ export function ProcessingToolbox({
                     <label className="processing-selected">
                       <input
                         type="checkbox"
-                        aria-label="仅使用选中的要素"
+                        aria-label={t("仅使用选中的要素")}
                         checked={selectedOnly}
                         disabled={!canUseSelected || running}
                         onChange={(event) =>
@@ -629,24 +637,24 @@ export function ProcessingToolbox({
                         }
                       />
                       <span className="processing-selected-label">
-                        仅使用选中的要素
+                        {t("仅使用选中的要素")}
                       </span>
-                      {canUseSelected && <span>1 个</span>}
+                      {canUseSelected && <span>{t("1 个")}</span>}
                     </label>
                     {tool.requiresTarget && (
                       <label>
-                        <span>目标图层</span>
+                        <span>{t("目标图层")}</span>
                         <select
-                          aria-label="目标图层"
+                          aria-label={t("目标图层")}
                           value={form.targetId}
                           onChange={(event) =>
                             changeForm({ targetId: event.target.value })
                           }
                         >
-                          <option value="">请选择目标图层</option>
+                          <option value="">{t("请选择目标图层")}</option>
                           {form.targetId && !target && (
                             <option value={form.targetId}>
-                              原目标图层已移除
+                              {t("原目标图层已移除")}
                             </option>
                           )}
                           {layers.map((layer) => (
@@ -659,10 +667,10 @@ export function ProcessingToolbox({
                     )}
                     {tool.parameters.includes("distanceMeters") && (
                       <label>
-                        <span>缓冲距离</span>
+                        <span>{t("缓冲距离")}</span>
                         <div className="processing-number-unit">
                           <input
-                            aria-label="缓冲距离（米）"
+                            aria-label={t("缓冲距离（米）")}
                             type="number"
                             min="0"
                             max="100000"
@@ -673,13 +681,13 @@ export function ProcessingToolbox({
                             }
                             required
                           />
-                          <span aria-hidden="true">米</span>
+                          <span aria-hidden="true">{t("米")}</span>
                         </div>
                       </label>
                     )}
                     {tool.parameters.includes("toleranceMeters") && (
                       <label>
-                        <span>简化容差（米）</span>
+                        <span>{t("简化容差（米）")}</span>
                         <input
                           type="number"
                           min="0"
@@ -695,9 +703,9 @@ export function ProcessingToolbox({
                     )}
                     {tool.parameters.includes("groupBy") && (
                       <label>
-                        <span>分组字段</span>
+                        <span>{t("分组字段")}</span>
                         <select
-                          aria-label="分组字段"
+                          aria-label={t("分组字段")}
                           value={
                             form.groupBy === undefined
                               ? "all"
@@ -712,14 +720,16 @@ export function ProcessingToolbox({
                             })
                           }
                         >
-                          <option value="all">不分组，融合全部面</option>
+                          <option value="all">{t("不分组，融合全部面")}</option>
                           {form.groupBy !== undefined &&
                             !fields.includes(form.groupBy) && (
-                              <option value="field:-1">原分组字段已移除</option>
+                              <option value="field:-1">
+                                {t("原分组字段已移除")}
+                              </option>
                             )}
                           {fields.map((field, index) => (
                             <option key={field} value={`field:${index}`}>
-                              {field || "（空字段名）"}
+                              {field || t("（空字段名）")}
                             </option>
                           ))}
                         </select>
@@ -727,9 +737,9 @@ export function ProcessingToolbox({
                     )}
                     {tool.parameters.includes("predicate") && (
                       <label>
-                        <span>空间关系</span>
+                        <span>{t("空间关系")}</span>
                         <select
-                          aria-label="空间关系"
+                          aria-label={t("空间关系")}
                           value={form.predicate}
                           onChange={(event) =>
                             changeForm({ predicate: event.target.value })
@@ -737,7 +747,7 @@ export function ProcessingToolbox({
                         >
                           {predicates.map(([value, label]) => (
                             <option key={value} value={value}>
-                              {label}
+                              {t(label)}
                             </option>
                           ))}
                         </select>
@@ -746,10 +756,10 @@ export function ProcessingToolbox({
                   </fieldset>
                   {!tool.report && (
                     <fieldset className="processing-output" disabled={running}>
-                      <legend>输出设置</legend>
+                      <legend>{t("输出设置")}</legend>
                       {!tool.report && (
                         <label>
-                          <span>结果图层名称</span>
+                          <span>{t("结果图层名称")}</span>
                           <input
                             maxLength={100}
                             value={form.outputName}
@@ -768,37 +778,43 @@ export function ProcessingToolbox({
                 </div>
                 <details className="processing-help">
                   <summary>
-                    使用说明
+                    {t("使用说明")}
                     <ChevronDown size={14} aria-hidden="true" />
                   </summary>
-                  <p>{tool.help}</p>
+                  <p>{t(tool.help)}</p>
                   {tool.metric && (
                     <p>
                       {tool.id === "nearest"
-                        ? "Point 对使用 WGS84 椭球测地距离；其他几何使用成对局部近似，受 ±75° 纬度和 5° 跨度限制。"
-                        : "使用近似米制度量，适用于局部、低中纬度数据；大范围或高纬度分析请使用专业投影工具。"}
+                        ? t(
+                            "Point 对使用 WGS84 椭球测地距离；其他几何使用成对局部近似，受 ±75° 纬度和 5° 跨度限制。",
+                          )
+                        : t(
+                            "使用近似米制度量，适用于局部、低中纬度数据；大范围或高纬度分析请使用专业投影工具。",
+                          )}
                     </p>
                   )}
                   <p>
-                    按 XY 分析，保留原顶点高程；无法确定高程的新点
-                    Z=0。结果可保存为 GeoJSON 或 WKT。
+                    {t(
+                      "按 XY 分析，保留原顶点高程；无法确定高程的新点 Z=0。结果可保存为 GeoJSON 或 WKT。",
+                    )}
                   </p>
                 </details>
               </div>
-              <section className="processing-action" aria-label="运行分析">
+              <section className="processing-action" aria-label={t("运行分析")}>
                 <div className="processing-feedback">
                   {unavailableReason && (
                     <p
                       className="processing-notice"
                       id="processing-unavailable"
                     >
-                      {unavailableReason}
+                      {t(unavailableReason)}
                     </p>
                   )}
                   {error && (
                     <div role="alert" className="processing-error">
-                      分析失败：{error}
-                      <p>输入已保留，调整后可重新运行。</p>
+                      {t("分析失败：")}
+                      {t(error)}
+                      <p>{t("输入已保留，调整后可重新运行。")}</p>
                     </div>
                   )}
                   <div
@@ -807,15 +823,24 @@ export function ProcessingToolbox({
                     className="processing-status"
                   >
                     {running
-                      ? "正在处理输入数据，请等待完成。"
+                      ? t("正在处理输入数据，请等待完成。")
                       : result?.outcome
-                        ? `分析完成${result.outcome.featureCount === undefined ? "" : `，输出 ${result.outcome.featureCount.toLocaleString("zh-CN")} 个要素`}，用时 ${(result.outcome.durationMs / 1000).toFixed(2)} 秒。`
+                        ? t(
+                            "分析完成{0}，用时 {1} 秒。",
+                            result.outcome.featureCount === undefined
+                              ? ""
+                              : t(
+                                  "，输出 {0} 个要素",
+                                  result.outcome.featureCount.toLocaleString(),
+                                ),
+                            (result.outcome.durationMs / 1000).toFixed(2),
+                          )
                         : ""}
                   </div>
                   {result?.outcome && (
                     <section
                       className="processing-result"
-                      aria-label="分析结果"
+                      aria-label={t("分析结果")}
                     >
                       {result.outcome.layerId && (
                         <div className="processing-result-layer">
@@ -837,13 +862,15 @@ export function ProcessingToolbox({
                             }}
                           >
                             <LocateFixed size={14} />
-                            定位结果
+                            {t("定位结果")}
                           </button>
                         </div>
                       )}
                       {result.outcome.featureCount === 0 && (
                         <p>
-                          没有匹配要素。可调整空间关系或输入范围后重新分析。
+                          {t(
+                            "没有匹配要素。可调整空间关系或输入范围后重新分析。",
+                          )}
                         </p>
                       )}
                       {result.outcome.report && (
@@ -864,7 +891,7 @@ export function ProcessingToolbox({
                   }
                 >
                   <Play size={15} aria-hidden="true" />
-                  {running ? "正在分析…" : "运行分析"}
+                  {running ? t("正在分析…") : t("运行分析")}
                 </button>
               </section>
             </form>

@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useState } from "react";
 import { Database, FolderOpen, LockKeyhole, RefreshCw } from "lucide-react";
 import type { DbConnection, DbLayer } from "./bridge";
@@ -24,16 +25,17 @@ export function SourcePanel({
   onConnect: () => void;
   onRefresh: () => void;
 }) {
+  useLocale();
   const [filter, setFilter] = useState("");
   return (
     <div className="source-panel">
       <div className="source-heading">
         <Database />
-        <span>{connected ? label : "未连接"}</span>
+        <span>{connected ? label : t("未连接")}</span>
         <button
           className="icon-button"
-          aria-label="刷新数据源"
-          title="刷新数据源"
+          aria-label={t("刷新数据源")}
+          title={t("刷新数据源")}
           disabled={!connected || busy}
           onClick={onRefresh}
         >
@@ -45,13 +47,13 @@ export function SourcePanel({
         disabled={busy}
         onClick={onConnect}
       >
-        {connected ? "连接设置…" : "连接 PostGIS…"}
+        {connected ? t("连接设置…") : t("连接 PostGIS…")}
       </button>
       {connected && (
         <>
           <input
-            aria-label="筛选数据表"
-            placeholder="筛选数据表"
+            aria-label={t("筛选数据表")}
+            placeholder={t("筛选数据表")}
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
           />
@@ -77,19 +79,19 @@ export function SourcePanel({
                       {layer.schema}.{layer.table}
                     </strong>
                     <small>
-                      {layer.geometryColumn || "选择 WKT 列"} ·{" "}
+                      {layer.geometryColumn || t("选择 WKT 列")} ·{" "}
                       {layer.geometryKind === "geometry"
                         ? `EPSG:${layer.srid || 4326}`
                         : "WKT"}
                     </small>
                   </span>
                   {!layer.keyColumns.length && (
-                    <LockKeyhole aria-label="无主键只读" />
+                    <LockKeyhole aria-label={t("无主键只读")} />
                   )}
                 </button>
               ))}
             {!layers.length && (
-              <p className="form-note">未发现可读取的数据表</p>
+              <p className="form-note">{t("未发现可读取的数据表")}</p>
             )}
           </div>
           <button
@@ -97,7 +99,7 @@ export function SourcePanel({
             onClick={() => onLoad(index)}
           >
             <FolderOpen />
-            加载设置…
+            {t("加载设置…")}
           </button>
         </>
       )}
@@ -120,6 +122,7 @@ export function ConnectionPanel({
   onConnect: () => void;
   onClose: () => void;
 }) {
+  useLocale();
   const valid =
     config.host.trim() &&
     config.database.trim() &&
@@ -131,9 +134,9 @@ export function ConnectionPanel({
     <>
       <div className="form-grid">
         <label>
-          主机
+          {t("主机")}
           <input
-            aria-label="主机"
+            aria-label={t("主机")}
             value={config.host}
             disabled={busy}
             onChange={(event) =>
@@ -143,9 +146,9 @@ export function ConnectionPanel({
         </label>
         <div className="two-columns">
           <label>
-            数据库
+            {t("数据库")}
             <input
-              aria-label="数据库"
+              aria-label={t("数据库")}
               value={config.database}
               disabled={busy}
               onChange={(event) =>
@@ -154,9 +157,9 @@ export function ConnectionPanel({
             />
           </label>
           <label>
-            用户
+            {t("用户")}
             <input
-              aria-label="用户"
+              aria-label={t("用户")}
               value={config.user}
               disabled={busy}
               onChange={(event) =>
@@ -166,9 +169,9 @@ export function ConnectionPanel({
           </label>
         </div>
         <label>
-          密码
+          {t("密码")}
           <input
-            aria-label="密码"
+            aria-label={t("密码")}
             type="password"
             autoComplete="off"
             value={config.password}
@@ -180,17 +183,19 @@ export function ConnectionPanel({
         </label>
         <details className="connection-advanced">
           <summary>
-            高级设置{" "}
+            {t("高级设置")}{" "}
             <span className="count">
-              {config.sslMode === "require" ? "TLS · 校验证书" : "TLS 已禁用"} ·{" "}
-              {config.port}
+              {config.sslMode === "require"
+                ? t("TLS · 校验证书")
+                : t("TLS 已禁用")}{" "}
+              · {config.port}
             </span>
           </summary>
           <div className="form-grid">
             <label>
-              端口
+              {t("端口")}
               <input
-                aria-label="端口"
+                aria-label={t("端口")}
                 type="number"
                 min={1}
                 max={65535}
@@ -211,8 +216,8 @@ export function ConnectionPanel({
                   onChange({ ...config, sslMode: event.target.value })
                 }
               >
-                <option value="require">TLS · 校验证书</option>
-                <option value="disable">禁用 TLS · 明文连接</option>
+                <option value="require">{t("TLS · 校验证书")}</option>
+                <option value="disable">{t("禁用 TLS · 明文连接")}</option>
               </select>
             </label>
           </div>
@@ -220,11 +225,11 @@ export function ConnectionPanel({
       </div>
       <div className="modal-actions">
         <button disabled={busy} onClick={onClose}>
-          取消
+          {t("取消")}
         </button>
         <button disabled={busy || !valid} onClick={onConnect}>
           <Database />
-          {busy ? "连接中" : connected ? "重新连接" : "连接"}
+          {busy ? t("连接中") : connected ? t("重新连接") : t("连接")}
         </button>
       </div>
     </>
@@ -260,6 +265,7 @@ export function LoadPanel({
   onLoad: () => void;
   onClose: () => void;
 }) {
+  useLocale();
   const valid =
     Number.isInteger(limit) &&
     limit >= 1 &&
@@ -273,7 +279,7 @@ export function LoadPanel({
       <div className="data-load-dialog">
         <div className="form-grid">
           <label>
-            数据表
+            {t("数据表")}
             <span>
               {layer.schema}.{layer.table}
             </span>
@@ -281,14 +287,14 @@ export function LoadPanel({
           {layer.geometryKind === "wkt" && (
             <>
               <label>
-                WKT 文本列
+                {t("WKT 文本列")}
                 <select
-                  aria-label="WKT 文本列"
+                  aria-label={t("WKT 文本列")}
                   disabled={busy}
                   value={column || layer.geometryColumn}
                   onChange={(event) => onColumn(event.target.value)}
                 >
-                  <option value="">选择列</option>
+                  <option value="">{t("选择列")}</option>
                   {layer.columns
                     .filter(
                       (item) =>
@@ -303,9 +309,9 @@ export function LoadPanel({
                 </select>
               </label>
               <label>
-                来源 SRID
+                {t("来源 SRID")}
                 <select
-                  aria-label="来源 SRID"
+                  aria-label={t("来源 SRID")}
                   disabled={busy}
                   value={srid}
                   onChange={(event) => onSrid(Number(event.target.value))}
@@ -329,13 +335,13 @@ export function LoadPanel({
                 disabled={busy}
                 onChange={(event) => onViewport(event.target.checked)}
               />
-              仅当前地图范围
+              {t("仅当前地图范围")}
             </label>
           )}
           <label>
-            最多读取记录
+            {t("最多读取记录")}
             <input
-              aria-label="最多读取记录"
+              aria-label={t("最多读取记录")}
               type="number"
               min={1}
               max={engine === "mysql" ? 10000 : 100000}
@@ -346,40 +352,40 @@ export function LoadPanel({
           </label>
         </div>
         <aside className="dialog-summary data-load-summary">
-          <header>加载摘要</header>
+          <header>{t("加载摘要")}</header>
           <dl>
-            <dt>几何来源</dt>
+            <dt>{t("几何来源")}</dt>
             <dd>
               {layer.geometryKind === "geometry"
                 ? layer.geometryColumn
-                : column || "待选择"}
+                : column || t("待选择")}
             </dd>
-            <dt>来源坐标</dt>
+            <dt>{t("来源坐标")}</dt>
             <dd>
               EPSG:
               {layer.geometryKind === "geometry" ? layer.srid || 4326 : srid}
             </dd>
-            <dt>读取范围</dt>
+            <dt>{t("读取范围")}</dt>
             <dd>
               {viewport && layer.geometryKind === "geometry"
-                ? "当前地图范围"
-                : "数据表"}
+                ? t("当前地图范围")
+                : t("数据表")}
             </dd>
-            <dt>主键</dt>
-            <dd>{layer.keyColumns.join(", ") || "无主键 · 只读"}</dd>
-            <dt>读取上限</dt>
+            <dt>{t("主键")}</dt>
+            <dd>{layer.keyColumns.join(", ") || t("无主键 · 只读")}</dd>
+            <dt>{t("读取上限")}</dt>
             <dd>{limit.toLocaleString()}</dd>
           </dl>
-          <p className="form-note">读取受上限限制，未必载入全表。</p>
+          <p className="form-note">{t("读取受上限限制，未必载入全表。")}</p>
         </aside>
       </div>
       <div className="modal-actions">
         <button disabled={busy} onClick={onClose}>
-          取消
+          {t("取消")}
         </button>
         <button disabled={busy || !valid} onClick={onLoad}>
           <FolderOpen />
-          {busy ? "加载中" : "载入"}
+          {busy ? t("加载中") : t("载入")}
         </button>
       </div>
     </>
@@ -403,17 +409,18 @@ export function SubmitPanel({
   onSubmit: () => void;
   onClose: () => void;
 }) {
+  useLocale();
   return (
     <>
       <p className="submit-target">{target}</p>
       <div className="submit-counts">
         {[
-          ["insert", "新增"],
-          ["update", "修改"],
-          ["delete", "删除"],
+          ["insert", t("新增")],
+          ["update", t("修改")],
+          ["delete", t("删除")],
         ].map(([kind, label]) => (
           <div key={kind}>
-            <span className="count">{label}</span>
+            <span className="count">{t(label)}</span>
             <strong>
               {changes.filter((change) => change.kind === kind).length}
             </strong>
@@ -424,28 +431,30 @@ export function SubmitPanel({
         <div className="submit-error">
           <p className="inline-error" role="alert">
             {error.includes("待核对") || error.includes("重读失败")
-              ? "提交状态需要核对"
-              : "提交未完成，本地修改已保留"}
+              ? t("提交状态需要核对")
+              : t("提交未完成，本地修改已保留")}
           </p>
           <details>
-            <summary>错误详情</summary>
-            <p className="form-note">{error}</p>
+            <summary>{t("错误详情")}</summary>
+            <p className="form-note">{t(error)}</p>
           </details>
         </div>
       )}
       {blocked && (
-        <p className="warning">当前副本禁止再次提交，请重新载入来源并核对。</p>
+        <p className="warning">
+          {t("当前副本禁止再次提交，请重新载入来源并核对。")}
+        </p>
       )}
       <div className="modal-actions">
         <button disabled={busy} onClick={onClose}>
-          返回编辑
+          {t("返回编辑")}
         </button>
         <button
           disabled={busy || blocked || !changes.length}
           onClick={onSubmit}
         >
           <Database />
-          {busy ? "提交中" : "提交到数据库"}
+          {busy ? t("提交中") : t("提交到数据库")}
         </button>
       </div>
     </>

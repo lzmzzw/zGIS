@@ -28,6 +28,7 @@ mod app_update;
 mod postgis_catalog;
 mod mysql_catalog;
 mod database_passwords;
+mod locale;
 #[cfg(any(target_os = "macos", test))]
 mod macos_security;
 #[cfg(any(target_os = "macos", test))]
@@ -54,7 +55,8 @@ async fn export_shapefile(
         };
         let bytes = shapefile_export::build_zip_crs(&features, &stem, crs.as_deref().unwrap_or("EPSG:4326"))?;
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("Shapefile ZIP", &["zip"])
+            .set_title(locale::text("导出 Shapefile ZIP", "Export Shapefile ZIP"))
+            .add_filter(locale::text("Shapefile ZIP", "Shapefile ZIP"), &["zip"])
             .set_file_name(format!("{stem}.zip"))
             .save_file()
         else {
@@ -109,7 +111,7 @@ async fn save_shapefile_folder(
         let source_crs = crs.as_deref().unwrap_or("EPSG:4326");
         let code = if source_crs.starts_with("EPSG:") { source_crs } else { vector_files::identify_prj(source_crs)? };
         let components = shapefile_export::build_components_crs(&features, code)?;
-        let Some(directory) = rfd::FileDialog::new().set_title("另存 SHP：选择目标文件夹").pick_folder() else {
+        let Some(directory) = rfd::FileDialog::new().set_title(locale::text("另存 SHP：选择目标文件夹", "Save SHP as: choose a destination folder")).pick_folder() else {
             return Ok(None);
         };
         let mut handles = files.lock().map_err(io_error)?;
@@ -290,6 +292,7 @@ fn open_files_blocking(
     files: &Mutex<HashMap<String, FileHandle>>,
 ) -> Result<Vec<OpenFile>, String> {
     let paths = rfd::FileDialog::new()
+        .set_title(locale::text("打开空间文件", "Open spatial files"))
         .add_filter(
             "GIS",
             &[
@@ -602,6 +605,7 @@ fn save_file(
         path
     } else {
         let selection = rfd::FileDialog::new()
+            .set_title(locale::text("另存图层", "Save layer as"))
             .set_file_name(
                 Path::new(&suggested_name)
                     .file_name()
@@ -1435,6 +1439,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            locale::set_locale,
             processing::gis_run_analysis,
             processing::gis_cancel_analysis,
             gis_mcp::gis_mcp_status,

@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   ChevronDown,
@@ -86,6 +87,7 @@ function symbolKind(layer: DocumentLayer): SymbolKind {
   return kinds.values().next().value ?? "empty";
 }
 export default function LayerTree(props: Props) {
+  useLocale();
   const [menu, setMenu] = useState<
     | {
         anchor: ContextMenuAnchor;
@@ -367,7 +369,9 @@ export default function LayerTree(props: Props) {
               <button
                 className="icon-button layer-expander"
                 aria-label={
-                  node.collapsed ? `展开 ${node.name}` : `折叠 ${node.name}`
+                  node.collapsed
+                    ? t("展开 {0}", node.name)
+                    : t("折叠 {0}", node.name)
                 }
                 disabled={props.busy}
                 onClick={(event) => {
@@ -386,7 +390,11 @@ export default function LayerTree(props: Props) {
               className="layer-visibility"
               checked={visible}
               disabled={props.busy}
-              aria-label={`显示${group ? "分组" : "图层"} ${displayName}`}
+              aria-label={t(
+                "显示{0} {1}",
+                group ? t("分组") : t("图层"),
+                displayName,
+              )}
               onClick={(event) => event.stopPropagation()}
               onDoubleClick={(event) => event.stopPropagation()}
               onChange={() => {
@@ -403,8 +411,8 @@ export default function LayerTree(props: Props) {
               <button
                 className="layer-symbol-button"
                 disabled={props.busy}
-                aria-label={`${displayName}样式`}
-                title={`${symbolLabels[symbol]} · 点击设置样式`}
+                aria-label={t("{0}样式", displayName)}
+                title={t("{0} · 点击设置样式", t(symbolLabels[symbol]))}
                 onClick={(event) => {
                   event.stopPropagation();
                   props.onStyle(node.id);
@@ -437,12 +445,12 @@ export default function LayerTree(props: Props) {
               <span className="layer-source-meta">
                 <span
                   className={`layer-source-badge layer-source-${source}`}
-                  title={sourceTitle(layer!)}
+                  title={t(sourceTitle(layer!))}
                 >
-                  {sourceLabels[source!]}
+                  {t(sourceLabels[source!])}
                 </span>
                 {props.readonlyIds?.includes(node.id) && (
-                  <LockKeyhole aria-label="只读图层" />
+                  <LockKeyhole aria-label={t("只读图层")} />
                 )}
               </span>
             )}
@@ -599,7 +607,7 @@ export default function LayerTree(props: Props) {
           });
         }}
       >
-        <strong>图层</strong>
+        <strong>{t("图层")}</strong>
         {props.layers.length > 0 && (
           <span className="count">{props.layers.length}</span>
         )}
@@ -608,7 +616,7 @@ export default function LayerTree(props: Props) {
         className="layer-tree"
         tabIndex={0}
         role="tree"
-        aria-label="图层树"
+        aria-label={t("图层树")}
         onContextMenu={(event) => {
           event.preventDefault();
           setMenu({
@@ -657,7 +665,7 @@ export default function LayerTree(props: Props) {
         (!menu.nodeId || (node && (node.kind === "group" || menuLayer))) && (
           <ContextMenu
             anchor={menu.anchor}
-            label="图层操作"
+            label={t("图层操作")}
             items={items}
             onClose={() => setMenu(undefined)}
           />
@@ -710,22 +718,22 @@ export default function LayerTree(props: Props) {
             <h2 id="layer-group-title">
               {dialog.kind === "new-group"
                 ? dialog.parentId
-                  ? "新建子分组"
-                  : "新建分组"
+                  ? t("新建子分组")
+                  : t("新建分组")
                 : dialog.kind === "alias-layer"
-                  ? "设置别名"
+                  ? t("设置别名")
                   : dialog.kind === "rename-layer"
-                    ? "重命名"
+                    ? t("重命名")
                     : dialog.kind === "rename-group"
-                      ? "重命名分组"
+                      ? t("重命名分组")
                       : dialog.kind === "delete-group"
-                        ? "删除分组"
-                        : "解散分组"}
+                        ? t("删除分组")
+                        : t("解散分组")}
             </h2>
             <button
               type="button"
               className="icon-button"
-              aria-label="关闭"
+              aria-label={t("关闭")}
               onClick={() => setDialog(undefined)}
             >
               <X />
@@ -758,22 +766,24 @@ export default function LayerTree(props: Props) {
           >
             {dialog.kind === "delete-group" ? (
               <p id="layer-group-description" className="layer-rename-help">
-                删除此分组及其全部子分组、图层？未保存的修改将丢弃，磁盘文件保留。
+                {t(
+                  "删除此分组及其全部子分组、图层？未保存的修改将丢弃，磁盘文件保留。",
+                )}
               </p>
             ) : dialog.kind === "dissolve-group" ? (
               <p id="layer-group-description" className="layer-rename-help">
-                解散“
-                {dialogTarget?.kind === "group" ? dialogTarget.name : "分组"}
-                ”？图层和子分组将按原有结构移到根层。
+                {t("解散“")}
+                {dialogTarget?.kind === "group" ? dialogTarget.name : t("分组")}
+                {t("”？图层和子分组将按原有结构移到根层。")}
               </p>
             ) : (
               <>
                 <label htmlFor="layer-group-name">
                   {dialog.kind === "alias-layer"
-                    ? "图层别名"
+                    ? t("图层别名")
                     : dialog.kind === "rename-layer"
-                      ? "文件名称"
-                      : "分组名称"}
+                      ? t("文件名称")
+                      : t("分组名称")}
                 </label>
                 <input
                   id="layer-group-name"
@@ -796,7 +806,7 @@ export default function LayerTree(props: Props) {
                 }
                 onClick={() => setDialog(undefined)}
               >
-                取消
+                {t("取消")}
               </button>
               <button
                 type="submit"
@@ -812,12 +822,12 @@ export default function LayerTree(props: Props) {
                 }
               >
                 {dialog.kind === "new-group"
-                  ? "创建"
+                  ? t("创建")
                   : dialog.kind === "dissolve-group"
-                    ? "解散"
+                    ? t("解散")
                     : dialog.kind === "delete-group"
-                      ? "删除"
-                      : "确定"}
+                      ? t("删除")
+                      : t("确定")}
               </button>
             </div>
           </form>

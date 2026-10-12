@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api, type McpToolDefinition } from "./bridge";
@@ -24,6 +25,7 @@ const labels: Record<string, [string, string]> = {
 };
 
 export default function McpToolCatalog() {
+  useLocale();
   const [expanded, setExpanded] = useState(false);
   const [tools, setTools] = useState<McpToolDefinition[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -49,7 +51,9 @@ export default function McpToolCatalog() {
   }
   const groups = new Map<string, McpToolDefinition[]>();
   for (const tool of tools ?? []) {
-    const group = labels[tool.name]?.[0] ?? (getAnalysisTool(tool.name) ? "空间分析" : "其他工具");
+    const group =
+      labels[tool.name]?.[0] ??
+      (getAnalysisTool(tool.name) ? "空间分析" : "其他工具");
     groups.set(group, [...(groups.get(group) ?? []), tool]);
   }
   return (
@@ -64,43 +68,50 @@ export default function McpToolCatalog() {
         }}
       >
         {expanded ? <ChevronDown /> : <ChevronRight />}
-        <strong>工具详情</strong>
-        {tools !== null && <span>{tools.length} 个工具</span>}
+        <strong>{t("工具详情")}</strong>
+        {tools !== null && <span>{t("{0} 个工具", tools.length)}</span>}
       </button>
       {expanded && (
         <div id="mcp-tools-details" className="mcp-tools-details">
-          {loading && <p role="status">正在加载工具清单…</p>}
+          {loading && <p role="status">{t("正在加载工具清单…")}</p>}
           {error && (
             <div role="alert" className="mcp-tools-error">
-              工具清单加载失败：{error}
+              {t("工具清单加载失败：")}
+              {t(error)}
               <button onClick={() => void load()} disabled={loading}>
-                重试
+                {t("重试")}
               </button>
             </div>
           )}
           {!loading && !error && tools?.length === 0 && (
-            <p>当前 MCP 未提供工具</p>
+            <p>{t("当前 MCP 未提供工具")}</p>
           )}
           {!loading &&
             !error &&
             Array.from(groups, ([group, items]) => (
               <section
                 key={group}
-                aria-label={group}
+                aria-label={t(group)}
                 className="mcp-tool-group"
               >
                 <h3>
-                  {group}（{items.length}）
+                  {t(group)}（{items.length}）
                 </h3>
                 <div className="mcp-tool-list">
                   {items.map((tool) => (
                     <details key={tool.name} className="mcp-tool-item">
                       <summary>
-                        <strong>{labels[tool.name]?.[1] ?? getAnalysisTool(tool.name)?.label ?? tool.name}</strong>
+                        <strong>
+                          {t(
+                            labels[tool.name]?.[1] ??
+                              getAnalysisTool(tool.name)?.label ??
+                              tool.name,
+                          )}
+                        </strong>
                         <code>{tool.name}</code>
                         <ChevronDown />
                       </summary>
-                      <p>{tool.description}</p>
+                      <p>{t(tool.description)}</p>
                     </details>
                   ))}
                 </div>

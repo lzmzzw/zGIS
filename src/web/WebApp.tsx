@@ -1,3 +1,4 @@
+import { useLocale } from "../i18n";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Download,
@@ -48,6 +49,7 @@ function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const { locale, setLocale, t } = useLocale();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current!;
@@ -70,7 +72,15 @@ function Modal({
     >
       <header>
         <h2>{title}</h2>
-        <button aria-label={`关闭${title}`} onClick={onClose}>
+        <select
+          aria-label={t("语言")}
+          value={locale}
+          onChange={(event) => setLocale(event.target.value as typeof locale)}
+        >
+          <option value="zh-CN">中文</option>
+          <option value="en">English</option>
+        </select>
+        <button aria-label={t(`关闭${title}`)} onClick={onClose}>
           <X size={16} />
         </button>
       </header>
@@ -80,6 +90,7 @@ function Modal({
 }
 
 export default function WebApp() {
+  const { locale, setLocale, t } = useLocale();
   const [layers, setLayers] = useState<DocumentLayer[]>([]);
   const [activeId, setActiveId] = useState<string>();
   const [selectedId, setSelectedId] = useState<string>();
@@ -339,12 +350,12 @@ export default function WebApp() {
         </strong>
         <button disabled={busy} onClick={() => input.current?.click()}>
           <FolderOpen size={16} />
-          导入文件
+          {t("导入文件")}
         </button>
         <input
           hidden
           ref={input}
-          aria-label="选择空间文件"
+          aria-label={t("选择空间文件")}
           type="file"
           multiple
           accept=".geojson,.json,.csv,.zip"
@@ -358,19 +369,34 @@ export default function WebApp() {
           aria-pressed={toolboxOpen}
           onClick={() => setToolboxOpen((open) => !open)}
         >
-          空间分析
+          {t("空间分析")}
         </button>
-        <span className="web-local-note">文件本地处理 · 结果下载保存</span>
+        <label className="web-language">
+          {t("语言")}
+          <select
+            aria-label={t("语言")}
+            value={locale}
+            onChange={(event) => setLocale(event.target.value as typeof locale)}
+          >
+            <option value="zh-CN">中文</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+        <span className="web-local-note">
+          {t("文件本地处理 · 结果下载保存")}
+        </span>
       </header>
       <div className={`web-workspace ${toolboxOpen ? "with-toolbox" : ""}`}>
-        <aside className="web-layers" aria-label="图层列表">
+        <aside className="web-layers" aria-label={t("图层列表")}>
           <header>
-            <strong>图层</strong>
+            <strong>{t("图层")}</strong>
             <span>{layers.length}</span>
           </header>
           {!layers.length && (
             <p className="web-empty">
-              导入 GeoJSON、CSV（WKT 或 X/Y）或 SHP ZIP。可将多个文件拖入地图。
+              {t(
+                "导入 GeoJSON、CSV（WKT 或 X/Y）或 SHP ZIP。可将多个文件拖入地图。",
+              )}
             </p>
           )}
           {layers.map((layer) => (
@@ -383,7 +409,7 @@ export default function WebApp() {
                   type="checkbox"
                   checked={layer.visible}
                   disabled={busy}
-                  aria-label={`${nameOf(layer)} 显示`}
+                  aria-label={t(`${nameOf(layer)} 显示`)}
                   onChange={(event) =>
                     patchLayer(layer.id, { visible: event.target.checked })
                   }
@@ -401,7 +427,7 @@ export default function WebApp() {
                 </button>
               </div>
               <p>
-                {layer.features.length} 个要素 ·{" "}
+                {t(`${layer.features.length} 个要素`)} ·{" "}
                 {layer.originalCrs || layer.crs}
               </p>
               <div className="web-layer-actions">
@@ -409,13 +435,13 @@ export default function WebApp() {
                   type="color"
                   value={layer.color}
                   disabled={busy}
-                  aria-label={`${nameOf(layer)} 颜色`}
+                  aria-label={t(`${nameOf(layer)} 颜色`)}
                   onChange={(event) =>
                     patchLayer(layer.id, { color: event.target.value })
                   }
                 />
                 <label>
-                  透明度
+                  {t("透明度")}
                   <input
                     type="range"
                     min="0"
@@ -423,7 +449,7 @@ export default function WebApp() {
                     step="0.1"
                     value={layer.opacity ?? 1}
                     disabled={busy}
-                    aria-label={`${nameOf(layer)} 透明度`}
+                    aria-label={t(`${nameOf(layer)} 透明度`)}
                     onChange={(event) =>
                       patchLayer(layer.id, {
                         opacity: Number(event.target.value),
@@ -432,14 +458,14 @@ export default function WebApp() {
                   />
                 </label>
                 <button
-                  aria-label={`${nameOf(layer)} 定位`}
+                  aria-label={t(`${nameOf(layer)} 定位`)}
                   onClick={() => locate(layer.id)}
                 >
                   <LocateFixed size={15} />
                 </button>
                 <button
                   disabled={busy}
-                  aria-label={`${nameOf(layer)} 移除`}
+                  aria-label={t(`${nameOf(layer)} 移除`)}
                   onClick={() => setRemoveId(layer.id)}
                 >
                   <Trash2 size={15} />
@@ -447,9 +473,9 @@ export default function WebApp() {
               </div>
               {!!layer.warnings?.length && (
                 <details>
-                  <summary>图层提示（{layer.warnings.length}）</summary>
+                  <summary>{t(`图层提示（${layer.warnings.length}）`)}</summary>
                   {layer.warnings.map((warning, index) => (
-                    <p key={index}>{warning}</p>
+                    <p key={index}>{t(warning)}</p>
                   ))}
                 </details>
               )}
@@ -480,26 +506,26 @@ export default function WebApp() {
             />
             <div className="web-map-controls">
               <button
-                aria-label="选择要素"
+                aria-label={t("选择要素")}
                 aria-pressed={tool === "select"}
                 onClick={() => setTool("select")}
               >
                 <MousePointer2 size={16} />
               </button>
               <button
-                aria-label="平移地图"
+                aria-label={t("平移地图")}
                 aria-pressed={tool === "pan"}
                 onClick={() => setTool("pan")}
               >
                 <Hand size={16} />
               </button>
               <select
-                aria-label="底图"
+                aria-label={t("底图")}
                 value={basemap}
                 onChange={(event) => setBasemap(event.target.value)}
               >
                 <option value="osm">OpenStreetMap</option>
-                <option value="none">无底图</option>
+                <option value="none">{t("无底图")}</option>
               </select>
             </div>
             {basemap === "osm" && (
@@ -509,18 +535,20 @@ export default function WebApp() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                © OpenStreetMap contributors
+                {t("© OpenStreetMap 贡献者")}
               </a>
             )}
           </div>
-          <section className="web-attributes" aria-label="属性查看">
+          <section className="web-attributes" aria-label={t("属性查看")}>
             <header>
-              <strong>{active ? `${nameOf(active)} · 属性` : "属性表"}</strong>
+              <strong>
+                {active ? t(`${nameOf(active)} · 属性`) : t("属性表")}
+              </strong>
               <label>
                 <Search size={15} />
                 <input
-                  aria-label="搜索属性"
-                  placeholder="搜索属性"
+                  aria-label={t("搜索属性")}
+                  placeholder={t("搜索属性")}
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                 />
@@ -536,15 +564,15 @@ export default function WebApp() {
                 }}
               >
                 <Download size={15} />
-                下载图层
+                {t("下载图层")}
               </button>
             </header>
             <div className="web-table-scroll">
-              <table aria-label="图层属性">
+              <table aria-label={t("图层属性")}>
                 <thead>
                   <tr>
-                    <th>要素</th>
-                    <th>几何</th>
+                    <th>{t("要素")}</th>
+                    <th>{t("几何")}</th>
                     {fields.map((field) => (
                       <th key={field}>{field}</th>
                     ))}
@@ -561,7 +589,7 @@ export default function WebApp() {
                         key={feature.id}
                         aria-selected={selectedId === feature.id}
                         tabIndex={0}
-                        aria-label={`选择要素 ${feature.id}`}
+                        aria-label={t(`选择要素 ${feature.id}`)}
                         onKeyDown={(event) => {
                           if (event.target !== event.currentTarget) return;
                           if (event.key === "Enter" || event.key === " ") {
@@ -573,7 +601,7 @@ export default function WebApp() {
                       >
                         <td>
                           <button
-                            aria-label={`定位要素 ${feature.id}`}
+                            aria-label={t(`定位要素 ${feature.id}`)}
                             onClick={(event) => {
                               event.stopPropagation();
                               setSelectedId(feature.id);
@@ -583,7 +611,7 @@ export default function WebApp() {
                             {feature.id}
                           </button>
                         </td>
-                        <td>{feature.geometry?.type ?? "空几何"}</td>
+                        <td>{feature.geometry?.type ?? t("空几何")}</td>
                         {fields.map((field) => (
                           <td
                             key={field}
@@ -598,26 +626,27 @@ export default function WebApp() {
               </table>
               {!filtered.length && (
                 <p className="web-empty">
-                  {active ? "没有匹配要素。" : "选择图层查看属性。"}
+                  {active ? t("没有匹配要素。") : t("选择图层查看属性。")}
                 </p>
               )}
             </div>
             <footer>
               <span>
-                {filtered.length} 个要素 · 第 {Math.min(page, pages - 1) + 1} /{" "}
-                {pages} 页
+                {t(
+                  `${filtered.length} 个要素 · 第 ${Math.min(page, pages - 1) + 1} / ${pages} 页`,
+                )}
               </span>
               <button
                 disabled={page === 0}
                 onClick={() => setPage((value) => value - 1)}
               >
-                上一页
+                {t("上一页")}
               </button>
               <button
                 disabled={page >= pages - 1}
                 onClick={() => setPage((value) => value + 1)}
               >
-                下一页
+                {t("下一页")}
               </button>
             </footer>
           </section>
@@ -630,7 +659,7 @@ export default function WebApp() {
               selectedFeatureId={selectedId}
               editing={false}
               blockedReason={
-                busy && !job.current ? "请等待当前操作完成" : undefined
+                busy && !job.current ? t("请等待当前操作完成") : undefined
               }
               onRun={analyze}
               onClose={() => setToolboxOpen(false)}
@@ -640,9 +669,11 @@ export default function WebApp() {
         )}
       </div>
       <footer className="web-status" role="status">
-        <span>{status}</span>
+        <span>{t(status)}</span>
         {cancellable && (
-          <button onClick={() => void cancelCurrent()}>取消当前操作</button>
+          <button onClick={() => void cancelCurrent()}>
+            {t("取消当前操作")}
+          </button>
         )}
         <span>
           {position.length
@@ -652,15 +683,15 @@ export default function WebApp() {
       </footer>
       {error && !pendingFiles.length && !exportId && (
         <div className="web-error" role="alert">
-          {error}
-          <button aria-label="关闭错误" onClick={() => setError("")}>
+          {t(error)}
+          <button aria-label={t("关闭错误")} onClick={() => setError("")}>
             <X size={14} />
           </button>
         </div>
       )}
       {!!pendingFiles.length && (
         <Modal
-          title="导入文件"
+          title={t("导入文件")}
           onClose={() => {
             if (!busy) {
               setPendingFiles([]);
@@ -669,12 +700,12 @@ export default function WebApp() {
           }}
         >
           <p className="form-note">
-            文件不会上传。工作坐标为 WGS84；单次文件总大小上限 100 MB。
+            {t("文件不会上传。工作坐标为 WGS84；单次文件总大小上限 100 MB。")}
           </p>
           <ImportPanel
             files={pendingFiles}
             busy={busy}
-            error={error}
+            error={t(error)}
             onImport={(options) => void importFiles(options)}
             onClose={() => {
               setPendingFiles([]);
@@ -683,34 +714,36 @@ export default function WebApp() {
             onChange={() => setError("")}
           />
           {cancellable && (
-            <button onClick={() => void cancelCurrent()}>取消当前操作</button>
+            <button onClick={() => void cancelCurrent()}>
+              {t("取消当前操作")}
+            </button>
           )}
         </Modal>
       )}
       {exporting && (
         <Modal
-          title="下载图层"
+          title={t("下载图层")}
           onClose={() => {
             if (!busy) setExportId(undefined);
           }}
         >
           <div className="web-export">
             <p>
-              {nameOf(exporting)} · {exporting.features.length} 个要素
+              {nameOf(exporting)} · {t(`${exporting.features.length} 个要素`)}
             </p>
             <label>
-              文件名
+              {t("文件名")}
               <input
-                aria-label="文件名"
+                aria-label={t("文件名")}
                 value={exportName}
                 disabled={busy}
                 onChange={(event) => setExportName(event.target.value)}
               />
             </label>
             <label>
-              输出格式
+              {t("输出格式")}
               <select
-                aria-label="输出格式"
+                aria-label={t("输出格式")}
                 value={exportMode}
                 disabled={busy}
                 onChange={(event) =>
@@ -724,9 +757,9 @@ export default function WebApp() {
               </select>
             </label>
             <label>
-              目标坐标系
+              {t("目标坐标系")}
               <select
-                aria-label="目标坐标系"
+                aria-label={t("目标坐标系")}
                 value={exportCrs}
                 disabled={busy}
                 onChange={(event) => setExportCrs(event.target.value)}
@@ -738,50 +771,54 @@ export default function WebApp() {
             </label>
             {exportMode === "xy" && (
               <p className="form-note">
-                X/Y 仅支持二维点，线面或高程请使用 WKT 或 GeoJSON。
+                {t("X/Y 仅支持二维点，线面或高程请使用 WKT 或 GeoJSON。")}
               </p>
             )}
             {exportMode !== "geojson" && (
               <p className="form-note">
-                CSV 中嵌套属性为 JSON 文本，空字符串与 NULL 不保真；SHP
-                字段和几何须满足格式限制，无法保真时会提示错误。
+                {t(
+                  "CSV 中嵌套属性为 JSON 文本，空字符串与 NULL 不保真；SHP 字段和几何须满足格式限制，无法保真时会提示错误。",
+                )}
               </p>
             )}
             {exportMode === "geojson" && exportCrs !== "EPSG:4326" && (
               <p className="form-note">
-                输出含 crs 标记的传统 GeoJSON，仅接受 RFC 7946
-                的软件可能不支持。
+                {t(
+                  "输出含 crs 标记的传统 GeoJSON，仅接受 RFC 7946 的软件可能不支持。",
+                )}
               </p>
             )}
             {error && (
               <p role="alert" className="inline-error">
-                {error}
+                {t(error)}
               </p>
             )}
           </div>
           <div className="modal-actions">
             {cancellable && exportMode === "shp" && (
-              <button onClick={() => void cancelCurrent()}>取消当前操作</button>
+              <button onClick={() => void cancelCurrent()}>
+                {t("取消当前操作")}
+              </button>
             )}
             <button disabled={busy} onClick={() => setExportId(undefined)}>
-              取消
+              {t("取消")}
             </button>
             <button disabled={busy} onClick={() => void exportLayer()}>
-              {busy ? "生成中…" : "下载"}
+              {busy ? t("生成中…") : t("下载")}
             </button>
           </div>
         </Modal>
       )}
       {removing && (
-        <Modal title="移除图层" onClose={() => setRemoveId(undefined)}>
+        <Modal title={t("移除图层")} onClose={() => setRemoveId(undefined)}>
           <p>
-            移除“{nameOf(removing)}”？
+            {t(`移除“${nameOf(removing)}”？`)}{" "}
             {removing.dirty
-              ? "此结果尚未下载，移除后将丢失。"
-              : "本地源文件不会改变。"}
+              ? t("此结果尚未下载，移除后将丢失。")
+              : t("本地源文件不会改变。")}
           </p>
           <div className="modal-actions">
-            <button onClick={() => setRemoveId(undefined)}>取消</button>
+            <button onClick={() => setRemoveId(undefined)}>{t("取消")}</button>
             <button
               onClick={() => {
                 setLayers((old) =>
@@ -796,7 +833,7 @@ export default function WebApp() {
                 setRemoveId(undefined);
               }}
             >
-              移除
+              {t("移除")}
             </button>
           </div>
         </Modal>

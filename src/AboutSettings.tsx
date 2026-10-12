@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { ExternalLink, GitBranch, Hash, RefreshCw, Scale } from "lucide-react";
@@ -25,6 +26,7 @@ export default function AboutSettings({
 }: {
   onInstall: (version: string) => void;
 }) {
+  useLocale();
   const [version, setVersion] = useState(packageJson.version);
   const [update, setUpdate] = useState<UpdateState>({ status: "idle" });
   const [linkError, setLinkError] = useState("");
@@ -133,10 +135,10 @@ export default function AboutSettings({
       <button
         type="button"
         className="quiet about-settings-link"
-        aria-label={accessibleLabel}
+        aria-label={t(accessibleLabel)}
         onClick={() => void openLink(target)}
       >
-        {label}
+        {t(label)}
         <ExternalLink aria-hidden="true" />
       </button>
     ) : (
@@ -145,9 +147,9 @@ export default function AboutSettings({
         href={links[target]}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label={accessibleLabel}
+        aria-label={t(accessibleLabel)}
       >
-        {label}
+        {t(label)}
         <ExternalLink aria-hidden="true" />
       </a>
     );
@@ -156,7 +158,15 @@ export default function AboutSettings({
     update.status === "downloading"
       ? "正在下载并校验更新…"
       : update.status === "ready"
-        ? `v${update.latestVersion} 已下载并通过校验${update.installation === "manual" ? "，打开后拖入应用程序文件夹" : "，安装时将保存工作区并重启"}`
+        ? t(
+            "v{0} 已下载并通过校验{1}",
+            update.latestVersion,
+            t(
+              update.installation === "manual"
+                ? "，打开后拖入应用程序文件夹"
+                : "，安装时将保存工作区并重启",
+            ),
+          )
         : update.status === "checking"
           ? "检查中…"
           : update.status === "current"
@@ -178,7 +188,7 @@ export default function AboutSettings({
         <div className="about-settings-card">
           <strong>
             <Hash aria-hidden="true" />
-            版本
+            {t("版本")}
           </strong>
           <span className="about-settings-value">
             v{version.replace(/^v/i, "")}
@@ -191,35 +201,35 @@ export default function AboutSettings({
           </strong>
           <span className="about-settings-value">github.com/lzmzzw/zGIS</span>
           <div className="about-settings-actions">
-            {projectLink("github", "打开", "打开 GitHub")}
+            {projectLink("github", t("打开"), t("打开 GitHub"))}
           </div>
         </div>
         <div className="about-settings-card">
           <strong>
             <Scale aria-hidden="true" />
-            开源协议
+            {t("开源协议")}
           </strong>
           <span className="about-settings-value">GPL 3.0</span>
           <div className="about-settings-actions">
-            {projectLink("license", "查看", "查看开源协议")}
+            {projectLink("license", t("查看"), t("查看开源协议"))}
           </div>
         </div>
         <div className="about-settings-card">
           <strong>
             <RefreshCw aria-hidden="true" />
-            更新
+            {t("更新")}
           </strong>
           <span className="about-settings-value" role="status">
-            {updateText}
+            {t(updateText)}
           </span>
           <div className="about-settings-actions">
             {desktop ? (
               <>
                 {update.status === "available" &&
-                  projectLink("releases", "查看更新")}
+                  projectLink("releases", t("查看更新"))}
                 {update.status === "available" && update.latestVersion && (
                   <button type="button" onClick={() => void downloadUpdate()}>
-                    下载更新
+                    {t("下载更新")}
                   </button>
                 )}
                 {update.status === "ready" && (
@@ -232,8 +242,8 @@ export default function AboutSettings({
                     }
                   >
                     {update.installation === "manual"
-                      ? "打开安装包"
-                      : "覆盖安装并重启"}
+                      ? t("打开安装包")
+                      : t("覆盖安装并重启")}
                   </button>
                 )}
                 <button
@@ -244,23 +254,23 @@ export default function AboutSettings({
                   }
                   onClick={() => void checkUpdate()}
                 >
-                  {update.status === "checking" ? "检查中…" : "检查更新"}
+                  {update.status === "checking" ? t("检查中…") : t("检查更新")}
                 </button>
               </>
             ) : (
-              projectLink("releases", "查看发布页")
+              projectLink("releases", t("查看发布页"))
             )}
           </div>
         </div>
       </div>
       {linkError && (
         <p className="warning" role="alert">
-          {linkError}
+          {t(linkError)}
         </p>
       )}
       {downloadError && (
         <p className="warning" role="alert">
-          {downloadError}
+          {t(downloadError)}
         </p>
       )}
     </div>

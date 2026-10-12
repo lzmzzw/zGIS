@@ -24,7 +24,7 @@ for (const theme of ["dark", "light"]) {
       "font-size",
       "17px",
     );
-    await expect(page.locator(".settings-fields > label > span")).toHaveCSS(
+    await expect(page.locator(".settings-fields > label > span").filter({hasText: "主题"})).toHaveCSS(
       "font-size",
       "13px",
     );

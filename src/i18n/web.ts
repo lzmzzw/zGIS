@@ -1,0 +1,103 @@
+const web: Record<string, string> = {
+  语言: "Language",
+  "© OpenStreetMap 贡献者": "© OpenStreetMap contributors",
+  "关闭{0}": "Close {0}",
+  "选择或拖入文件开始；文件仅在本地浏览器处理。":
+    "Choose or drop files to start; files are processed in your browser only.",
+  "正在解析文件…": "Parsing files…",
+  "已导入 {0} 个图层，{1} 个要素": "Imported {0} layers with {1} features",
+  导入未完成: "Import incomplete",
+  请等待当前操作完成: "Please wait for the current operation to finish",
+  "输入图层不可用，请重新选择":
+    "The input layer is unavailable. Select it again",
+  输入范围没有要素: "The input contains no features",
+  "结果名称须为 1–100 个字符": "The result name must contain 1–100 characters",
+  "正在运行{tool}…": "Running {tool}…",
+  分析已取消: "Analysis cancelled",
+  分析结果结构无效: "Invalid analysis result structure",
+  "{tool}结果；浏览器中的独立副本，请下载保存。":
+    "{tool} result; an independent browser copy. Download to save it.",
+  "{tool}完成：{1} 个结果要素": "{tool} complete: {1} result features",
+  分析未返回矢量结果: "Analysis did not return a vector result",
+  "{tool}完成": "{tool} complete",
+  分析失败: "Analysis failed",
+  "文件名须为 1–100 个字符，不能包含路径或特殊字符。":
+    "The filename must contain 1–100 characters and cannot contain paths or special characters.",
+  "已生成图层下载，请确认浏览器下载已保存。":
+    "Layer download generated. Check that your browser saved it.",
+  导入文件: "Import files",
+  选择空间文件: "Choose spatial files",
+  空间分析: "Spatial analysis",
+  "文件本地处理 · 结果下载保存":
+    "Local file processing · Download results to save",
+  图层列表: "Layer list",
+  图层: "Layers",
+  "导入 GeoJSON、CSV（WKT 或 X/Y）或 SHP ZIP。可将多个文件拖入地图。":
+    "Import GeoJSON, CSV (WKT or X/Y), or SHP ZIP. You can drop multiple files onto the map.",
+  "{0} 显示": "{0} visibility",
+  "{0} 个要素": "{0} features",
+  "{0} 颜色": "{0} color",
+  透明度: "Opacity",
+  "{0} 透明度": "{0} opacity",
+  "{0} 定位": "Locate {0}",
+  "{0} 移除": "Remove {0}",
+  "图层提示（{0}）": "Layer notices ({0})",
+  选择要素: "Select features",
+  平移地图: "Pan map",
+  底图: "Basemap",
+  无底图: "No basemap",
+  属性查看: "Attribute viewer",
+  "{0} · 属性": "{0} · Attributes",
+  属性表: "Attribute table",
+  搜索属性: "Search attributes",
+  下载图层: "Download layer",
+  图层属性: "Layer attributes",
+  要素: "Feature",
+  几何: "Geometry",
+  "选择要素 {0}": "Select feature {0}",
+  "定位要素 {0}": "Locate feature {0}",
+  空几何: "Null geometry",
+  "没有匹配要素。": "No matching features.",
+  "选择图层查看属性。": "Select a layer to view its attributes.",
+  "{0} 个要素 · 第 {1} / {2} 页": "{0} features · Page {1} / {2}",
+  上一页: "Previous page",
+  下一页: "Next page",
+  取消当前操作: "Cancel current operation",
+  关闭错误: "Dismiss error",
+  "文件不会上传。工作坐标为 WGS84；单次文件总大小上限 100 MB。":
+    "Files are never uploaded. Working coordinates use WGS84; the total file size limit per import is 100 MB.",
+  文件名: "Filename",
+  输出格式: "Output format",
+  目标坐标系: "Target coordinate system",
+  "X/Y 仅支持二维点，线面或高程请使用 WKT 或 GeoJSON。":
+    "X/Y supports 2D points only. Use WKT or GeoJSON for lines, polygons, or elevation.",
+  "CSV 中嵌套属性为 JSON 文本，空字符串与 NULL 不保真；SHP 字段和几何须满足格式限制，无法保真时会提示错误。":
+    "Nested CSV attributes use JSON text; empty strings and NULL cannot be distinguished. SHP fields and geometries must meet format constraints; unsupported values produce an error.",
+  "输出含 crs 标记的传统 GeoJSON，仅接受 RFC 7946 的软件可能不支持。":
+    "Output uses legacy GeoJSON with a crs member. Software accepting only RFC 7946 may not support it.",
+  取消: "Cancel",
+  "生成中…": "Generating…",
+  下载: "Download",
+  移除图层: "Remove layer",
+  "移除“{0}”？": "Remove “{0}”?",
+  "此结果尚未下载，移除后将丢失。":
+    "This result has not been downloaded and will be lost if removed.",
+  "本地源文件不会改变。": "The local source file will remain unchanged.",
+  移除: "Remove",
+  请选择空间文件: "Choose spatial files",
+  "支持 GeoJSON、CSV 和 Shapefile ZIP；SHP 文件组请打包为 ZIP。":
+    "GeoJSON, CSV, and Shapefile ZIP are supported. Package SHP file groups as ZIP.",
+  "单次导入文件总大小不能超过 100 MB。":
+    "The total import file size cannot exceed 100 MB.",
+  无效分析任务标识: "Invalid analysis job identifier",
+  "ANALYSIS_DUPLICATE: 任务标识正在使用":
+    "ANALYSIS_DUPLICATE: The job identifier is already in use",
+  "ANALYSIS_CANCELLED: 分析已取消": "ANALYSIS_CANCELLED: Analysis cancelled",
+  "ANALYSIS_BUSY: 分析任务正在运行，请稍后重试":
+    "ANALYSIS_BUSY: Analysis jobs are running. Try again later",
+  "ANALYSIS_TIMEOUT: 分析超过时间预算":
+    "ANALYSIS_TIMEOUT: Analysis exceeded its time budget",
+  空间分析引擎运行失败: "The spatial analysis engine failed",
+  空间分析结果传输失败: "Spatial analysis result transfer failed",
+};
+export default web;

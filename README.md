@@ -2,6 +2,8 @@
 
 GitHub Actions 的检查、构建和发布流程见 [发布说明](docs/release.md)。
 
+支持中文和 English：桌面版在「设置 → 外观 → 语言」配置，Web 版在页面顶部配置，选择会被记住。切换保留图层和编辑状态，使用及维护规则见[中英双语](docs/i18n.md)。
+
 Windows / macOS ARM64 轻量地理数据查看与编辑器，同时提供纯静态 Web 文件图层查看与分析版，使用 Tauri 2、React、OpenLayers 与 Rust。当前源码版本为 0.4.0，不包含 Python/GDAL 运行时。变更见 [0.4.0 说明](docs/releases/0.4.0.md)、[0.3.9 说明](docs/releases/0.3.9.md)、[0.3.8 说明](docs/releases/0.3.8.md)、[0.3.7 说明](docs/releases/0.3.7.md)、[0.3.6 说明](docs/releases/0.3.6.md)、[0.3.5 说明](docs/releases/0.3.5.md)、[0.3.4 说明](docs/releases/0.3.4.md)、[0.3.3 说明](docs/releases/0.3.3.md)、[0.3.2 说明](docs/releases/0.3.2.md) 和 [0.2.0 说明](docs/releases/0.2.0.md)，模块职责与维护边界见 [代码结构](docs/architecture.md)。
 
 ## Web 版

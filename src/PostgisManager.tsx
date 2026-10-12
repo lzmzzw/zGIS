@@ -1,3 +1,4 @@
+import { t as translate, useLocale } from "./i18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
@@ -50,6 +51,7 @@ function ManagerDialog({
   busy: boolean;
   returnFocus: HTMLElement | null;
 }) {
+  useLocale();
   const ref = useRef<HTMLDialogElement>(null);
   const initialFocusPending = useRef(true);
   useEffect(() => {
@@ -104,8 +106,8 @@ function ManagerDialog({
         <button
           type="button"
           className="icon-button"
-          aria-label="关闭"
-          title="关闭"
+          aria-label={translate("关闭")}
+          title={translate("关闭")}
           disabled={busy}
           onClick={onClose}
         >
@@ -141,6 +143,7 @@ export default function PostgisManager({
   inUseConnectionIds: string[];
   inUseSourceIds?: string[];
 }) {
+  useLocale();
   const mysql = engine === "mysql";
   const engineLabel = mysql ? "Mysql" : "PostGIS";
   const engineApi = mysql
@@ -481,7 +484,7 @@ export default function PostgisManager({
         event.stopPropagation();
         onClose();
       }}
-      aria-label={engineLabel + " 数据源管理"}
+      aria-label={engineLabel + translate(" 数据源管理")}
     >
       <header className="pg-heading">
         <button
@@ -491,10 +494,13 @@ export default function PostgisManager({
           onClick={onClose}
         >
           <ArrowLeft />
-          返回地图
+          {translate("返回地图")}
         </button>
         <span className="pg-divider" />
-        <h1>{engineLabel} 数据源</h1>
+        <h1>
+          {engineLabel}
+          {translate("数据源")}
+        </h1>
         <div className="pg-grow" />
         <button
           className="quiet danger"
@@ -502,27 +508,27 @@ export default function PostgisManager({
           onClick={() => startDialog("delete")}
         >
           <Trash2 />
-          删除数据源
+          {translate("删除数据源")}
         </button>
         <button
           disabled={busy || !ready || !desktop}
           onClick={() => startDialog("add")}
         >
           <Plus />
-          新增数据源
+          {translate("新增数据源")}
         </button>
         <button
           className="quiet"
           disabled={!source || busy}
           onClick={() => startDialog("connect")}
         >
-          连接设置
+          {translate("连接设置")}
         </button>
       </header>
       <div className="pg-body">
         <aside className="pg-sources">
           <div className="pg-section-title">
-            <strong>数据源</strong>
+            <strong>{translate("数据源")}</strong>
             <span className="count">{sources.length || ""}</span>
           </div>
           {sources.map((s) => (
@@ -537,7 +543,8 @@ export default function PostgisManager({
               <span>
                 <strong title={s.name}>{s.name}</strong>
                 <small title={s.database}>
-                  {s.database} · {sessions[s.id] ? "已连接" : "未连接"}
+                  {s.database} ·{" "}
+                  {sessions[s.id] ? translate("已连接") : translate("未连接")}
                 </small>
               </span>
             </button>
@@ -545,17 +552,19 @@ export default function PostgisManager({
           {!sources.length && ready && (
             <p className="pg-note">
               {mysql
-                ? "添加数据源以浏览数据表。"
-                : "添加数据源以浏览 Schema 和数据表。"}
+                ? translate("添加数据源以浏览数据表。")
+                : translate("添加数据源以浏览 Schema 和数据表。")}
             </p>
           )}
         </aside>
         <section className="pg-catalog">
           <div className="pg-section-title">
-            <strong>{mysql ? "数据表" : "Schema / 数据表"}</strong>
+            <strong>
+              {mysql ? translate("数据表") : translate("Schema / 数据表")}
+            </strong>
             <button
               className="icon-button"
-              aria-label="刷新表列表"
+              aria-label={translate("刷新表列表")}
               disabled={!session || busy}
               onClick={() => void refresh()}
             >
@@ -563,8 +572,8 @@ export default function PostgisManager({
             </button>
           </div>
           <input
-            aria-label="搜索数据表"
-            placeholder="搜索表名称"
+            aria-label={translate("搜索数据表")}
+            placeholder={translate("搜索表名称")}
             value={search}
             disabled={!session}
             onChange={(e) => {
@@ -580,7 +589,7 @@ export default function PostgisManager({
                 setTableKey("");
               }}
             >
-              全部表
+              {translate("全部表")}
             </button>
             <button
               aria-pressed={onlyGeometry}
@@ -589,7 +598,7 @@ export default function PostgisManager({
                 setTableKey("");
               }}
             >
-              仅含 geometry
+              {translate("仅含 geometry")}
             </button>
           </div>
           <div className="pg-schema-list">
@@ -608,7 +617,9 @@ export default function PostgisManager({
                   >
                     <Table2 />
                     <span title={t.table}>{t.table}</span>
-                    {!t.geometryColumns.length && <small>普通表</small>}
+                    {!t.geometryColumns.length && (
+                      <small>{translate("普通表")}</small>
+                    )}
                   </button>
                 ))
               : session?.catalog.schemas.map((s) => (
@@ -644,18 +655,22 @@ export default function PostgisManager({
                           >
                             <Table2 />
                             <span title={t.table}>{t.table}</span>
-                            {!t.geometryColumns.length && <small>普通表</small>}
+                            {!t.geometryColumns.length && (
+                              <small>{translate("普通表")}</small>
+                            )}
                           </button>
                         ))}
                     {schema === s && !available.some((t) => t.schema === s) && (
                       <p className="pg-note">
-                        {search ? "没有匹配的数据表" : "此筛选下没有数据表"}
+                        {search
+                          ? translate("没有匹配的数据表")
+                          : translate("此筛选下没有数据表")}
                       </p>
                     )}
                   </div>
                 ))}
             {session && !available.length && (
-              <p className="pg-note">此筛选下没有数据表</p>
+              <p className="pg-note">{translate("此筛选下没有数据表")}</p>
             )}
           </div>
         </section>
@@ -663,11 +678,11 @@ export default function PostgisManager({
           {error && (
             <div className="pg-message">
               <p className="inline-error" role="alert">
-                {error}
+                {translate(error)}
               </p>
               {session && (
                 <button disabled={busy} onClick={() => void refresh()}>
-                  重试列表
+                  {translate("重试列表")}
                 </button>
               )}
             </div>
@@ -675,26 +690,30 @@ export default function PostgisManager({
           {!ready ? (
             <div className="pg-empty">
               {error
-                ? "数据源配置未能读取，请重新启动后重试。"
-                : "读取数据源配置…"}
+                ? translate("数据源配置未能读取，请重新启动后重试。")
+                : translate("读取数据源配置…")}
             </div>
           ) : !source ? (
-            <div className="pg-empty">选择或新增一个{engineLabel} 数据源。</div>
+            <div className="pg-empty">
+              {translate("选择或新增一个 {0} 数据源。", engineLabel)}
+            </div>
           ) : !session ? (
             <div className="pg-empty">
               <Database />
               <h2>{source.name}</h2>
               <p>
                 {mysql
-                  ? "连接后浏览数据表和预览记录。"
-                  : "连接后浏览 Schema、数据表和预览记录。"}
+                  ? translate("连接后浏览数据表和预览记录。")
+                  : translate("连接后浏览 Schema、数据表和预览记录。")}
               </p>
               <button disabled={busy} onClick={() => startDialog("connect")}>
-                连接数据源
+                {translate("连接数据源")}
               </button>
             </div>
           ) : !table ? (
-            <div className="pg-empty">从左侧选择一个数据表以预览。</div>
+            <div className="pg-empty">
+              {translate("从左侧选择一个数据表以预览。")}
+            </div>
           ) : (
             <>
               <div className="pg-preview-heading">
@@ -730,7 +749,7 @@ export default function PostgisManager({
                         );
                     }}
                   >
-                    添加到地图
+                    {translate("添加到地图")}
                   </button>
                 </div>
                 {!geom &&
@@ -759,33 +778,36 @@ export default function PostgisManager({
                         )
                       }
                     >
-                      从 WKT 列加载
+                      {translate("从 WKT 列加载")}
                     </button>
                   )}
                 <div className="pg-meta">
                   {geom
                     ? `${geom.type} · EPSG:${geom.srid}`
-                    : "普通表 · 无 geometry 列"}
-                  <span>主键 {table.keyColumns.join(", ") || "无主键"}</span>
+                    : translate("普通表 · 无 geometry 列")}
+                  <span>
+                    {translate("主键")}
+                    {table.keyColumns.join(", ") || translate("无主键")}
+                  </span>
                 </div>
                 {mysql && geom?.srid === 0 && (
                   <label className="pg-geometry">
-                    来源坐标系
+                    {translate("来源坐标系")}
                     <select
-                      aria-label="来源坐标系"
+                      aria-label={translate("来源坐标系")}
                       value={assumedSrid}
                       onChange={(e) => setAssumedSrid(e.target.value)}
                     >
-                      <option value="">请选择</option>
+                      <option value="">{translate("请选择")}</option>
                       <option value="4326">EPSG:4326 · WGS84</option>
                     </select>
                   </label>
                 )}
                 {table.geometryColumns.length > 1 && (
                   <label className="pg-geometry">
-                    几何列{" "}
+                    {translate("几何列")}{" "}
                     <select
-                      aria-label="几何列"
+                      aria-label={translate("几何列")}
                       value={geom?.name}
                       onChange={(e) => {
                         setGeometryColumn(e.target.value);
@@ -800,23 +822,23 @@ export default function PostgisManager({
                 )}
               </div>
               <div className="pg-preview-toolbar">
-                <strong>数据预览</strong>
+                <strong>{translate("数据预览")}</strong>
                 <div className="pg-grow" />
                 <label>
-                  预览{" "}
+                  {translate("预览")}{" "}
                   <select
-                    aria-label="预览条数"
+                    aria-label={translate("预览条数")}
                     value={limit}
                     onChange={(e) => setLimit(Number(e.target.value))}
                   >
                     <option value={10}>10</option>
                     <option value={20}>20</option>
                   </select>{" "}
-                  条
+                  {translate("条")}
                 </label>
                 <button
                   className="icon-button"
-                  aria-label="刷新预览"
+                  aria-label={translate("刷新预览")}
                   disabled={previewBusy}
                   onClick={() => setRevision((n) => n + 1)}
                 >
@@ -826,28 +848,28 @@ export default function PostgisManager({
               {previewError ? (
                 <div className="pg-empty">
                   <p className="inline-error" role="alert">
-                    {previewError}
+                    {translate(previewError)}
                   </p>
                   <button onClick={() => setRevision((n) => n + 1)}>
-                    重试预览
+                    {translate("重试预览")}
                   </button>
                   <button
                     disabled={busy}
                     onClick={() => startDialog("connect")}
                   >
-                    重新连接
+                    {translate("重新连接")}
                   </button>
                 </div>
               ) : previewBusy ? (
                 <div className="pg-empty" role="status">
-                  读取预览…
+                  {translate("读取预览…")}
                 </div>
               ) : (
                 <div
                   className="pg-preview-scroll"
                   tabIndex={0}
                   role="region"
-                  aria-label="数据预览记录"
+                  aria-label={translate("数据预览记录")}
                 >
                   <table>
                     <thead>
@@ -882,19 +904,27 @@ export default function PostgisManager({
                     </tbody>
                   </table>
                   {preview && !preview.rows.length && (
-                    <p className="pg-note">此表没有记录。</p>
+                    <p className="pg-note">{translate("此表没有记录。")}</p>
                   )}
                 </div>
               )}
               <footer className="pg-preview-footer">
                 <span>
                   {preview
-                    ? `显示 ${preview.rows.length} 条${preview.truncated ? ` · 前 ${limit} 条` : ""}`
+                    ? translate(
+                        "显示 {0} 条{1}",
+                        preview.rows.length,
+                        preview.truncated
+                          ? translate(" · 前 {0} 条", limit)
+                          : "",
+                      )
                     : ""}{" "}
-                  · 只读预览
+                  {translate("· 只读预览")}
                 </span>
                 <span>
-                  {geom ? "geometry 以类型摘要显示" : "普通表仅供预览"}
+                  {geom
+                    ? translate("geometry 以类型摘要显示")
+                    : translate("普通表仅供预览")}
                 </span>
               </footer>
             </>
@@ -906,32 +936,36 @@ export default function PostgisManager({
           returnFocus={dialogTrigger.current}
           title={
             dialog === "delete"
-              ? "删除数据源"
+              ? translate("删除数据源")
               : dialog === "add"
-                ? `新增 ${engineLabel} 数据源`
-                : "连接数据源"
+                ? translate("新增 {0} 数据源", engineLabel)
+                : translate("连接数据源")
           }
           busy={busy}
           onClose={closeDialog}
         >
           {dialog === "delete" ? (
             <>
-              <p>从列表移除“{source?.name}”？数据库中的表和数据保持不变。</p>
+              <p>
+                {translate("从列表移除“")}
+                {source?.name}
+                {translate("”？数据库中的表和数据保持不变。")}
+              </p>
               {dialogError && (
                 <p className="inline-error" role="alert">
-                  {dialogError}
+                  {translate(dialogError)}
                 </p>
               )}
               <div className="modal-actions">
                 <button disabled={busy} onClick={closeDialog}>
-                  取消
+                  {translate("取消")}
                 </button>
                 <button
                   className="danger"
                   disabled={busy}
                   onClick={() => void remove()}
                 >
-                  删除
+                  {translate("删除")}
                 </button>
               </div>
             </>
@@ -945,9 +979,9 @@ export default function PostgisManager({
               <div className="pg-form">
                 {dialog === "add" && (
                   <label>
-                    数据源名称
+                    {translate("数据源名称")}
                     <input
-                      aria-label="数据源名称"
+                      aria-label={translate("数据源名称")}
                       value={name}
                       disabled={busy}
                       maxLength={120}
@@ -957,10 +991,10 @@ export default function PostgisManager({
                 )}
                 {(
                   [
-                    ["host", "主机"],
-                    ["database", "数据库"],
-                    ["user", "用户名"],
-                    ["password", "密码"],
+                    ["host", translate("主机")],
+                    ["database", translate("数据库")],
+                    ["user", translate("用户名")],
+                    ["password", translate("密码")],
                   ] as const
                 ).map(([field, label]) => (
                   <label key={field}>
@@ -990,20 +1024,26 @@ export default function PostgisManager({
                         className="pg-password-toggle quiet"
                         type="button"
                         disabled={busy}
-                        aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                        aria-label={
+                          showPassword
+                            ? translate("隐藏密码")
+                            : translate("显示密码")
+                        }
                         onClick={() => setShowPassword((value) => !value)}
                       >
                         {showPassword ? <EyeOff /> : <Eye />}
-                        {showPassword ? "隐藏密码" : "显示密码"}
+                        {showPassword
+                          ? translate("隐藏密码")
+                          : translate("显示密码")}
                       </button>
                     )}
                   </label>
                 ))}
                 <div className="pg-two">
                   <label>
-                    端口
+                    {translate("端口")}
                     <input
-                      aria-label="端口"
+                      aria-label={translate("端口")}
                       type="number"
                       min={1}
                       max={65535}
@@ -1027,37 +1067,45 @@ export default function PostgisManager({
                         setDraft((old) => ({ ...old, sslMode: e.target.value }))
                       }
                     >
-                      <option value="require">校验证书</option>
-                      <option value="disable">禁用 TLS</option>
+                      <option value="require">{translate("校验证书")}</option>
+                      <option value="disable">{translate("禁用 TLS")}</option>
                     </select>
                   </label>
                 </div>
               </div>
               <p className="pg-note">
                 {isMacOS
-                  ? "密码使用 macOS 钥匙串保护的密钥加密存储，可点击显示。"
-                  : "密码使用 Windows 当前用户加密存储，可点击显示。"}
+                  ? translate(
+                      "密码使用 macOS 钥匙串保护的密钥加密存储，可点击显示。",
+                    )
+                  : translate(
+                      "密码使用 Windows 当前用户加密存储，可点击显示。",
+                    )}
               </p>
               {dialogError && (
                 <p className="inline-error" role="alert">
-                  {dialogError}
+                  {translate(dialogError)}
                 </p>
               )}
-              {testStatus && <p role="status">{testStatus}</p>}
+              {testStatus && <p role="status">{translate(testStatus)}</p>}
               <div className="modal-actions">
                 <button
                   type="button"
                   disabled={busy || !configValid}
                   onClick={() => void connect(true)}
                 >
-                  测试连接
+                  {translate("测试连接")}
                 </button>
                 <div className="pg-grow" />
                 <button type="button" disabled={busy} onClick={closeDialog}>
-                  取消
+                  {translate("取消")}
                 </button>
                 <button className="primary" disabled={busy || !configValid}>
-                  {busy ? "连接中" : dialog === "add" ? "添加并连接" : "连接"}
+                  {busy
+                    ? translate("连接中")
+                    : dialog === "add"
+                      ? translate("添加并连接")
+                      : translate("连接")}
                 </button>
               </div>
             </form>

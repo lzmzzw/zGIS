@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import {
   assertDatabaseUnchanged,
   synchronizeDatabaseLayer,
@@ -180,11 +181,12 @@ function IconButton({
   active?: boolean;
   className?: string;
 }) {
+  useLocale();
   return (
     <button
       className={`icon-button ${active ? "active" : ""} ${className}`}
-      title={label}
-      aria-label={label}
+      title={t(label)}
+      aria-label={t(label)}
       aria-pressed={active}
       onClick={onClick}
       disabled={disabled}
@@ -204,6 +206,7 @@ function Modal({
   onClose: () => void;
   showError?: boolean;
 }) {
+  useLocale();
   const error = useContext(ErrorContext);
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -219,7 +222,7 @@ function Modal({
   }, []);
   return (
     <dialog
-      aria-label={title}
+      aria-label={t(title)}
       className="modal"
       ref={ref}
       onCancel={(event) => {
@@ -228,14 +231,14 @@ function Modal({
       }}
     >
       <header>
-        <h2>{title}</h2>
-        <IconButton label="关闭" onClick={onClose}>
+        <h2>{t(title)}</h2>
+        <IconButton label={t("关闭")} onClick={onClose}>
           <X />
         </IconButton>
       </header>
       {showError && error && (
         <p className="warning" role="alert">
-          {error}
+          {t(error)}
         </p>
       )}
       {children}
@@ -251,6 +254,10 @@ interface History {
   futureSchemas?: DocumentLayer["schemaChanges"][];
 }
 export default function App() {
+  const { locale } = useLocale();
+  useEffect(() => {
+    if (desktop) void api.setLocale(locale).catch((reason) => setError(errorText(reason)));
+  }, [locale]);
   const [context, setContext] = useState<WorkspaceContext>();
   useEffect(() => {
     const suppressBrowserMenu = (event: MouseEvent) => {
@@ -293,7 +300,7 @@ export default function App() {
   const restoringPanel = useRef<WorkspaceEditSession["panelDraft"]>(undefined);
   const sessionRef = useRef<WorkspaceEditSession | undefined>(undefined);
   const saveStopsEditing = useRef(false);
-  const [newLayerName, setNewLayerName] = useState("新建图层");
+  const [newLayerName, setNewLayerName] = useState(() => t("新建图层"));
   const [newGeometryType, setNewGeometryType] = useState<
     "Point" | "LineString" | "Polygon"
   >("Polygon");
@@ -1731,7 +1738,7 @@ export default function App() {
       >
         <input
           autoFocus
-          aria-label={`属性 ${cellDraft.field}`}
+          aria-label={t(`属性 ${cellDraft.field}`)}
           aria-invalid={Boolean(cellDraft.error)}
           value={cellDraft.isNull ? "NULL" : cellDraft.text}
           disabled={busy}
@@ -2897,7 +2904,7 @@ export default function App() {
       <span
         className="column-resizer"
         role="separator"
-        aria-label={`调整 ${label} 列宽`}
+        aria-label={t(`调整 ${label} 列宽`)}
         aria-orientation="vertical"
         aria-valuemin={48}
         aria-valuenow={
@@ -3106,11 +3113,11 @@ export default function App() {
                     : "文本",
           );
       }
-      const summary = `${[...types].join(" / ") || "空值"} · ${features.length} 条 · ${empty} 空值`;
+      const summary = `${[...types].map(value => t(value)).join(" / ") || t("空值")} · ${features.length} 条 · ${empty} 空值`;
       summaries.set(field, summary);
       return summary;
     };
-  }, [active?.features]);
+  }, [active?.features, locale]);
   useEffect(() => setContext(undefined), [activeId, modal, busy]);
 
   function copyText(text: string) {
@@ -3453,7 +3460,7 @@ export default function App() {
     }
   }
   return (
-    <ErrorContext.Provider value={error}>
+    <ErrorContext.Provider value={t(error)}>
       <div
         className="app"
         onContextMenu={(event) => {
@@ -3480,12 +3487,12 @@ export default function App() {
             anchor={context.anchor}
             label={
               context.kind === "map"
-                ? "地图操作"
+                ? t("地图操作")
                 : context.kind === "record"
-                  ? "要素操作"
+                  ? t("要素操作")
                   : context.kind === "field"
-                    ? "字段操作"
-                    : "文本操作"
+                    ? t("字段操作")
+                    : t("文本操作")
             }
             items={contextItems}
             onClose={() => setContext(undefined)}
@@ -3522,35 +3529,27 @@ export default function App() {
           <img className="brand-mark" src="/zgis.svg" alt="zGIS" />
           <nav
             className="header-menus"
-            aria-label="主菜单"
+            aria-label={t("主菜单")}
             hidden={modal === "settings"}
           >
-            <HeaderMenu label="文件">
+            <HeaderMenu label={t("文件")}>
               <button onClick={() => requestNewLayer()} disabled={busy}>
-                <Plus />
-                新建
-              </button>
+                <Plus />{t("新建")}</button>
               <button onClick={openFiles} disabled={busy}>
-                <FolderOpen />
-                打开
-              </button>
+                <FolderOpen />{t("打开")}</button>
               <button
                 onClick={() => void save(true)}
                 disabled={!active || busy || Boolean(active.db)}
               >
-                <Save />
-                另存为
-              </button>
+                <Save />{t("另存为")}</button>
               <hr />
               <button
                 disabled={!active || busy}
                 onClick={() => openModal("export")}
               >
-                <Download />
-                导出为
-              </button>
+                <Download />{t("导出为")}</button>
             </HeaderMenu>
-            <HeaderMenu label="数据">
+            <HeaderMenu label={t("数据")}>
               <button
                 onClick={() => {
                   insertionGroup.current = undefined;
@@ -3558,36 +3557,28 @@ export default function App() {
                 }}
                 disabled={!desktop || busy}
               >
-                <Database />
-                Mysql 数据源
-              </button>
+                <Database />{t("Mysql 数据源")}</button>
               <button onClick={openSources} disabled={!desktop || busy}>
-                <Database />
-                PostGIS 数据源
-              </button>
+                <Database />{t("PostGIS 数据源")}</button>
             </HeaderMenu>
             <button
               ref={toolboxTrigger}
               className="quiet"
-              aria-label="工具"
+              aria-label={t("工具")}
               aria-pressed={toolboxOpen}
               disabled={busy}
               onClick={toggleToolbox}
-            >
-              工具
-            </button>
+            >{t("工具")}</button>
             <button
               className="quiet"
-              aria-label="设置"
+              id="settings-trigger" aria-label={t("设置")}
               aria-pressed={modal === "settings"}
               disabled={busy || !configReady}
               onClick={() => {
                 setSettingCategory("appearance");
                 openModal("settings");
               }}
-            >
-              设置
-            </button>
+            >{t("设置")}</button>
           </nav>
           <div
             className="document-title"
@@ -3597,9 +3588,9 @@ export default function App() {
             {active && (
               <span
                 className={`document-state ${active.dirty ? "document-state-dirty" : ""}`}
-                title={sourceSaveState}
+                title={t(sourceSaveState)}
               >
-                {sourceSaveState}
+                {t(sourceSaveState)}
               </span>
             )}
           </div>
@@ -3623,7 +3614,7 @@ export default function App() {
           {desktop && !isMacOS && (
             <div className="window-controls">
               <IconButton
-                label="最小化"
+                label={t("最小化")}
                 onClick={() =>
                   void getCurrentWindow()
                     .minimize()
@@ -3633,7 +3624,7 @@ export default function App() {
                 <Minus />
               </IconButton>
               <IconButton
-                label={windowMaximized ? "还原窗口" : "最大化"}
+                label={windowMaximized ? t("还原窗口") : t("最大化")}
                 onClick={() =>
                   void getCurrentWindow()
                     .toggleMaximize()
@@ -3643,7 +3634,7 @@ export default function App() {
                 {windowMaximized ? <Copy /> : <Square />}
               </IconButton>
               <IconButton
-                label="关闭窗口"
+                label={t("关闭窗口")}
                 disabled={busy || !recoveryReady}
                 onClick={() => void requestExit()}
               >
@@ -3700,7 +3691,7 @@ export default function App() {
             <div
               className="layer-panel-resizer"
               role="separator"
-              aria-label="调整图层栏宽度"
+              aria-label={t("调整图层栏宽度")}
               aria-orientation="vertical"
               aria-valuenow={shownLayerPanelWidth}
               aria-valuemin={200}
@@ -3977,9 +3968,9 @@ export default function App() {
                 className="map-toolbar"
                 role="toolbar"
                 aria-orientation="vertical"
-                aria-label="地图工具"
+                aria-label={t("地图工具")}
               >
-                <div className="tool-group" role="group" aria-label="浏览">
+                <div className="tool-group" role="group" aria-label={t("浏览")}>
                   {tools
                     .filter(
                       (item) => item.value === "pan" || item.value === "select",
@@ -3987,9 +3978,9 @@ export default function App() {
                     .map(renderMapTool)}
                 </div>
                 <span className="toolbar-separator" role="separator" />
-                <div className="tool-group" role="group" aria-label="编辑会话">
+                <div className="tool-group" role="group" aria-label={t("编辑会话")}>
                   <IconButton
-                    label={editing ? "退出编辑" : "编辑"}
+                    label={editing ? t("退出编辑") : t("编辑")}
                     className="edit-toggle"
                     active={editing}
                     disabled={!canEdit || busy || gestureActive}
@@ -4006,7 +3997,7 @@ export default function App() {
                     <div
                       className="tool-group"
                       role="group"
-                      aria-label="新增要素"
+                      aria-label={t("新增要素")}
                     >
                       {tools
                         .filter(
@@ -4020,7 +4011,7 @@ export default function App() {
                         <div className="editing-tools">
                           {sketching && (
                             <IconButton
-                              label="完成绘制"
+                              label={t("完成绘制")}
                               disabled={
                                 nodeCount <
                                 (tool === "Polygon"
@@ -4037,10 +4028,10 @@ export default function App() {
                           <IconButton
                             label={
                               sketching
-                                ? "取消绘制"
+                                ? t("取消绘制")
                                 : tool === "modify"
-                                  ? "结束顶点编辑"
-                                  : "结束移动"
+                                  ? t("结束顶点编辑")
+                                  : t("结束移动")
                             }
                             onClick={() => {
                               if (sketching) cancelDrawing();
@@ -4056,7 +4047,7 @@ export default function App() {
                     <div
                       className="tool-group"
                       role="group"
-                      aria-label="几何编辑"
+                      aria-label={t("几何编辑")}
                     >
                       {tools
                         .filter(
@@ -4065,7 +4056,7 @@ export default function App() {
                         )
                         .map(renderMapTool)}
                       <IconButton
-                        label="捕捉当前图层顶点和边"
+                        label={t("捕捉当前图层顶点和边")}
                         active={snapping}
                         disabled={!editable || busy}
                         onClick={() => setSnapping((v) => !v)}
@@ -4076,7 +4067,7 @@ export default function App() {
                         <div className="editing-tools">
                           <IconButton
                             label={
-                              tool === "modify" ? "结束顶点编辑" : "结束移动"
+                              tool === "modify" ? t("结束顶点编辑") : t("结束移动")
                             }
                             onClick={() => setTool("select")}
                           >
@@ -4086,9 +4077,9 @@ export default function App() {
                       )}
                     </div>
                     <span className="toolbar-separator" role="separator" />
-                    <div className="tool-group" role="group" aria-label="历史">
+                    <div className="tool-group" role="group" aria-label={t("历史")}>
                       <IconButton
-                        label="撤销"
+                        label={t("撤销")}
                         disabled={
                           !h?.past.length ||
                           Boolean(drawDraft) ||
@@ -4102,7 +4093,7 @@ export default function App() {
                         <Undo2 />
                       </IconButton>
                       <IconButton
-                        label="重做"
+                        label={t("重做")}
                         disabled={
                           !h?.future.length ||
                           Boolean(drawDraft) ||
@@ -4120,10 +4111,10 @@ export default function App() {
                     <div
                       className="tool-group"
                       role="group"
-                      aria-label="记录操作"
+                      aria-label={t("记录操作")}
                     >
                       <IconButton
-                        label="删除选中要素"
+                        label={t("删除选中要素")}
                         disabled={
                           !selected ||
                           !editable ||
@@ -4138,9 +4129,9 @@ export default function App() {
                       </IconButton>
                     </div>
                     <span className="toolbar-separator" role="separator" />
-                    <div className="tool-group" role="group" aria-label="保存">
+                    <div className="tool-group" role="group" aria-label={t("保存")}>
                       <IconButton
-                        label="保存编辑"
+                        label={t("保存编辑")}
                         disabled={
                           !canEdit ||
                           !active?.dirty ||
@@ -4161,43 +4152,38 @@ export default function App() {
                 <div
                   className="map-edit-help"
                   role="status"
-                  aria-label="矢量编辑提示"
+                  aria-label={t("矢量编辑提示")}
                 >
                   <strong>
-                    {active?.displayName ?? active?.name} · 编辑中
-                    {sourceSaveState && ` · ${sourceSaveState}`}
-                    {selected ? " · 已选中 1 个要素" : " · 未选中要素"}
+                    {active?.displayName ?? active?.name}{t(" · 编辑中")}{sourceSaveState && ` · ${t(sourceSaveState)}`}
+                    {selected ? t(" · 已选中 1 个要素") : t(" · 未选中要素")}
                   </strong>
                   <span>
                     {tool === "modify"
                       ? selected
-                        ? "已选中要素 · 拖动顶点修改 · 拖动边增加顶点 · Alt+单击顶点删除"
-                        : "请先单击要素或属性表记录 · 选中后拖动顶点修改 · 拖动边增加顶点"
+                        ? t("已选中要素 · 拖动顶点修改 · 拖动边增加顶点 · Alt+单击顶点删除")
+                        : t("请先单击要素或属性表记录 · 选中后拖动顶点修改 · 拖动边增加顶点")
                       : tool === "move"
                         ? selected
-                          ? "已选中要素 · 直接拖动要素移动 · 拖动空白处平移地图"
-                          : "请先单击要素或属性表记录 · 选中后直接拖动要素移动"
+                          ? t("已选中要素 · 直接拖动要素移动 · 拖动空白处平移地图")
+                          : t("请先单击要素或属性表记录 · 选中后直接拖动要素移动")
                         : sketching
                           ? tool === "Point"
-                            ? "单击地图新增点 · Esc 返回选择"
-                            : "单击添加节点 · Enter 或双击完成 · Backspace 撤节点 · Esc 取消"
-                          : "选择要素后可移动、编辑顶点或修改属性 · 保存后退出编辑"}
+                            ? t("单击地图新增点 · Esc 返回选择")
+                            : t("单击添加节点 · Enter 或双击完成 · Backspace 撤节点 · Esc 取消")
+                          : t("选择要素后可移动、编辑顶点或修改属性 · 保存后退出编辑")}
                   </span>
                   {selected && !sketching && (
                     <div className="map-edit-actions">
                       <button
                         className="quiet"
                         onClick={() => openModal("json")}
-                      >
-                        编辑 JSON 属性
-                      </button>
+                      >{t("编辑 JSON 属性")}</button>
                       {selected.geometry && (
                         <button
                           className="quiet"
                           onClick={() => openModal("wkt")}
-                        >
-                          编辑 WKT 几何
-                        </button>
+                        >{t("编辑 WKT 几何")}</button>
                       )}
                     </div>
                   )}
@@ -4206,13 +4192,11 @@ export default function App() {
                       className="quiet"
                       disabled={busy}
                       onClick={() => setUndoNodeNonce((n) => n + 1)}
-                    >
-                      撤回上一节点
-                    </button>
+                    >{t("撤回上一节点")}</button>
                   )}
                 </div>
               )}
-              <div className="map-coordinates" aria-label="经纬度坐标">
+              <div className="map-coordinates" aria-label={t("经纬度坐标")}>
                 {position[0].toFixed(5)}, {position[1].toFixed(5)}
               </div>
               {busy && busyKind && (
@@ -4241,10 +4225,10 @@ export default function App() {
                   }}
                 >
                   {cancelling
-                    ? "正在取消…"
+                    ? t("正在取消…")
                     : busyKind === "analysis"
-                      ? "取消分析"
-                      : "取消解析"}
+                      ? t("取消分析")
+                      : t("取消解析")}
                 </button>
               )}
 
@@ -4302,7 +4286,7 @@ export default function App() {
               />
               <div className="map-fit">
                 <IconButton
-                  label="缩放至图层"
+                  label={t("缩放至图层")}
                   disabled={!active}
                   onClick={() => setFitNonce((n) => n + 1)}
                 >
@@ -4324,7 +4308,7 @@ export default function App() {
               <div
                 className="table-resizer"
                 role="separator"
-                aria-label="调整属性表高度"
+                aria-label={t("调整属性表高度")}
                 aria-orientation="horizontal"
                 aria-valuenow={tableHeight}
                 hidden={!tableOpen || tableMaximized}
@@ -4364,9 +4348,7 @@ export default function App() {
                 }
               />
               <header>
-                <span className="attribute-title">
-                  属性表
-                  {tableOpen && (
+                <span className="attribute-title">{t("属性表")}{tableOpen && (
                     <>
                       {" "}
                       <span className="count">
@@ -4380,8 +4362,8 @@ export default function App() {
                     <div className="search-field">
                       <Search />
                       <input
-                        aria-label="搜索属性"
-                        placeholder="搜索属性"
+                        aria-label={t("搜索属性")}
+                        placeholder={t("搜索属性")}
                         value={search}
                         disabled={Boolean(cellDraft)}
                         onChange={(e) => {
@@ -4391,7 +4373,7 @@ export default function App() {
                       />
                     </div>
                     <IconButton
-                      label="编辑属性"
+                      label={t("编辑属性")}
                       active={tableEditing}
                       className="edit-toggle"
                       disabled={!canEdit || busy || Boolean(cellDraft)}
@@ -4409,7 +4391,7 @@ export default function App() {
                     {tableMaximized && editing && (
                       <>
                         <IconButton
-                          label="撤销"
+                          label={t("撤销")}
                           disabled={
                             !h?.past.length ||
                             Boolean(drawDraft) ||
@@ -4423,7 +4405,7 @@ export default function App() {
                           <Undo2 />
                         </IconButton>
                         <IconButton
-                          label="重做"
+                          label={t("重做")}
                           disabled={
                             !h?.future.length ||
                             Boolean(drawDraft) ||
@@ -4440,7 +4422,7 @@ export default function App() {
                     )}
                     <div className="pagination">
                       <IconButton
-                        label="上一页"
+                        label={t("上一页")}
                         disabled={page === 0 || Boolean(cellDraft)}
                         onClick={() => setPage((n) => n - 1)}
                       >
@@ -4450,7 +4432,7 @@ export default function App() {
                         {page + 1} / {totalPages}
                       </span>
                       <IconButton
-                        label="下一页"
+                        label={t("下一页")}
                         disabled={page + 1 >= totalPages || Boolean(cellDraft)}
                         onClick={() => setPage((n) => n + 1)}
                       >
@@ -4462,11 +4444,11 @@ export default function App() {
                 <div
                   className="attribute-window-controls"
                   role="group"
-                  aria-label="属性表显示控制"
+                  aria-label={t("属性表显示控制")}
                 >
                   {tableOpen && (
                     <IconButton
-                      label={tableMaximized ? "还原属性表" : "最大化属性表"}
+                      label={tableMaximized ? t("还原属性表") : t("最大化属性表")}
                       active={tableMaximized}
                       onClick={() => setTableMaximized((v) => !v)}
                     >
@@ -4474,7 +4456,7 @@ export default function App() {
                     </IconButton>
                   )}
                   <IconButton
-                    label={tableOpen ? "收起属性表" : "展开属性表"}
+                    label={tableOpen ? t("收起属性表") : t("展开属性表")}
                     onClick={() => {
                       setTableOpen((v) => !v);
                       setTableMaximized(false);
@@ -4488,15 +4470,14 @@ export default function App() {
               {tableOpen && tableEditing && (
                 <div className="table-edit-note">
                   {editable
-                    ? "双击单元格或 Enter 编辑 · Enter 应用 · Tab 下一字段 · Esc 取消"
-                    : "当前来源只读"}
+                    ? t("双击单元格或 Enter 编辑 · Enter 应用 · Tab 下一字段 · Esc 取消")
+                    : t("当前来源只读")}
                 </div>
               )}
               {tableOpen &&
                 selected &&
                 !filtered.some((f) => f.id === selected.id) && (
-                  <div className="table-edit-note">
-                    选中要素已被筛选隐藏{" "}
+                  <div className="table-edit-note">{t("选中要素已被筛选隐藏")}{" "}
                     <button
                       className="quiet"
                       disabled={Boolean(cellDraft)}
@@ -4504,14 +4485,12 @@ export default function App() {
                         setSearch("");
                         setTableLocateNonce((n) => n + 1);
                       }}
-                    >
-                      显示选中项
-                    </button>
+                    >{t("显示选中项")}</button>
                   </div>
                 )}
               {cellDraft?.error && (
                 <div className="cell-error" role="alert">
-                  {cellDraft.field}：{cellDraft.error}
+                  {cellDraft.field}: {t(cellDraft.error)}
                 </div>
               )}
               {tableOpen && (
@@ -4542,19 +4521,18 @@ export default function App() {
                     <thead>
                       <tr>
                         <th className="index-cell">
-                          #{renderColumnResizer("index", "序号")}
+                          #{renderColumnResizer("index", t("序号"))}
                         </th>
-                        <th>
-                          几何{" "}
+                        <th>{t("几何")}{" "}
                           <button
                             className="quiet field-add"
-                            aria-label="添加字段"
+                            aria-label={t("添加字段")}
                             disabled={!active || !editable || busy}
                             onClick={() => openModal("field")}
                           >
                             <Plus />
                           </button>
-                          {renderColumnResizer("geometry", "几何")}
+                          {renderColumnResizer("geometry", t("几何"))}
                         </th>
                         {displayFields.map((field) => (
                           <th
@@ -4684,15 +4662,13 @@ export default function App() {
                           >
                             <HeaderMenu label={field}>
                               <span className="field-info">
-                                {fieldSummary(field)}
+                                {t(fieldSummary(field))}
                               </span>
                               <button
                                 disabled={!editable || busy}
                                 onClick={() => openModal("field")}
                               >
-                                <Plus />
-                                添加字段
-                              </button>
+                                <Plus />{t("添加字段")}</button>
                               <button
                                 disabled={!editable || busy}
                                 onClick={() => {
@@ -4700,18 +4676,14 @@ export default function App() {
                                   setNewField(field);
                                   openModal("rename-field");
                                 }}
-                              >
-                                重命名字段
-                              </button>
+                              >{t("重命名字段")}</button>
                               <button
                                 disabled={!editable || busy}
                                 onClick={() => {
                                   setFieldTarget(field);
                                   openModal("delete-field");
                                 }}
-                              >
-                                删除字段
-                              </button>
+                              >{t("删除字段")}</button>
                             </HeaderMenu>
                             {renderColumnResizer(`field:${field}`, field)}
                           </th>
@@ -4786,7 +4758,7 @@ export default function App() {
                           <td className="index-cell">
                             {page * pageSize + index + 1}
                           </td>
-                          <td>{f.geometry?.type ?? "空"}</td>
+                          <td>{f.geometry?.type ?? t("空")}</td>
                           {displayFields.map((field) => {
                             const draft =
                               cellDraft?.featureId === f.id &&
@@ -4861,7 +4833,7 @@ export default function App() {
                   </table>
                   {!shown.length && (
                     <div className="table-empty">
-                      {active ? "没有匹配记录" : "未载入图层"}
+                      {active ? t("没有匹配记录") : t("未载入图层")}
                     </div>
                   )}
                 </div>
@@ -4871,7 +4843,7 @@ export default function App() {
           {(toolboxMounted || (agentOpen && desktop)) && (
             <RightSidebar
               hidden={!rightSidebarOpen}
-              label={toolboxOpen ? "工具" : "Agent"}
+              label={toolboxOpen ? t("工具") : "Agent"}
               width={shownSidebarWidth}
               maxWidth={sidebarMaxWidth}
               onWidthChange={setSidebarWidth}
@@ -4885,12 +4857,12 @@ export default function App() {
                     editing={Boolean(editingLayerId)}
                     blockedReason={
                       !desktop
-                        ? "空间分析需要桌面版，请在 zGIS 应用中运行"
+                        ? t("空间分析需要桌面版，请在 zGIS 应用中运行")
                         : modal ||
                             gestureActive ||
                             !recoveryReady ||
                             (busy && !toolboxRunning)
-                          ? "请先完成当前操作"
+                          ? t("请先完成当前操作")
                           : undefined
                     }
                     onRun={runToolboxAnalysis}
@@ -4921,51 +4893,45 @@ export default function App() {
           )}
         </main>
         {activeDatabaseConflicts && !modal && (
-          <div className="error-banner" role="status">
-            原表与本地编辑存在 {activeDatabaseConflicts.records.length} 条冲突
-            <button
+          <div className="error-banner" role="status">{t("原表与本地编辑存在 ")}{activeDatabaseConflicts.records.length}{t(" 条冲突")}<button
               disabled={busy || Boolean(cellDraft) || Boolean(drawDraft)}
               onClick={() => {
                 setConflictChoices({});
                 openModal("db-conflicts");
               }}
-            >
-              处理同步冲突
-            </button>
+            >{t("处理同步冲突")}</button>
           </div>
         )}
         {error && !modal && (
           <div className="error-banner" role="alert">
-            <span>{error}</span>
-            <IconButton label="关闭错误" onClick={() => setError("")}>
+            <span>{t(error)}</span>
+            <IconButton label={t("关闭错误")} onClick={() => setError("")}>
               <X />
             </IconButton>
           </div>
         )}
         <div className="operation-status sr-only" role="status">
-          {status}
+          {t(status)}
         </div>
         {modal === "db-conflicts" && active && activeDatabaseConflicts && (
           <Modal
-            title="数据库同步冲突"
+            title={t("数据库同步冲突")}
             onClose={() => {
               if (!busy) openModal(null);
             }}
           >
-            <p className="form-note">
-              逐条选择保留的版本。同步会保存当前图层的编辑到原表；未选择时保留草稿。
-            </p>
+            <p className="form-note">{t("逐条选择保留的版本。同步会保存当前图层的编辑到原表；未选择时保留草稿。")}</p>
             <div className="database-conflict-list">
               {activeDatabaseConflicts.records.map((record, index) => (
                 <section className="database-conflict-record" key={record.key}>
-                  <h3>记录 {index + 1}</h3>
+                  <h3>{t("记录 ")}{index + 1}</h3>
                   <div className="database-conflict-versions">
                     {[
-                      { label: "本地版本", feature: record.local },
-                      { label: "数据库版本", feature: record.remote },
+                      { id: "local", label: "本地版本", feature: record.local },
+                      { id: "remote", label: "数据库版本", feature: record.remote },
                     ].map((version) => (
-                      <div key={version.label}>
-                        <strong>{version.label}</strong>
+                      <div key={version.id}>
+                        <strong>{t(version.label)}</strong>
                         {version.feature ? (
                           <>
                             <pre>
@@ -4978,19 +4944,17 @@ export default function App() {
                             <pre>
                               {version.feature.geometry
                                 ? geometryToWkt(version.feature.geometry)
-                                : "无几何"}
+                                : t("无几何")}
                             </pre>
                           </>
                         ) : (
-                          <p>记录已删除</p>
+                          <p>{t("记录已删除")}</p>
                         )}
                       </div>
                     ))}
                   </div>
-                  <label>
-                    保留版本
-                    <select
-                      aria-label={`冲突版本 ${index + 1}`}
+                  <label>{t("保留版本")}<select
+                      aria-label={t(`冲突版本 ${index + 1}`)}
                       disabled={busy}
                       value={conflictChoices[record.key] ?? ""}
                       onChange={(event) =>
@@ -5001,20 +4965,16 @@ export default function App() {
                         }))
                       }
                     >
-                      <option value="" disabled>
-                        请选择保留的版本
-                      </option>
-                      <option value="local">保留本地版本</option>
-                      <option value="remote">保留数据库版本</option>
+                      <option value="" disabled>{t("请选择保留的版本")}</option>
+                      <option value="local">{t("保留本地版本")}</option>
+                      <option value="remote">{t("保留数据库版本")}</option>
                     </select>
                   </label>
                 </section>
               ))}
             </div>
             <div className="modal-actions">
-              <button disabled={busy} onClick={() => openModal(null)}>
-                暂不处理
-              </button>
+              <button disabled={busy} onClick={() => openModal(null)}>{t("暂不处理")}</button>
               <button
                 disabled={
                   busy ||
@@ -5023,9 +4983,7 @@ export default function App() {
                   )
                 }
                 onClick={() => void applyDatabaseConflictChoices()}
-              >
-                同步所选版本
-              </button>
+              >{t("同步所选版本")}</button>
             </div>
           </Modal>
         )}
@@ -5033,8 +4991,8 @@ export default function App() {
           <Modal
             title={
               pendingFiles.some((file) => /\.csv$/i.test(file.name))
-                ? "CSV 导入"
-                : "文件导入"
+                ? t("CSV 导入")
+                : t("文件导入")
             }
             showError={false}
             onClose={() => {
@@ -5047,7 +5005,7 @@ export default function App() {
             <ImportPanel
               files={pendingFiles}
               busy={busy}
-              error={error}
+              error={t(error)}
               onImport={(options) =>
                 void importSelected(pendingFiles, {}, options)
               }
@@ -5062,7 +5020,7 @@ export default function App() {
         {modal === "export" && active && (
           <Modal
             title={
-              exportSaveLayerId.current === active.id ? "保存图层" : "导出为"
+              exportSaveLayerId.current === active.id ? t("保存图层") : t("导出为")
             }
             showError={false}
             onClose={() => {
@@ -5080,7 +5038,7 @@ export default function App() {
               table={targetTable}
               desktop={desktop}
               busy={busy}
-              error={error}
+              error={t(error)}
               onMode={(value) => {
                 setExportMode(value);
                 setExportFilename((name) =>
@@ -5185,64 +5143,59 @@ export default function App() {
             onCategory={setSettingCategory}
             theme={theme}
             onTheme={setTheme}
-            error={error}
+            error={t(error)}
             onClose={() => openModal(null)}
             onInstallUpdate={(version) => void requestExit(version)}
           />
         )}
         {modal === "layer" && active && (
           <Modal
-            title={`图层属性：${active.displayName ?? active.name}`}
+            title={t(`图层属性：${active.displayName ?? active.name}`)}
             onClose={() => openModal(null)}
           >
             <div className="layer-details">
               <h3>{active.displayName ?? active.name}</h3>
               <span className="count">
-                {active.features.length.toLocaleString()} 个要素
-              </span>
+                {active.features.length.toLocaleString()}{t(" 个要素")}</span>
               <details open>
-                <summary>属性字段 · {fields.length}</summary>
+                <summary>{t("属性字段 · ")}{fields.length}</summary>
                 <div className="layer-field-list">
                   {fields.length ? (
                     fields.map((field) => (
                       <div key={field}>
                         <strong>{field}</strong>
-                        <span>{fieldSummary(field)}</span>
+                        <span>{t(fieldSummary(field))}</span>
                       </div>
                     ))
                   ) : (
-                    <p className="form-note">没有属性字段</p>
+                    <p className="form-note">{t("没有属性字段")}</p>
                   )}
                 </div>
                 <button
                   disabled={!editable || busy}
                   onClick={() => openModal("field")}
                 >
-                  <Plus />
-                  添加字段…
-                </button>
+                  <Plus />{t("添加字段…")}</button>
                 <button
                   className="quiet"
                   onClick={() => {
                     setTableOpen(true);
                     openModal(null);
                   }}
-                >
-                  打开属性表
-                </button>
+                >{t("打开属性表")}</button>
               </details>
               <details open>
-                <summary>来源详情</summary>
+                <summary>{t("来源详情")}</summary>
                 {active.restored && (
-                  <p className="form-note">恢复副本 · {active.restoredFrom}</p>
+                  <p className="form-note">{t("恢复副本 · ")}{active.restoredFrom}</p>
                 )}
                 {active.db && (
                   <>
                     <p className="form-note">
-                      {active.dbConnectionError ??
+                      {t(active.dbConnectionError) ??
                         (active.dbNeedsVerification
-                          ? "数据库已恢复；保存前核对原表记录，编辑仍保留。"
-                          : "保存提交到原数据库表。")}
+                          ? t("数据库已恢复；保存前核对原表记录，编辑仍保留。")
+                          : t("保存提交到原数据库表。"))}
                     </p>
                     <button
                       disabled={busy}
@@ -5251,66 +5204,62 @@ export default function App() {
                           await reconnectDatabaseLayer(active);
                         })
                       }
-                    >
-                      重连原数据源
-                    </button>
+                    >{t("重连原数据源")}</button>
                   </>
                 )}
                 <dl>
-                  <dt>保存位置</dt>
+                  <dt>{t("保存位置")}</dt>
                   <dd>
                     {active.db
                       ? `${active.db.schema}.${active.db.table}`
                       : (active.sourcePath ??
                         (layerSource(active) === "workspace"
-                          ? "仅工作区 · 保存需选择格式与路径"
-                          : "已关联文件"))}
+                          ? t("仅工作区 · 保存需选择格式与路径")
+                          : t("已关联文件")))}
                   </dd>
-                  <dt>来源名称</dt>
+                  <dt>{t("来源名称")}</dt>
                   <dd>{active.name}</dd>
-                  <dt>格式</dt>
+                  <dt>{t("格式")}</dt>
                   <dd>
                     {active.sourceKind === "shp"
                       ? "Shapefile"
                       : active.sourceKind}
                   </dd>
-                  <dt>来源 CRS</dt>
+                  <dt>{t("来源 CRS")}</dt>
                   <dd>{active.originalCrs}</dd>
-                  <dt>工作坐标</dt>
+                  <dt>{t("工作坐标")}</dt>
                   <dd>WGS84 · EPSG:4326</dd>
-                  <dt>要素数量</dt>
+                  <dt>{t("要素数量")}</dt>
                   <dd>{active.features.length.toLocaleString()}</dd>
                 </dl>
                 {!canEdit && (
-                  <p className="form-note">
-                    当前数据库副本不可编辑，请核对主键及提交状态。
-                  </p>
+                  <p className="form-note">{t("当前数据库副本不可编辑，请核对主键及提交状态。")}</p>
                 )}
                 {active.warnings?.map((warning, index) => (
                   <p className="warning" key={index}>
-                    {warning}
+                    {t(warning)}
                   </p>
                 ))}
               </details>
             </div>
             <div className="modal-actions">
-              <button onClick={() => openModal(null)}>关闭</button>
+              <button onClick={() => openModal(null)}>{t("关闭")}</button>
             </div>
           </Modal>
         )}
         {modal === "style" && active && layerStyleDraft && (
           <Modal
-            title={`图层样式：${active.displayName ?? active.name}`}
+            title={t(`图层样式：${active.displayName ?? active.name}`)}
             onClose={() => openModal(null)}
           >
             <div className="layer-details">
-              <h4>样式</h4>
+              <h4>{t("样式")}</h4>
               <label>
-                <span>颜色</span>
+                <span>{t("颜色")}</span>
                 <input
                   type="color"
                   value={layerStyleDraft.color}
-                  aria-label={`${active.displayName ?? active.name}颜色`}
+                  aria-label={t(`${active.displayName ?? active.name}颜色`)}
                   onChange={(e) =>
                     setLayerStyleDraft((d) =>
                       d ? { ...d, color: e.target.value } : null,
@@ -5319,11 +5268,11 @@ export default function App() {
                 />
               </label>
               <label>
-                <span>不透明度</span>
+                <span>{t("不透明度")}</span>
                 <output>{Math.round(layerStyleDraft.opacity * 100)}%</output>
                 <input
                   type="range"
-                  aria-label="不透明度"
+                  aria-label={t("不透明度")}
                   min="0"
                   max="1"
                   step="0.05"
@@ -5336,11 +5285,11 @@ export default function App() {
                 />
               </label>
               <label>
-                <span>线宽</span>
+                <span>{t("线宽")}</span>
                 <output>{layerStyleDraft.strokeWidth} px</output>
                 <input
                   type="range"
-                  aria-label="线宽"
+                  aria-label={t("线宽")}
                   min="1"
                   max="8"
                   step="1"
@@ -5354,7 +5303,7 @@ export default function App() {
               </label>
             </div>
             <div className="modal-actions">
-              <button onClick={() => openModal(null)}>取消</button>
+              <button onClick={() => openModal(null)}>{t("取消")}</button>
               <button
                 disabled={busy}
                 onClick={() => {
@@ -5373,9 +5322,7 @@ export default function App() {
                   setStatus("图层样式已更新");
                   openModal(null);
                 }}
-              >
-                应用样式
-              </button>
+              >{t("应用样式")}</button>
             </div>
           </Modal>
         )}
@@ -5383,7 +5330,7 @@ export default function App() {
           <div
             className="cell-confirmation"
             role="alertdialog"
-            aria-label="单元格修改确认"
+            aria-label={t("单元格修改确认")}
             aria-modal="false"
             aria-describedby="cell-confirmation-message"
             onKeyDown={(e) => {
@@ -5394,13 +5341,9 @@ export default function App() {
               }
             }}
           >
-            <span id="cell-confirmation-message">应用单元格修改？</span>
-            <button disabled={busy || !editable} onClick={() => commitCell()}>
-              应用
-            </button>
-            <button className="quiet" disabled={busy} onClick={cancelCell}>
-              取消
-            </button>
+            <span id="cell-confirmation-message">{t("应用单元格修改？")}</span>
+            <button disabled={busy || !editable} onClick={() => commitCell()}>{t("应用")}</button>
+            <button className="quiet" disabled={busy} onClick={cancelCell}>{t("取消")}</button>
           </div>
         )}
         {(modal === "json" || modal === "wkt") && selected && (
@@ -5408,20 +5351,20 @@ export default function App() {
             title={
               featurePreview
                 ? modal === "json"
-                  ? "JSON属性预览"
-                  : "WKT几何预览"
+                  ? t("JSON属性预览")
+                  : t("WKT几何预览")
                 : modal === "json"
-                  ? "JSON 属性"
-                  : "WKT 几何"
+                  ? t("JSON 属性")
+                  : t("WKT 几何")
             }
             onClose={() => openModal(null)}
           >
             <div className="editor-layout">
               <div>
                 <label>
-                  {modal === "json" ? "属性内容" : "WGS84 · EPSG:4326"}
+                  {modal === "json" ? t("属性内容") : "WGS84 · EPSG:4326"}
                   <textarea
-                    aria-label={modal === "json" ? "JSON 属性" : "WKT 几何"}
+                    aria-label={modal === "json" ? t("JSON 属性") : t("WKT 几何")}
                     value={modal === "json" ? propertyText : wktText}
                     readOnly={featurePreview || !editable || busy}
                     onChange={(e) =>
@@ -5433,65 +5376,62 @@ export default function App() {
                 </label>
               </div>
               <aside>
-                <h3>{modal === "json" ? "属性摘要" : "几何摘要"}</h3>
+                <h3>{modal === "json" ? t("属性摘要") : t("几何摘要")}</h3>
                 <dl>
-                  <dt>图层</dt>
+                  <dt>{t("图层")}</dt>
                   <dd>{active?.displayName ?? active?.name}</dd>
-                  <dt>要素</dt>
+                  <dt>{t("要素")}</dt>
                   <dd>{selected.id}</dd>
                   <dt>
                     {featurePreview
                       ? modal === "json"
-                        ? "字段"
-                        : "类型"
+                        ? t("字段")
+                        : t("类型")
                       : modal === "json"
-                        ? "草稿字段"
-                        : "草稿类型"}
+                        ? t("草稿字段")
+                        : t("草稿类型")}
                   </dt>
-                  <dd>{draftError ? "未通过校验" : draftSummary}</dd>
-                  <dt>工作坐标</dt>
+                  <dd>{draftError ? t("未通过校验") : t(draftSummary)}</dd>
+                  <dt>{t("工作坐标")}</dt>
                   <dd>WGS84</dd>
                 </dl>
-                {!canEdit && <p className="form-note">当前来源只读</p>}
+                {!canEdit && <p className="form-note">{t("当前来源只读")}</p>}
                 {draftError && (
                   <p className="inline-error" role="alert">
-                    {draftError}
+                    {t(draftError)}
                   </p>
                 )}
               </aside>
             </div>
             <div className="modal-actions">
-              <button onClick={() => openModal(null)}>关闭</button>
+              <button onClick={() => openModal(null)}>{t("关闭")}</button>
               {!featurePreview && (
                 <button
                   disabled={!editable || busy || Boolean(draftError)}
                   onClick={modal === "json" ? applyProperties : applyWkt}
                 >
                   <Check />
-                  {modal === "json" ? "应用属性" : "应用几何"}
+                  {modal === "json" ? t("应用属性") : t("应用几何")}
                 </button>
               )}
             </div>
           </Modal>
         )}
         {modal === "field" && (
-          <Modal title="添加字段" onClose={() => openModal(null)}>
+          <Modal title={t("添加字段")} onClose={() => openModal(null)}>
             <div className="form-grid">
-              <label>
-                字段名
-                <input
-                  aria-label="新字段名"
+              <label>{t("字段名")}<input
+                  aria-label={t("新字段名")}
                   value={newField}
                   onChange={(e) => setNewField(e.target.value)}
                 />
               </label>
               <p className="form-note">
                 {active?.displayName ?? active?.name} ·{" "}
-                {active?.features.length ?? 0} 个要素，初始值为空字符串。
-              </p>
+                {active?.features.length ?? 0}{t(" 个要素，初始值为空字符串。")}</p>
             </div>
             <div className="modal-actions">
-              <button onClick={() => openModal(null)}>取消</button>
+              <button onClick={() => openModal(null)}>{t("取消")}</button>
               <button
                 disabled={!newField.trim() || !editable || busy}
                 onClick={() => {
@@ -5520,34 +5460,28 @@ export default function App() {
                   setNewField("");
                   openModal(null);
                 }}
-              >
-                添加字段
-              </button>
+              >{t("添加字段")}</button>
             </div>
           </Modal>
         )}
         {(modal === "rename-field" || modal === "delete-field") && active && (
           <Modal
-            title={modal === "rename-field" ? "重命名字段" : "删除字段"}
+            title={modal === "rename-field" ? t("重命名字段") : t("删除字段")}
             onClose={() => openModal(null)}
           >
             {modal === "rename-field" ? (
-              <label>
-                新字段名
-                <input
-                  aria-label="新字段名"
+              <label>{t("新字段名")}<input
+                  aria-label={t("新字段名")}
                   autoFocus
                   value={newField}
                   onChange={(e) => setNewField(e.target.value)}
                 />
               </label>
             ) : (
-              <p>
-                删除字段“{fieldTarget}”及该字段的全部值？保存编辑后同步到来源。
-              </p>
+              <p>{t("删除字段“")}{fieldTarget}{t("”及该字段的全部值？保存编辑后同步到来源。")}</p>
             )}
             <div className="modal-actions">
-              <button onClick={() => openModal(null)}>取消</button>
+              <button onClick={() => openModal(null)}>{t("取消")}</button>
               <button
                 className={modal === "delete-field" ? "danger" : undefined}
                 disabled={
@@ -5599,60 +5533,51 @@ export default function App() {
                   openModal(null);
                 }}
               >
-                {modal === "rename-field" ? "重命名字段" : "删除字段"}
+                {modal === "rename-field" ? t("重命名字段") : t("删除字段")}
               </button>
             </div>
           </Modal>
         )}
         {modal === "new-layer" && (
           <Modal
-            title="新建矢量图层"
+            title={t("新建矢量图层")}
             onClose={() => {
               insertionGroup.current = undefined;
               openModal(null);
             }}
           >
             <div className="form-grid">
-              <label>
-                图层名称
-                <input
+              <label>{t("图层名称")}<input
                   autoFocus
-                  aria-label="矢量图层名称"
+                  aria-label={t("矢量图层名称")}
                   maxLength={120}
                   value={newLayerName}
                   onChange={(e) => setNewLayerName(e.target.value)}
                 />
               </label>
-              <label>
-                几何类型
-                <select
-                  aria-label="矢量几何类型"
+              <label>{t("几何类型")}<select
+                  aria-label={t("矢量几何类型")}
                   value={newGeometryType}
                   onChange={(e) =>
                     setNewGeometryType(e.target.value as typeof newGeometryType)
                   }
                 >
-                  <option value="Point">点</option>
-                  <option value="LineString">线</option>
-                  <option value="Polygon">面</option>
+                  <option value="Point">{t("点")}</option>
+                  <option value="LineString">{t("线")}</option>
+                  <option value="Polygon">{t("面")}</option>
                 </select>
               </label>
-              <label>
-                属性字段（可选）
-                <input
-                  aria-label="矢量属性字段"
-                  placeholder="用逗号分隔字段名"
+              <label>{t("属性字段（可选）")}<input
+                  aria-label={t("矢量属性字段")}
+                  placeholder={t("用逗号分隔字段名")}
                   value={newLayerFields}
                   onChange={(e) => setNewLayerFields(e.target.value)}
                 />
               </label>
-              <p className="form-note">
-                工作坐标为 WGS84。创建后点击编辑按钮开始编辑，保存为
-                GeoJSON；需要其他格式可导出。
-              </p>
+              <p className="form-note">{t("工作坐标为 WGS84。创建后点击编辑按钮开始编辑，保存为 GeoJSON；需要其他格式可导出。")}</p>
             </div>
             <div className="modal-actions">
-              <button onClick={() => openModal(null)}>取消</button>
+              <button onClick={() => openModal(null)}>{t("取消")}</button>
               <button
                 disabled={!newLayerName.trim() || busy}
                 onClick={() => {
@@ -5682,17 +5607,15 @@ export default function App() {
                   setModal(null);
                 }}
               >
-                <Plus />
-                创建
-              </button>
+                <Plus />{t("创建")}</button>
             </div>
           </Modal>
         )}
         {modal === "delete" && (
-          <Modal title="删除选中要素" onClose={() => openModal(null)}>
-            <p>删除当前选中的 1 个要素？</p>
+          <Modal title={t("删除选中要素")} onClose={() => openModal(null)}>
+            <p>{t("删除当前选中的 1 个要素？")}</p>
             <div className="modal-actions">
-              <button onClick={() => openModal(null)}>取消</button>
+              <button onClick={() => openModal(null)}>{t("取消")}</button>
               <button
                 className="danger"
                 disabled={
@@ -5708,15 +5631,13 @@ export default function App() {
                   setSelectedId(undefined);
                   openModal(null);
                 }}
-              >
-                删除
-              </button>
+              >{t("删除")}</button>
             </div>
           </Modal>
         )}
         {modal === "db-sources" && (
           <Modal
-            title="添加 PostGIS 图层"
+            title={t("添加 PostGIS 图层")}
             onClose={() => {
               insertionGroup.current = undefined;
               setModal(null);
@@ -5743,7 +5664,7 @@ export default function App() {
         )}
         {modal === "database" && (
           <Modal
-            title="PostGIS 连接"
+            title={t("PostGIS 连接")}
             onClose={() => {
               if (!busy) {
                 setConnection((config) => ({ ...config, password: "" }));
@@ -5766,7 +5687,7 @@ export default function App() {
         )}
         {modal === "db-load" && dbLayers[dbIndex] && (
           <Modal
-            title="加载数据表"
+            title={t("加载数据表")}
             onClose={() => {
               if (!busy) openModal(null);
             }}
@@ -5789,69 +5710,47 @@ export default function App() {
           </Modal>
         )}
         {modal === "close" && (
-          <Modal title="移除未保存图层" onClose={() => setModal(null)}>
-            <p>
-              将移除“
-              {layers.find((layer) => layer.id === closingLayerId)
+          <Modal title={t("移除未保存图层")} onClose={() => setModal(null)}>
+            <p>{t("将移除“")}{layers.find((layer) => layer.id === closingLayerId)
                 ?.displayName ??
-                layers.find((layer) => layer.id === closingLayerId)?.name}
-              ”，并丢弃该图层的全部未保存修改及未完成编辑。源文件或数据库不会写入这些修改。
-            </p>
+                layers.find((layer) => layer.id === closingLayerId)?.name}{t("”，并丢弃该图层的全部未保存修改及未完成编辑。源文件或数据库不会写入这些修改。")}</p>
             <div className="modal-actions">
-              <button disabled={busy} onClick={() => setModal(null)}>
-                取消
-              </button>
+              <button disabled={busy} onClick={() => setModal(null)}>{t("取消")}</button>
               <button
                 className="danger"
                 disabled={busy}
                 onClick={() => void closeLayer(closingLayerId)}
-              >
-                放弃并移除
-              </button>
+              >{t("放弃并移除")}</button>
             </div>
           </Modal>
         )}
         {modal === "exit-edit" && (
-          <Modal title="退出编辑" onClose={() => setModal(null)}>
-            <p>当前图层有未保存的编辑，是否保存后退出？</p>
+          <Modal title={t("退出编辑")} onClose={() => setModal(null)}>
+            <p>{t("当前图层有未保存的编辑，是否保存后退出？")}</p>
             {(cellDraft || drawDraft) && (
-              <p className="form-note">
-                请先完成或取消当前草稿，再保存并退出。
-              </p>
+              <p className="form-note">{t("请先完成或取消当前草稿，再保存并退出。")}</p>
             )}
             <div className="modal-actions">
-              <button disabled={busy} onClick={() => setModal(null)}>
-                取消
-              </button>
+              <button disabled={busy} onClick={() => setModal(null)}>{t("取消")}</button>
               <button
                 disabled={busy}
                 onClick={() => void task(discardEditingChanges)}
-              >
-                不保存退出
-              </button>
+              >{t("不保存退出")}</button>
               <button
                 disabled={busy || Boolean(cellDraft) || Boolean(drawDraft)}
                 onClick={() => void save(false, true)}
-              >
-                保存并退出
-              </button>
+              >{t("保存并退出")}</button>
             </div>
           </Modal>
         )}
         {modal === "quit" && (
-          <Modal title="退出 zGIS" onClose={cancelExit}>
-            <p>当前图层仍处于编辑模式。</p>
-            <p className="form-note">
-              退出并保留工作区会保存修改和未完成草稿，下次启动继续编辑。源文件尚未保存；需要保存源文件时，请返回编辑完成保存。
-            </p>
+          <Modal title={t("退出 zGIS")} onClose={cancelExit}>
+            <p>{t("当前图层仍处于编辑模式。")}</p>
+            <p className="form-note">{t("退出并保留工作区会保存修改和未完成草稿，下次启动继续编辑。源文件尚未保存；需要保存源文件时，请返回编辑完成保存。")}</p>
             <div className="modal-actions">
-              <button disabled={busy} onClick={cancelExit}>
-                返回编辑
-              </button>
+              <button disabled={busy} onClick={cancelExit}>{t("返回编辑")}</button>
               <button disabled={busy} onClick={() => void processExit()}>
-                {busy ? <LoaderCircle className="spin" /> : <Check />}
-                退出并保留工作区
-              </button>
+                {busy ? <LoaderCircle className="spin" /> : <Check />}{t("退出并保留工作区")}</button>
             </div>
           </Modal>
         )}

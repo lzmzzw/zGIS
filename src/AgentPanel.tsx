@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -9,6 +10,7 @@ import "./agent.css";
 
 type Info = { sessionId: string; running: boolean };
 export default function AgentPanel({ onClose }: { onClose: () => void }) {
+  useLocale();
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const session = useRef<string | null>(null);
@@ -156,7 +158,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
       await invoke("agent_close", { sessionId: session.current });
       session.current = null;
       setRunning(false);
-      terminal.current?.writeln("\r\n会话已停止。");
+      terminal.current?.writeln(t("\r\n会话已停止。"));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -164,36 +166,37 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
     }
   };
   return (
-    <section className="gis-agent-panel" aria-label="Codex 空间分析助手">
+    <section className="gis-agent-panel" aria-label={t("Codex 空间分析助手")}>
       <header className="processing-heading">
         <div>
           <strong>Codex Agent</strong>
-          <span>{running ? "运行中" : "未连接"}</span>
+          <span>{running ? t("运行中") : t("未连接")}</span>
         </div>
         <button
           className="icon-button"
-          aria-label="隐藏助手侧栏"
+          aria-label={t("隐藏助手侧栏")}
           onClick={onClose}
-          title="隐藏侧栏，保留会话"
+          title={t("隐藏侧栏，保留会话")}
         >
           <X size={16} />
         </button>
       </header>
       <div className="gis-agent-toolbar">
         <button disabled={busy || running} onClick={() => void open()}>
-          {busy ? "请稍候…" : "连接 Codex"}
+          {busy ? t("请稍候…") : t("连接 Codex")}
         </button>
         <button disabled={busy || !running} onClick={() => void stop()}>
-          停止会话
+          {t("停止会话")}
         </button>
       </div>
       <p className="gis-agent-hint">
-        需在本机安装并登录 Codex CLI。MCP
-        随应用启动，分析结果保留为图层，可另存。
+        {t(
+          "需在本机安装并登录 Codex CLI。MCP 随应用启动，分析结果保留为图层，可另存。",
+        )}
       </p>
       {error && (
         <p role="alert" className="gis-agent-error">
-          {error}
+          {t(error)}
         </p>
       )}
       <div className="gis-agent-terminal" ref={host} />

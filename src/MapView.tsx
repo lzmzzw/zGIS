@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useEffect, useRef } from "react";
 import Map from "ol/Map";
 import MapBrowserEvent from "ol/MapBrowserEvent";
@@ -104,6 +105,7 @@ function style(color: string, selected = false, accent = "#3e73d8", width = 2) {
   });
 }
 export default function MapView(props: Props) {
+  const { locale } = useLocale();
   const element = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const vectorRefs = useRef(
@@ -256,6 +258,19 @@ export default function MapView(props: Props) {
     };
   }, []);
   useEffect(() => {
+    for (const [selector, label] of [
+      [".ol-zoom-in", "放大"],
+      [".ol-zoom-out", "缩小"],
+    ]) {
+      const button =
+        element.current?.querySelector<HTMLButtonElement>(selector);
+      if (button) {
+        button.title = t(label);
+        button.setAttribute("aria-label", t(label));
+      }
+    }
+  }, [locale]);
+  useEffect(() => {
     const base = tileRef.current!;
     const service = props.services.find(
       (item) => item.id === props.basemap && item.enabled !== false,
@@ -299,12 +314,19 @@ export default function MapView(props: Props) {
       layer.setZIndex(props.layers.length - index + 10);
       const styleKey = `${item.color}:${item.strokeWidth ?? 2}`;
       if (layer.get("styleKey") !== styleKey) {
-        layer.setStyle(style(item.color, false, undefined, item.strokeWidth ?? 2));
+        layer.setStyle(
+          style(item.color, false, undefined, item.strokeWidth ?? 2),
+        );
         layer.set("styleKey", styleKey);
       }
       const source = layer.getSource()!;
       if (layer.get("dataRef") !== item.features) {
-        syncMapFeatures(source, item.features, geometryRefs.current, gestureRef.current);
+        syncMapFeatures(
+          source,
+          item.features,
+          geometryRefs.current,
+          gestureRef.current,
+        );
         layer.set("dataRef", item.features);
       }
     });
@@ -397,7 +419,9 @@ export default function MapView(props: Props) {
           geometry: raw.geometry ?? null,
           properties: insert
             ? (raw.properties ?? {})
-            : (active?.features.find((item) => item.id === String(feature.getId()))?.properties ?? {}),
+            : (active?.features.find(
+                (item) => item.id === String(feature.getId()),
+              )?.properties ?? {}),
         },
         insert,
       );
@@ -662,7 +686,7 @@ export default function MapView(props: Props) {
     <div
       className={`map-surface ${props.tool === "pan" ? "pan-mode" : ""} ${props.editable ? "editing-mode" : ""} ${props.tool === "move" ? "move-mode" : ""} ${props.tool === "modify" ? "vertex-mode" : ""}`}
       ref={element}
-      aria-label="地理数据地图"
+      aria-label={t("地理数据地图")}
       tabIndex={0}
       onContextMenu={(event) => {
         if ((event.target as Element).closest(".ol-control")) return;

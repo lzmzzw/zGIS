@@ -1,3 +1,4 @@
+import { t, useLocale } from "./i18n";
 import { useEffect, useState } from "react";
 import { Check, Download, FolderOpen, LoaderCircle } from "lucide-react";
 import type { DocumentLayer, ImportOptions, InputFile } from "./domain";
@@ -18,6 +19,7 @@ export function ImportPanel({
   onClose: () => void;
   onChange: () => void;
 }) {
+  useLocale();
   const [fileIndex, setFileIndex] = useState(0);
   const [configurations, setConfigurations] = useState<ImportOptions[]>(() =>
     files.map((file) => ({
@@ -71,16 +73,16 @@ export function ImportPanel({
   };
   const column = (key: "wktColumn" | "xColumn" | "yColumn", label: string) => (
     <label>
-      {label}
+      {t(label)}
       <select
-        aria-label={label}
+        aria-label={t(label)}
         aria-invalid={preview?.invalidFields.includes(key) || undefined}
         aria-describedby="import-validation"
         value={options[key] ?? preview?.options[key] ?? ""}
         disabled={busy}
         onChange={(event) => change(key, event.target.value)}
       >
-        <option value="">自动识别</option>
+        <option value="">{t("自动识别")}</option>
         {preview?.fields.map((field) => (
           <option key={field}>{field}</option>
         ))}
@@ -93,7 +95,7 @@ export function ImportPanel({
       <div className="file-import">
         <div className="export-fields import-fields">
           <div className="export-source import-source">
-            <span>来源文件</span>
+            <span>{t("来源文件")}</span>
             <div className="import-file-list">
               {files.map((item) => (
                 <div key={item.name}>
@@ -108,9 +110,9 @@ export function ImportPanel({
           </div>
           {csvFiles.length > 1 && (
             <label>
-              预览文件
+              {t("预览文件")}
               <select
-                aria-label="预览文件"
+                aria-label={t("预览文件")}
                 value={fileIndex}
                 disabled={busy}
                 onChange={(event) => {
@@ -129,9 +131,9 @@ export function ImportPanel({
           {file && (
             <>
               <label>
-                编码
+                {t("编码")}
                 <select
-                  aria-label="编码"
+                  aria-label={t("编码")}
                   value={options.encoding}
                   disabled={busy}
                   onChange={(event) => change("encoding", event.target.value)}
@@ -141,31 +143,31 @@ export function ImportPanel({
                 </select>
               </label>
               <label>
-                几何来源
+                {t("几何来源")}
                 <select
-                  aria-label="几何来源"
+                  aria-label={t("几何来源")}
                   value={mode}
                   disabled={busy}
                   onChange={(event) =>
                     change("geometryMode", event.target.value)
                   }
                 >
-                  <option value="wkt">WKT 列</option>
-                  <option value="xy">X / Y 坐标列</option>
+                  <option value="wkt">{t("WKT 列")}</option>
+                  <option value="xy">{t("X / Y 坐标列")}</option>
                 </select>
               </label>
               {mode === "wkt" ? (
-                column("wktColumn", "WKT 列")
+                column("wktColumn", t("WKT 列"))
               ) : (
                 <>
-                  {column("xColumn", "X / 经度列")}
-                  {column("yColumn", "Y / 纬度列")}
+                  {column("xColumn", t("X / 经度列"))}
+                  {column("yColumn", t("Y / 纬度列"))}
                 </>
               )}
               <label>
-                来源坐标系
+                {t("来源坐标系")}
                 <select
-                  aria-label="来源坐标系"
+                  aria-label={t("来源坐标系")}
                   value={options.crs}
                   disabled={busy}
                   onChange={(event) => change("crs", event.target.value)}
@@ -187,9 +189,9 @@ export function ImportPanel({
                     </p>
                   )}
                   <label>
-                    来源坐标系
+                    {t("来源坐标系")}
                     <select
-                      aria-label={`${item.name} 来源坐标系`}
+                      aria-label={t("{0} 来源坐标系", item.name)}
                       value={configurations[index]?.crs ?? ""}
                       disabled={busy}
                       onChange={(event) => {
@@ -206,7 +208,9 @@ export function ImportPanel({
                         );
                       }}
                     >
-                      <option value="">按文件标记；无标记默认 EPSG:4326</option>
+                      <option value="">
+                        {t("按文件标记；无标记默认 EPSG:4326")}
+                      </option>
                       <option>EPSG:4326</option>
                       <option>EPSG:4490</option>
                       <option>EPSG:3857</option>
@@ -215,7 +219,7 @@ export function ImportPanel({
                   <label className="checkbox-label">
                     <input
                       type="checkbox"
-                      aria-label={`${item.name} 按二维副本导入`}
+                      aria-label={t("{0} 按二维副本导入", item.name)}
                       checked={Boolean(configurations[index]?.geoJsonXYCopy)}
                       disabled={busy}
                       onChange={(event) => {
@@ -233,9 +237,9 @@ export function ImportPanel({
                       }}
                     />
                     <span>
-                      按二维副本导入
+                      {t("按二维副本导入")}
                       <span className="import-copy-note">
-                        忽略 Z/M，不修改原文件
+                        {t("忽略 Z/M，不修改原文件")}
                       </span>
                     </span>
                   </label>
@@ -244,22 +248,22 @@ export function ImportPanel({
           )}
           {issue && (
             <p id="import-validation" role="alert" className="inline-error">
-              {issue}
+              {t(issue)}
             </p>
           )}
         </div>
         {file && (
           <aside className="dialog-summary import-preview">
             <header>
-              数据预览{" "}
-              <span className="count">{file ? "前 5 行" : "文件组"}</span>
+              {t("数据预览")}{" "}
+              <span className="count">{file ? t("前 5 行") : t("文件组")}</span>
             </header>
             {file ? (
               <>
                 {loading ? (
                   <p className="form-note">
                     <LoaderCircle className="spin" />
-                    预览中
+                    {t("预览中")}
                   </p>
                 ) : (
                   <div className="preview-table">
@@ -297,12 +301,14 @@ export function ImportPanel({
                   </div>
                 )}
                 <dl>
-                  <dt>几何类型</dt>
+                  <dt>{t("几何类型")}</dt>
                   <dd>{preview?.geometryTypes.join(" / ") || "—"}</dd>
-                  <dt>工作坐标</dt>
+                  <dt>{t("工作坐标")}</dt>
                   <dd>WGS84</dd>
-                  <dt>预览状态</dt>
-                  <dd>{loading ? "校验中" : issue ? "未通过" : "通过"}</dd>
+                  <dt>{t("预览状态")}</dt>
+                  <dd>
+                    {loading ? t("校验中") : issue ? t("未通过") : t("通过")}
+                  </dd>
                 </dl>
               </>
             ) : null}
@@ -311,7 +317,7 @@ export function ImportPanel({
       </div>
       <div className="modal-actions">
         <button disabled={busy} onClick={onClose}>
-          取消
+          {t("取消")}
         </button>
         <button
           disabled={
@@ -323,7 +329,7 @@ export function ImportPanel({
           onClick={() => onImport(configurations)}
         >
           {busy ? <LoaderCircle className="spin" /> : <Check />}
-          {file || !error ? "导入" : "重试导入"}
+          {file || !error ? t("导入") : t("重试导入")}
         </button>
       </div>
     </>
@@ -369,6 +375,7 @@ export function ExportPanel({
   onExport: () => void;
   onClose: () => void;
 }) {
+  useLocale();
   const xyInvalid =
     mode === "xy" &&
     layer.features.some((feature) => feature.geometry?.type !== "Point");
@@ -394,7 +401,7 @@ export function ExportPanel({
     <>
       <div className="file-export">
         <div className="export-source">
-          <span>来源图层</span>
+          <span>{t("来源图层")}</span>
           <div>
             <span className="export-source-name">
               {layer.displayName ?? layer.name}
@@ -403,9 +410,9 @@ export function ExportPanel({
         </div>
         <div className="export-fields">
           <label>
-            输出格式
+            {t("输出格式")}
             <select
-              aria-label="输出格式"
+              aria-label={t("输出格式")}
               value={mode}
               disabled={busy}
               onChange={(event) => onMode(event.target.value)}
@@ -418,7 +425,7 @@ export function ExportPanel({
                 )
                 .map(([key, label]) => (
                   <option key={key} value={key}>
-                    {label}
+                    {t(label)}
                   </option>
                 ))}
             </select>
@@ -426,8 +433,8 @@ export function ExportPanel({
           {mode === "postgis" ? (
             <>
               <div className="export-readonly">
-                <span>数据库连接</span>
-                <span>{connected ? "已连接" : "尚未连接"}</span>
+                <span>{t("数据库连接")}</span>
+                <span>{connected ? t("已连接") : t("尚未连接")}</span>
               </div>
               <label>
                 Schema
@@ -439,9 +446,9 @@ export function ExportPanel({
                 />
               </label>
               <label>
-                新表名
+                {t("新表名")}
                 <input
-                  aria-label="新表名"
+                  aria-label={t("新表名")}
                   value={table}
                   disabled={busy}
                   onChange={(event) => onTable(event.target.value)}
@@ -451,9 +458,9 @@ export function ExportPanel({
           ) : (
             <>
               <label>
-                文件名
+                {t("文件名")}
                 <input
-                  aria-label="文件名"
+                  aria-label={t("文件名")}
                   value={filename}
                   disabled={busy}
                   onChange={(event) => onFilename(event.target.value)}
@@ -461,9 +468,9 @@ export function ExportPanel({
               </label>
               {mode !== "postgis" && (
                 <label>
-                  目标坐标系
+                  {t("目标坐标系")}
                   <select
-                    aria-label="目标坐标系"
+                    aria-label={t("目标坐标系")}
                     value={crs}
                     disabled={busy}
                     onChange={(event) => onCrs(event.target.value)}
@@ -478,42 +485,40 @@ export function ExportPanel({
           )}
           {issue && (
             <p className="inline-error" role="alert">
-              {issue}
+              {t(issue)}
             </p>
           )}
         </div>
         {mode === "geojson" && crs !== "EPSG:4326" && (
           <p className="form-note">
-            输出含 crs 标记的传统 GeoJSON；仅接受 RFC 7946
-            的软件可能不支持此文件。
+            {t(
+              "输出含 crs 标记的传统 GeoJSON；仅接受 RFC 7946 的软件可能不支持此文件。",
+            )}
           </p>
         )}
         {mode === "postgis" ? (
           <p className="form-note">
-            EPSG:4326 · 新建 id、properties、geom 三列，不覆盖已有表。
+            {t("EPSG:4326 · 新建 id、properties、geom 三列，不覆盖已有表。")}
           </p>
         ) : mode === "shp" ? (
           <details className="export-limits" key="shp">
-            <summary>Shapefile 格式限制</summary>
+            <summary>{t("Shapefile 格式限制")}</summary>
             <p className="form-note">
-              {saving ? "选择目标文件夹，保存 SHP 文件组" : "另存 ZIP"}
-              （SHP、SHX、DBF、PRJ、CPG），按目标坐标系输出、UTF-8，须选择不存在的新文件。
-              每次仅支持一种几何族：Point、MultiPoint、线或面，Point 与
-              MultiPoint 不能混合。 DBF 字段名须为 ASCII 字母或下划线开头，最多
-              10 字符，可含数字和下划线；
-              属性仅支持文本、数值和布尔；空值、缺少字段、嵌套和类型冲突将提示错误。数值最多
-              15 位有效数字、8 位小数。文本不接受空字符串或首尾空格。
+              {saving ? t("选择目标文件夹，保存 SHP 文件组") : t("另存 ZIP")}
+              {t(
+                "（SHP、SHX、DBF、PRJ、CPG），按目标坐标系输出、UTF-8，须选择不存在的新文件。 每次仅支持一种几何族：Point、MultiPoint、线或面，Point 与 MultiPoint 不能混合。 DBF 字段名须为 ASCII 字母或下划线开头，最多 10 字符，可含数字和下划线； 属性仅支持文本、数值和布尔；空值、缺少字段、嵌套和类型冲突将提示错误。数值最多 15 位有效数字、8 位小数。文本不接受空字符串或首尾空格。",
+              )}
             </p>
           </details>
         ) : mode !== "geojson" ? (
           <p className="form-note">
-            嵌套属性转换为 JSON 文本；空字符串与 NULL 不保真。
+            {t("嵌套属性转换为 JSON 文本；空字符串与 NULL 不保真。")}
           </p>
         ) : null}
       </div>
       <div className="modal-actions">
         <button disabled={busy} onClick={onClose}>
-          取消
+          {t("取消")}
         </button>
         <button
           disabled={
@@ -527,11 +532,11 @@ export function ExportPanel({
           <Download />
           {busy
             ? saving
-              ? "保存中"
-              : "导出中"
+              ? t("保存中")
+              : t("导出中")
             : saving
-              ? "选择路径并保存"
-              : "导出"}
+              ? t("选择路径并保存")
+              : t("导出")}
         </button>
       </div>
     </>

@@ -1,3 +1,4 @@
+import { useLocale } from "./i18n";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 const OPEN_EVENT = "zgis:header-menu-open";
@@ -9,6 +10,7 @@ export default function HeaderMenu({
   label: string;
   children: ReactNode;
 }) {
+  useLocale();
   const ref = useRef<HTMLDetailsElement>(null);
   const [open, setOpen] = useState(false);
   const id = useId();
