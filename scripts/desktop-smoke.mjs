@@ -492,23 +492,26 @@ await page.getByLabel("新字段名", {exact:true}).fill("native_field");
 await page.getByRole("dialog").getByRole("button", {name:"添加字段",exact:true}).click();
 await page.getByRole("button", {name:"保存编辑",exact:true}).click();
 await expect(page.getByRole("button", {name:"保存编辑",exact:true})).toBeDisabled();
-await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_field === "")).toBe(true);
 await expect(page.getByRole("button", {name:"编辑属性",exact:true})).toBeEnabled();
+await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_field === "")).toBe(true);
+
 await page.locator(".attribute-panel th").filter({hasText:"native_field"}).click({button:"right"});
 await page.getByRole("menuitem",{name:"重命名字段",exact:true}).click();
 await page.getByLabel("新字段名",{exact:true}).fill("native_renamed");
 await page.getByRole("dialog").getByRole("button",{name:"重命名字段",exact:true}).click();
 await page.getByRole("button", {name:"保存编辑",exact:true}).click();
 await expect(page.getByRole("button", {name:"保存编辑",exact:true})).toBeDisabled();
-await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_renamed === "" && !Object.hasOwn(f.properties,"native_field"))).toBe(true);
 await expect(page.getByRole("button", {name:"编辑属性",exact:true})).toBeEnabled();
+await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => f.properties.native_renamed === "" && !Object.hasOwn(f.properties,"native_field"))).toBe(true);
+
 await page.locator(".attribute-panel th").filter({hasText:"native_renamed"}).click({button:"right"});
 await page.getByRole("menuitem",{name:"删除字段",exact:true}).click();
 await page.getByRole("dialog").getByRole("button",{name:"删除字段",exact:true}).click();
 await page.getByRole("button", {name:"保存编辑",exact:true}).click();
 await expect(page.getByRole("button", {name:"保存编辑",exact:true})).toBeDisabled();
-await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => !Object.hasOwn(f.properties,"native_renamed"))).toBe(true);
 await expect(page.getByRole("button", {name:"编辑属性",exact:true})).toBeEnabled();
+await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => !Object.hasOwn(f.properties,"native_renamed"))).toBe(true);
+
 console.log("PASS: native shared attribute field add, rename, delete and source-file save");
 // 分析按钮在编辑模式中正确禁用；侧栏主按钮对比度应在可操作状态验收。
 await page.getByRole("button", { name: "退出编辑", exact: true }).click();
