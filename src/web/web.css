@@ -1,0 +1,339 @@
+.web-app {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.web-header {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--border);
+}
+.web-header > strong {
+  font-size: 22px;
+  margin-right: 12px;
+}
+.web-header > strong > span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.web-local-note {
+  margin-left: auto;
+  color: var(--muted);
+}
+.web-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+.web-workspace.with-toolbox {
+  grid-template-columns: 260px minmax(0, 1fr) 350px;
+}
+.web-layers {
+  overflow: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+.web-layers > header {
+  display: flex;
+  justify-content: space-between;
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.web-layer {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.web-layer.active {
+  background: var(--selected);
+  box-shadow: inset 3px 0 var(--accent);
+}
+.web-layer-name {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.web-layer-name input {
+  width: 16px;
+}
+.web-name-button {
+  flex: 1;
+  justify-content: flex-start;
+  background: transparent;
+  border: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  text-align: left;
+}
+.web-layer > p {
+  color: var(--muted);
+  margin: 6px 0 10px;
+}
+.web-layer-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.web-layer-actions input[type="color"] {
+  padding: 2px;
+  width: 30px;
+  height: 30px;
+}
+.web-layer-actions label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--muted);
+}
+.web-layer-actions input[type="range"] {
+  display: block;
+  width: 100%;
+  height: 16px;
+  padding: 0;
+}
+.web-layer-actions button {
+  width: 30px;
+  padding: 0;
+}
+.web-layer details {
+  margin: 8px 0 0;
+  padding-top: 8px;
+}
+.web-layer details p {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.web-empty {
+  padding: 14px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.web-map-and-table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.web-map {
+  flex: 1;
+  min-height: 180px;
+  position: relative;
+  background: var(--map);
+}
+.web-map .map-surface {
+  position: absolute;
+  inset: 0;
+}
+.web-map-controls {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: flex;
+  gap: 5px;
+}
+.web-map-controls select {
+  height: 32px;
+}
+.web-attribution {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  padding: 3px 6px;
+  background: #ffffffdf;
+  color: #333;
+  font-size: 11px;
+}
+.web-attributes {
+  height: 285px;
+  min-height: 170px;
+  display: flex;
+  flex-direction: column;
+  background: var(--table);
+  border-top: 1px solid var(--border);
+}
+.web-attributes > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.web-attributes > header strong {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.web-attributes > header label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.web-attributes > header input {
+  width: 160px;
+}
+.web-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.web-table-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+.web-table-scroll th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+.web-table-scroll td,
+.web-table-scroll th {
+  padding: 5px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.web-table-scroll tr[aria-selected="true"] {
+  background: var(--table-selected);
+}
+.web-table-scroll td button {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  height: 22px;
+}
+.web-attributes > footer {
+  display: flex;
+  gap: 8px;
+  padding: 5px 12px;
+  align-items: center;
+}
+.web-attributes > footer span {
+  flex: 1;
+  color: var(--muted);
+}
+.web-toolbox {
+  min-height: 0;
+  border-left: 1px solid var(--border);
+}
+.web-status {
+  display: flex;
+  min-height: 34px;
+  gap: 12px;
+  align-items: center;
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--chrome);
+}
+.web-status > span:first-child {
+  flex: 1;
+}
+.web-status button {
+  height: 26px;
+}
+.web-error {
+  position: fixed;
+  bottom: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  max-width: min(700px, 90vw);
+  padding: 10px 14px;
+  background: var(--elevated);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  box-shadow: var(--overlay-shadow);
+}
+.web-modal {
+  max-height: 85dvh;
+  overflow: auto;
+}
+.web-modal > .form-note {
+  margin: 12px 0;
+}
+.web-modal > header button {
+  margin-left: auto;
+}
+.web-export {
+  display: grid;
+  gap: 14px;
+  width: min(440px, 75vw);
+  padding: 12px 0;
+}
+.web-export label {
+  display: grid;
+  gap: 6px;
+}
+@media (max-width: 1050px) {
+  .web-workspace,
+  .web-workspace.with-toolbox {
+    grid-template-columns: 215px minmax(0, 1fr);
+  }
+  .web-toolbox {
+    position: absolute;
+    top: 54px;
+    bottom: 34px;
+    right: 0;
+    width: min(350px, 90vw);
+    box-shadow: var(--overlay-shadow);
+    z-index: 5;
+  }
+  .web-local-note {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .web-header {
+    gap: 6px;
+    padding: 8px;
+  }
+  .web-header > strong {
+    margin-right: 0;
+    font-size: 18px;
+  }
+  .web-workspace,
+  .web-workspace.with-toolbox {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+  .web-layer {
+    padding: 8px;
+  }
+  .web-layer-actions {
+    flex-wrap: wrap;
+  }
+  .web-layer-actions label {
+    min-width: 70px;
+  }
+  .web-attributes {
+    height: 300px;
+  }
+  .web-attributes > header {
+    gap: 5px;
+    padding: 5px;
+  }
+  .web-attributes > header strong {
+    flex-basis: 100%;
+  }
+  .web-attributes > header input {
+    width: 90px;
+  }
+  .web-status {
+    font-size: 11px;
+  }
+  .web-status > span:last-child {
+    display: none;
+  }
+}

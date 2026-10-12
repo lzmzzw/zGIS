@@ -1,6 +1,6 @@
 # zGIS 工程约定
 
-个人 Windows / macOS ARM64 轻量 GIS 编辑器，产品范围与验证入口以 README.md 为准。
+个人 Windows / macOS ARM64 轻量 GIS 编辑器与 Web 文件图层分析器，产品范围与验证入口以 README.md 为准。
 
 - SHP 工作副本可编辑，保存编辑回写已打开的 SHP 文件组或 ZIP 中对应图层，须检查来源指纹并保留其他 ZIP 成员；另存为在所选文件夹输出新 SHP 文件组，导出支持新 SHP ZIP，不覆盖已有目标；不支持 GDB。字段转换不能静默丢失，特殊几何不能静默降维。
 - 文件解析在 Worker 执行；几何工作坐标统一 WGS84，来源 CRS 独立保存。
@@ -14,3 +14,6 @@
 - 仅提交源码、配置、锁文件与文档；output、target、dist、node_modules 不提交。
 
 - 用户已授权本机覆盖安装时关闭正在运行的 zGIS，无需再次确认；仅关闭本项目应用进程。原生安装测试允许覆盖或先删除仓库 `output/` 下本次测试生成的同名导出文件，默认在打开保存对话框前删除目标，避免替换确认阻塞。不得据此覆盖真实业务文件或绕过产品的同名文件组保护。
+
+- Web 入口为 `web.html` 和 `src/web/`；不引入数据库、AI、MCP 或终端依赖。共享空间算法与 SHP 内存导出唯一源码在 `crates/spatial-core`，修改算法需运行该 crate 的测试与 Clippy；仅测试 src-tauri 不会执行依赖 crate 测试。
+- Web 验证执行 `pnpm build:web`、`pnpm test:web`，真实静态资源在子目录 `/zgis/` 测试。WASM 生成文件不提交，保留类型声明和 Cargo.lock；构建工具安装见 docs/web.md。

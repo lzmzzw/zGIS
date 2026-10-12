@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 const executable = resolve(
   process.argv[2] ?? "src-tauri/target/release/zgis.exe",
 );
-const output = resolve("output/processing-native");
+const output = resolve(process.argv[3] ?? "output/processing-native");
 const runName = String(Date.now());
 mkdirSync(output, { recursive: true });
 writeFileSync(

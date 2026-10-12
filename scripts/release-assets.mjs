@@ -49,6 +49,26 @@ if (mode === "windows" || mode === "macos") {
     if (result.status !== 0)
       throw new Error(`macOS app 压缩失败：${result.status}`);
   }
+} else if (mode === "web") {
+  const { zipSync } = await import("fflate");
+  mkdirSync(root, { recursive: true });
+  const entries = {};
+  const collect = (directory, prefix = "") => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      const key = prefix + entry.name;
+      if (entry.isDirectory()) collect(path, key + "/");
+      else entries[key] = new Uint8Array(readFileSync(path));
+    }
+  };
+  collect(resolve("dist-web"));
+  if (
+    !entries["index.html"] ||
+    !Object.keys(entries).some((name) => name.endsWith(".wasm"))
+  )
+    throw new Error("Web 静态资源入口或 WASM 缺失。");
+  const version = JSON.parse(readFileSync("package.json", "utf8")).version;
+  writeFileSync(join(root, `zGIS_${version}_web.zip`), zipSync(entries));
 } else if (mode === "checksums") {
   const assets = readdirSync(root).sort();
   exactlyOne(
@@ -63,7 +83,11 @@ if (mode === "windows" || mode === "macos") {
     assets.filter((name) => name.endsWith("_aarch64.app.tar.gz")),
     "macOS ARM64 app 压缩包",
   );
-  if (assets.length !== 3) throw new Error("发布目录含非预期产物。");
+  exactlyOne(
+    assets.filter((name) => name.endsWith("_web.zip")),
+    "Web 静态资源 ZIP",
+  );
+  if (assets.length !== 4) throw new Error("发布目录含非预期产物。");
   const checksums = assets.map((name) => {
     const path = join(root, name);
     if (!statSync(path).isFile() || statSync(path).size === 0)
@@ -77,6 +101,6 @@ if (mode === "windows" || mode === "macos") {
   );
 } else {
   throw new Error(
-    "用法：node scripts/release-assets.mjs windows|macos|checksums [产物目录]",
+    "用法：node scripts/release-assets.mjs windows|macos|web|checksums [产物目录]",
   );
 }

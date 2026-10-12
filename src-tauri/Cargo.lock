@@ -1811,8 +1811,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi 0.11.1+wasi-snapshot-preview1",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -4644,6 +4646,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "spatial-core"
+version = "0.4.0"
+dependencies = [
+ "dbase",
+ "geo",
+ "geojson",
+ "getrandom 0.2.17",
+ "i_float",
+ "rstar 0.12.2",
+ "serde",
+ "serde_json",
+ "shapefile",
+ "time",
+ "zip",
+]
+
+[[package]]
 name = "spin"
 version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5120,6 +5139,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb87b95ec50ddfa440816d227a17b2ccbdda963a316a727fda0fc4334f7d134"
 dependencies = [
  "deranged",
+ "js-sys",
  "num-conv",
  "powerfmt",
  "serde_core",
@@ -6617,7 +6637,7 @@ dependencies = [
 
 [[package]]
 name = "zgis"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "aes-gcm",
  "axum",
@@ -6643,6 +6663,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "shapefile",
+ "spatial-core",
  "tauri",
  "tauri-build",
  "tempfile",

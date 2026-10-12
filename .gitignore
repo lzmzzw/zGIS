@@ -1,5 +1,9 @@
 node_modules/
 dist/
+dist-web/
+crates/**/target/
+src/web/wasm/*.js
+src/web/wasm/*.wasm
 src-tauri/target/
 src-tauri/gen/
 output/

@@ -1,6 +1,6 @@
 {
   "name": "zgis",
-  "version": "0.3.9",
+  "version": "0.4.0",
   "license": "GPL-3.0-only",
   "repository": "https://github.com/lzmzzw/zGIS",
   "private": true,
@@ -14,6 +14,10 @@
     "typecheck": "tsc --noEmit",
     "version:check": "node scripts/check-version.mjs",
     "build": "tsc --noEmit && vite build",
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "build:web": "pnpm build:wasm && tsc --noEmit && vite build --mode web && node scripts/finalize-web.mjs",
+    "build:desktop": "tauri build -- --locked",
+    "test:web": "playwright test --config playwright.web.config.ts",
     "test": "vitest run",
     "tauri": "tauri",
     "smoke": "playwright test"

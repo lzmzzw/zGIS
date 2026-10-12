@@ -1,6 +1,6 @@
 # 代码结构与维护边界
 
-zGIS 是 Tauri 2 桌面应用。React 保存编辑工作副本，OpenLayers 展示工作几何，Rust 负责原生文件、持久化、数据库会话、空间分析与本机 MCP。所有工作几何统一为 WGS84，来源 CRS 单独保存。
+zGIS 同仓维护 Tauri 2 桌面应用与纯静态 Web 版。React 保存编辑工作副本，OpenLayers 展示工作几何，Rust 负责原生文件、持久化、数据库会话、空间分析与本机 MCP。所有工作几何统一为 WGS84，来源 CRS 单独保存。
 
 ## 模块入口
 
@@ -12,7 +12,7 @@ zGIS 是 Tauri 2 桌面应用。React 保存编辑工作副本，OpenLayers 展�
 | 页面与设置 | `LayerTreePanel.tsx`、`FilePanels.tsx`、`DatabasePanels.tsx`、`PostgisManager.tsx`、`SettingsPage.tsx` | 操作入口与局部草稿；原生协议统一经 `bridge.ts` |
 | 原生文件与恢复 | `src-tauri/src/lib.rs`、`preferences.rs` | 注册文件句柄、指纹检查、原子保存、恢复副本、DPAPI 配置 |
 | 数据库 | `lib.rs`、`postgis_catalog.rs`、`mysql_catalog.rs`、`database_passwords.rs` | 每连接串行、不同连接隔离；查询限制、完整基线、事务与不确定提交保护 |
-| 矢量与分析 | `vector_files.rs`、`shapefile_export.rs`、`spatial.rs`、`processing.rs` | 外部矢量读取、格式保真边界、内存分析及输出预算 |
+| 矢量与分析 | `crates/spatial-core/`、`vector_files.rs`、`shapefile_export.rs`、`spatial.rs`、`processing.rs` | 外部矢量读取、格式保真边界、内存分析及输出预算 |
 | MCP 与 Agent | `gis_mcp.rs`、`mcp_credentials.rs`、`codex_agent.rs` | 本机认证、快照、分析缓存、结果发布及所属 Agent 进程生命周期；不直连数据库 |
 | 产品与网络信息 | `app_info.rs`、`app_update.rs`、`basemap_preview.rs` | 固定项目链接、版本比较、正式发行下载与 SHA-256 校验、Windows 退出后覆盖安装、受限图片预览请求 |
 | 交付 | `scripts/build.ps1`、`install.ps1`、`.github/workflows/` | 锁文件构建、版本门禁、包外安装验证、标签发布与校验文件 |
@@ -58,3 +58,7 @@ flowchart LR
 测试覆盖应用数据层的纯逻辑与夹具，不构成真实 PostGIS/MySQL 的 TLS、DDL、约束及并发集成证据；这些验证必须使用明确指定的测试环境。
 
 完整命令见 [README](../README.md)，协议见 [IPC](../src-tauri/IPC.md)，安装与发布见 [发布说明](release.md)。
+
+## Web 平台边界
+
+`web.html` 与 `src/web/main.tsx` 为独立入口，复用 MapView、ImportPanel、ProcessingToolbox、domain 和解析 Worker。`src/web/files.ts` 负责浏览器文件读取与下载；`analysis.ts` 管理任务，`analysis.worker.ts` 加载 `crates/spatial-wasm` 编译产物。共享算法及 SHP 内存导出唯一源码在 `crates/spatial-core`；桌面包装通过 checkpoint hook 保持原有协作式取消，Web 通过终止 Worker 取消。两端各自提供运行时，不共享数据库、Agent、MCP 或原生持久化依赖。Web 使用与构建边界见 [Web 说明](web.md)。
