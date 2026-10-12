@@ -142,10 +142,23 @@ test("checking disables repeat clicks and late responses do not affect a remount
   await expect(page.locator(".settings-about").getByRole("status")).toHaveText(
     "未检查",
   );
-  expect(await page.evaluate(() => window.__ZG_TEST__.releaseCommand("check_app_update"))).toBe(1);
-  await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.completedCommands.check_app_update)).toBe(1);
+  expect(
+    await page.evaluate(() =>
+      window.__ZG_TEST__.releaseCommand("check_app_update"),
+    ),
+  ).toBe(1);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => window.__ZG_TEST__.completedCommands.check_app_update,
+      ),
+    )
+    .toBe(1);
   // Observe the remounted UI after the old response and its render opportunity.
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+  );
   await expect(page.locator(".settings-about").getByRole("status")).toHaveText(
     "未检查",
   );
@@ -179,4 +192,132 @@ test("browser about uses safe external links and does not pretend to perform nat
   await expect(
     page.getByRole("button", { name: "检查更新", exact: true }),
   ).toHaveCount(0);
+});
+
+test("update download failure is retryable and install follows durable workspace save", async ({
+  page,
+}) => {
+  await setup(page);
+  await category(page, "关于").click();
+  await page.evaluate(() => {
+    window.__ZG_TEST__.updateResult = {
+      currentVersion: "0.1.0",
+      status: "available",
+      latestVersion: "0.3.8",
+    };
+    window.__ZG_TEST__.downloadError = "download failed";
+  });
+  await page.getByRole("button", { name: "检查更新", exact: true }).click();
+  await page.getByRole("button", { name: "下载更新", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "下载或校验失败，当前版本未改变，请重试。",
+  );
+  expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
+  await page.evaluate(() => {
+    window.__ZG_TEST__.downloadError = "";
+    window.__ZG_TEST__.heldCommands = ["download_app_update"];
+  });
+  await page.getByRole("button", { name: "下载更新", exact: true }).click();
+  await expect(page.locator(".settings-about").getByRole("status")).toHaveText(
+    "正在下载并校验更新…",
+  );
+  await expect(
+    page.getByRole("button", { name: "检查更新", exact: true }),
+  ).toBeDisabled();
+  await page.evaluate(() =>
+    window.__ZG_TEST__.releaseCommand("download_app_update"),
+  );
+  await expect(
+    page.getByRole("button", { name: "覆盖安装并重启", exact: true }),
+  ).toBeVisible();
+  await page.evaluate(() => {
+    window.__ZG_TEST__.backupError = "snapshot write failed";
+  });
+  await page
+    .getByRole("button", { name: "覆盖安装并重启", exact: true })
+    .click();
+  await expect(
+    page.getByText("snapshot write failed", { exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      window.__ZG_TEST__.calls.filter(
+        (c) => c.command === "install_app_update",
+      ),
+    ),
+  ).toHaveLength(0);
+  await page.evaluate(() => {
+    window.__ZG_TEST__.backupError = "";
+    window.__ZG_TEST__.calls = [];
+  });
+  await page
+    .getByRole("button", { name: "覆盖安装并重启", exact: true })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => window.__ZG_TEST__.destroyed))
+    .toBe(true);
+  const calls = await page.evaluate(() => window.__ZG_TEST__.calls);
+  const install = calls.findIndex((c) => c.command === "install_app_update");
+  expect(install).toBeGreaterThan(
+    calls.findIndex((c) => c.command === "save_recovery"),
+  );
+  expect(calls[install].args).toEqual({ expectedVersion: "0.3.8" });
+});
+
+test("canceling update exit keeps the edit session and never launches an installer", async ({
+  page,
+}) => {
+  await installDesktopMock(
+    page,
+    JSON.stringify([
+      {
+        id: "update-layer",
+        name: "editing.geojson",
+        visible: true,
+        color: "#5479b6",
+        sourceKind: "geojson",
+        dirty: false,
+        features: [
+          {
+            id: "point",
+            geometry: { type: "Point", coordinates: [116, 40] },
+            properties: {},
+          },
+        ],
+      },
+    ]),
+  );
+  await page.goto("/");
+  await expect(page.locator(".operation-status")).toContainText("已恢复 1");
+  await page.getByRole("button", { name: "编辑", exact: true }).click();
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await category(page, "关于").click();
+  await page.evaluate(() => {
+    window.__ZG_TEST__.updateResult = {
+      currentVersion: "0.1.0",
+      status: "available",
+      latestVersion: "0.3.8",
+    };
+  });
+  await page.getByRole("button", { name: "检查更新", exact: true }).click();
+  await page.getByRole("button", { name: "下载更新", exact: true }).click();
+  await page
+    .getByRole("button", { name: "覆盖安装并重启", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "退出 zGIS", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "返回编辑", exact: true }).click();
+  expect(
+    await page.evaluate(() =>
+      window.__ZG_TEST__.calls.filter(
+        (c) => c.command === "install_app_update",
+      ),
+    ),
+  ).toHaveLength(0);
+  expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
+  await page.getByRole("button", { name: "返回地图", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "退出编辑", exact: true }),
+  ).toBeVisible();
 });

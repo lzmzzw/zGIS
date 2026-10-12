@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
-import { readFileSync } from "node:fs";
-const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 export async function settingsInfoSmoke(page) {
+  const version = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("plugin:app|version"));
+  expect(version).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
   await page.getByRole("button", { name: "设置", exact: true }).click();
   const category = (name) =>
     page
@@ -20,7 +20,7 @@ export async function settingsInfoSmoke(page) {
   await category("关于").click();
   const about = page.locator(".settings-about");
   await expect(about.locator(".about-settings-card")).toHaveCount(4);
-  await expect(about).toContainText(`v${version}`);
+  await expect(about.locator(".about-settings-card").first().locator(".about-settings-value")).toHaveText(`v${version}`);
   await expect(about).toContainText("github.com/lzmzzw/zGIS");
   await expect(about).toContainText("GPL 3.0");
   for (const removed of ["格式", "来源坐标系", "高程", "工作副本"])

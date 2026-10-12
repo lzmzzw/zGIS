@@ -2,7 +2,7 @@
 
 GitHub Actions 的检查、构建和发布流程见 [发布说明](docs/release.md)。
 
-Windows / macOS ARM64 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLayers 与 Rust。当前源码版本为 0.3.7，不包含 Python/GDAL 运行时。变更见 [0.3.7 说明](docs/releases/0.3.7.md)、[0.3.6 说明](docs/releases/0.3.6.md)、[0.3.5 说明](docs/releases/0.3.5.md)、[0.3.4 说明](docs/releases/0.3.4.md)、[0.3.3 说明](docs/releases/0.3.3.md)、[0.3.2 说明](docs/releases/0.3.2.md) 和 [0.2.0 说明](docs/releases/0.2.0.md)，模块职责与维护边界见 [代码结构](docs/architecture.md)。
+Windows / macOS ARM64 轻量地理数据查看与编辑器，使用 Tauri 2、React、OpenLayers 与 Rust。当前源码版本为 0.3.8，不包含 Python/GDAL 运行时。变更见 [0.3.8 说明](docs/releases/0.3.8.md)、[0.3.7 说明](docs/releases/0.3.7.md)、[0.3.6 说明](docs/releases/0.3.6.md)、[0.3.5 说明](docs/releases/0.3.5.md)、[0.3.4 说明](docs/releases/0.3.4.md)、[0.3.3 说明](docs/releases/0.3.3.md)、[0.3.2 说明](docs/releases/0.3.2.md) 和 [0.2.0 说明](docs/releases/0.2.0.md)，模块职责与维护边界见 [代码结构](docs/architecture.md)。
 
 ## 功能
 
@@ -17,7 +17,7 @@ Windows / macOS ARM64 轻量地理数据查看与编辑器，使用 Tauri 2、Re
 
 ## 运行与安装
 
-0.3.7 Windows 安装包名称为 `zGIS_0.3.7_x64-setup.exe`，本地构建位于 `src-tauri/target/release/bundle/nsis/`；正式发布入口为 [GitHub Releases](https://github.com/lzmzzw/zGIS/releases)。当前用户安装默认目录为 `%LOCALAPPDATA%\zGIS`，启动文件为 `zgis.exe`；可从开始菜单启动。卸载使用 Windows 应用管理或安装目录的 `uninstall.exe`。macOS ARM64 提供 DMG 和 app 压缩包，将 `zGIS.app` 放到 `/Applications` 后启动；构建及签名限制见 [发布说明](docs/release.md)。
+0.3.8 Windows 安装包名称为 `zGIS_0.3.8_x64-setup.exe`，本地构建位于 `src-tauri/target/release/bundle/nsis/`；正式发布入口为 [GitHub Releases](https://github.com/lzmzzw/zGIS/releases)。当前用户安装默认目录为 `%LOCALAPPDATA%\zGIS`，启动文件为 `zgis.exe`；可从开始菜单启动。卸载使用 Windows 应用管理或安装目录的 `uninstall.exe`。macOS ARM64 提供 DMG 和 app 压缩包，将 `zGIS.app` 放到 `/Applications` 后启动；构建及签名限制见 [发布说明](docs/release.md)。
 
 MCP 默认随应用启动，固定本机地址与令牌；外部文件直接按路径读取，访问权限由调用 Agent 判断。Codex 接入方法见 [空间分析说明](docs/spatial-mcp.md)。
 
@@ -27,7 +27,7 @@ Windows 依赖 WebView2 Runtime。安装包使用 Tauri NSIS 引导方式，缺�
 
 主界面左侧「工具」打开空间分析侧栏，选择工具、输入/目标图层与参数后运行；结果作为独立未保存图层加入地图，可继续分析或保存。拓扑检查和图层摘要直接显示报告。编辑中的图层须先保存退出；完整工具、属性规则和距离精度见 [空间分析工具箱](docs/processing-toolbox.md)。
 
-界面采用无重复标题的单行 header，空白区域可拖动窗口，双击可最大化或还原；Windows 右侧提供窗口控制按钮，macOS 左侧使用系统原生红黄绿按钮。文件菜单提供新建、打开、另存为与导出为，数据菜单提供 Mysql 数据源与 PostGIS 数据源，左侧图层默认展示，底部属性表通过自身标题行控制显示，右侧不再设置检查器。主界面仅在 header 保留一个「设置」入口，打开独立后台设置页：左侧分类，右侧集中管理外观、地图、MCP 与关于；「返回地图」或 Esc 返回原工作区，图层、选择和编辑状态保留。底图区域和 header 右侧不再提供重复设置或独立 MCP 入口。深浅主题在「设置 → 外观」即时切换并记住选择；底图按钮位于地图右下角，展开后单选已配置服务；「显示底图」开关保留当前选择，底图位于业务图层下方。「设置 → 地图」仅显示底图服务列表，支持添加、编辑、删除、排序和删除撤销。默认只提供 OpenStreetMap，同样可编辑或删除；天地图等服务由用户填写 HTTP(S) XYZ 地址添加（需包含 `{z}`、`{x}`、`{y}`）。添加与编辑弹窗的「在地图中显示」控制该服务是否出现在前台底图列表；隐藏当前服务时按顺序选择下一个可显示服务，全部隐藏或删除时不显示底图。底图切换卡片显示名称与武汉地图预览；添加或保存服务时刷新预览，获取失败仍可保存。预览缓存、服务列表、排序、逐项显示状态、当前选择及整体显隐跨重启保留；Windows 使用当前用户 DPAPI，macOS 使用钥匙串密钥配合 AES-256-GCM 加密配置。旧版内置天地图项移除，用户已有自定义服务保留。关于页展示实际版本、GitHub、GPL 3.0 和检查更新；检查公开 GitHub Releases，发现新版本后可在系统浏览器查看和下载安装包。主菜单支持方向键与 Home/End 选择、Esc 返回和 Tab 离开收起；底图展开后可直接用键盘选择。图层与数据库弹窗统一使用原生模态窗口和公共控件样式。完整约定见 [界面设计约定](docs/interface-design.md)。
+界面采用无重复标题的单行 header，空白区域可拖动窗口，双击可最大化或还原；Windows 右侧提供窗口控制按钮，macOS 左侧使用系统原生红黄绿按钮。文件菜单提供新建、打开、另存为与导出为，数据菜单提供 Mysql 数据源与 PostGIS 数据源，左侧图层默认展示，底部属性表通过自身标题行控制显示，右侧不再设置检查器。主界面仅在 header 保留一个「设置」入口，打开独立后台设置页：左侧分类，右侧集中管理外观、地图、MCP 与关于；「返回地图」或 Esc 返回原工作区，图层、选择和编辑状态保留。底图区域和 header 右侧不再提供重复设置或独立 MCP 入口。深浅主题在「设置 → 外观」即时切换并记住选择；底图按钮位于地图右下角，展开后单选已配置服务；「显示底图」开关保留当前选择，底图位于业务图层下方。「设置 → 地图」仅显示底图服务列表，支持添加、编辑、删除、排序和删除撤销。默认只提供 OpenStreetMap，同样可编辑或删除；天地图等服务由用户填写 HTTP(S) XYZ 地址添加（需包含 `{z}`、`{x}`、`{y}`）。添加与编辑弹窗的「在地图中显示」控制该服务是否出现在前台底图列表；隐藏当前服务时按顺序选择下一个可显示服务，全部隐藏或删除时不显示底图。底图切换卡片显示名称与武汉地图预览；添加或保存服务时刷新预览，获取失败仍可保存。预览缓存、服务列表、排序、逐项显示状态、当前选择及整体显隐跨重启保留；Windows 使用当前用户 DPAPI，macOS 使用钥匙串密钥配合 AES-256-GCM 加密配置。旧版内置天地图项移除，用户已有自定义服务保留。关于页展示实际版本、GitHub、GPL 3.0 和检查更新；检查公开 GitHub Releases，发现新版本后点击「下载更新」获取当前平台安装包并校验 SHA-256。Windows 点击「覆盖安装并重启」，先保存工作区恢复副本，再退出、覆盖当前程序目录并自动重启；编辑中的工作区沿用退出确认，可以取消。下载或校验失败保留当前版本。macOS 下载校验后的 DMG，点击「打开安装包」后手动拖入应用程序文件夹完成替换。发布页仍可在系统浏览器打开。主菜单支持方向键与 Home/End 选择、Esc 返回和 Tab 离开收起；底图展开后可直接用键盘选择。图层与数据库弹窗统一使用原生模态窗口和公共控件样式。完整约定见 [界面设计约定](docs/interface-design.md)。
 
 可从资源管理器将 GeoJSON、CSV、SHP 或 ZIP 文件拖入窗口，自动按文件标记或默认 EPSG:4326 导入图层；SHP 自动收集同名配套文件。拖入解析失败会打开导入面板，修正字段、编码或坐标系后继续；打开面板或执行其他操作时请完成操作后再拖入。每批文件总大小最多 100 MB。
 

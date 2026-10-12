@@ -29,6 +29,7 @@ interface Props {
   onTheme: (value: "light" | "dark") => void;
   error: string;
   onClose: () => void;
+  onInstallUpdate: (version: string) => void;
 }
 const categories = [
   { id: "appearance", label: "外观", icon: Palette },
@@ -479,7 +480,9 @@ export default function SettingsPage(props: Props) {
             ) : (
               <p className="form-note">MCP 仅在桌面版中提供。</p>
             ))}
-          {props.category === "about" && <AboutSettings />}
+          {props.category === "about" && (
+            <AboutSettings onInstall={props.onInstallUpdate} />
+          )}
         </section>
       </div>
     </main>

@@ -13,12 +13,22 @@ const links = {
 type LinkTarget = keyof typeof links;
 type UpdateState =
   | { status: "idle" | "checking" | "current" | "unpublished" | "error" }
-  | { status: "available"; latestVersion?: string };
+  | { status: "available"; latestVersion?: string }
+  | {
+      status: "downloading" | "ready";
+      latestVersion: string;
+      installation?: "restart" | "manual";
+    };
 
-export default function AboutSettings() {
+export default function AboutSettings({
+  onInstall,
+}: {
+  onInstall: (version: string) => void;
+}) {
   const [version, setVersion] = useState(packageJson.version);
   const [update, setUpdate] = useState<UpdateState>({ status: "idle" });
   const [linkError, setLinkError] = useState("");
+  const [downloadError, setDownloadError] = useState("");
   const epoch = useRef(0);
   const pending = useRef(false);
   const linkRequest = useRef(0);
@@ -54,6 +64,7 @@ export default function AboutSettings() {
     pending.current = true;
     const current = epoch.current;
     setUpdate({ status: "checking" });
+    setDownloadError("");
     try {
       const result = await api.checkAppUpdate();
       if (epoch.current !== current) return;
@@ -66,6 +77,49 @@ export default function AboutSettings() {
       );
     } catch {
       if (epoch.current === current) setUpdate({ status: "error" });
+    } finally {
+      if (epoch.current === current) pending.current = false;
+    }
+  }
+  async function downloadUpdate() {
+    if (
+      pending.current ||
+      update.status !== "available" ||
+      !update.latestVersion
+    )
+      return;
+    pending.current = true;
+    const current = epoch.current;
+    const latestVersion = update.latestVersion;
+    setDownloadError("");
+    setUpdate({ status: "downloading", latestVersion });
+    try {
+      const result = await api.downloadAppUpdate(latestVersion);
+      if (epoch.current === current)
+        setUpdate({
+          status: "ready",
+          latestVersion: result.version,
+          installation: result.installation,
+        });
+    } catch {
+      if (epoch.current === current) {
+        setUpdate({ status: "available", latestVersion });
+        setDownloadError("下载或校验失败，当前版本未改变，请重试。");
+      }
+    } finally {
+      if (epoch.current === current) pending.current = false;
+    }
+  }
+  async function installManual(version: string) {
+    if (pending.current) return;
+    pending.current = true;
+    const current = epoch.current;
+    setDownloadError("");
+    try {
+      await api.installAppUpdate(version);
+    } catch {
+      if (epoch.current === current)
+        setDownloadError("打开安装包失败，请重试。");
     } finally {
       if (epoch.current === current) pending.current = false;
     }
@@ -99,21 +153,25 @@ export default function AboutSettings() {
     );
   }
   const updateText =
-    update.status === "checking"
-      ? "检查中…"
-      : update.status === "current"
-        ? "当前已是最新版本"
-        : update.status === "unpublished"
-          ? "暂无可用的发布版本"
-          : update.status === "error"
-            ? "检查失败，请重试"
-            : update.status === "available"
-              ? update.latestVersion
-                ? `发现新版本 v${update.latestVersion.replace(/^v/i, "")}`
-                : "发现新版本"
-              : desktop
-                ? "未检查"
-                : "GitHub Releases";
+    update.status === "downloading"
+      ? "正在下载并校验更新…"
+      : update.status === "ready"
+        ? `v${update.latestVersion} 已下载并通过校验${update.installation === "manual" ? "，打开后拖入应用程序文件夹" : "，安装时将保存工作区并重启"}`
+        : update.status === "checking"
+          ? "检查中…"
+          : update.status === "current"
+            ? "当前已是最新版本"
+            : update.status === "unpublished"
+              ? "暂无可用的发布版本"
+              : update.status === "error"
+                ? "检查失败，请重试"
+                : update.status === "available"
+                  ? update.latestVersion
+                    ? `发现新版本 v${update.latestVersion.replace(/^v/i, "")}`
+                    : "发现新版本"
+                  : desktop
+                    ? "未检查"
+                    : "GitHub Releases";
   return (
     <div className="settings-about">
       <div className="about-settings-cards">
@@ -159,9 +217,31 @@ export default function AboutSettings() {
               <>
                 {update.status === "available" &&
                   projectLink("releases", "查看更新")}
+                {update.status === "available" && update.latestVersion && (
+                  <button type="button" onClick={() => void downloadUpdate()}>
+                    下载更新
+                  </button>
+                )}
+                {update.status === "ready" && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      update.installation === "manual"
+                        ? void installManual(update.latestVersion)
+                        : onInstall(update.latestVersion)
+                    }
+                  >
+                    {update.installation === "manual"
+                      ? "打开安装包"
+                      : "覆盖安装并重启"}
+                  </button>
+                )}
                 <button
                   type="button"
-                  disabled={update.status === "checking"}
+                  disabled={
+                    update.status === "checking" ||
+                    update.status === "downloading"
+                  }
                   onClick={() => void checkUpdate()}
                 >
                   {update.status === "checking" ? "检查中…" : "检查更新"}
@@ -176,6 +256,11 @@ export default function AboutSettings() {
       {linkError && (
         <p className="warning" role="alert">
           {linkError}
+        </p>
+      )}
+      {downloadError && (
+        <p className="warning" role="alert">
+          {downloadError}
         </p>
       )}
     </div>

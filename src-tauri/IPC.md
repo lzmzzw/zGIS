@@ -2,7 +2,9 @@
 
 ## 应用信息与项目链接
 
-- `check_app_update`：读取当前运行版本并查询固定公开 GitHub Releases API，返回 `{currentVersion,status,latestVersion?}`。status 为 current、available 或 unpublished；404 表示暂无可用公开发行版，HTTP 错误或无效版本返回错误，不当作已是最新。SemVer 比较包含预发布优先级、忽略构建元数据。请求 10 秒超时、256 KB 上限，不附带令牌，也不下载安装或重启。
+- `check_app_update`：读取当前运行版本并查询固定公开 GitHub Releases API，返回 `{currentVersion,status,latestVersion?}`。status 为 current、available 或 unpublished；404 表示暂无可用公开发行版，HTTP 错误或无效版本返回错误，不当作已是最新。SemVer 比较包含预发布优先级、忽略构建元数据。请求 10 秒超时、256 KB 上限，不附带令牌。
+- `download_app_update {expectedVersion}`：仅下载比运行版本新的正式版本，查询固定仓库对应 tag，选择 Windows x64 NSIS 或 macOS ARM64 DMG，核验 `SHA256SUMS.txt` 后保存私有缓存；返回 `{version,installation:'restart'|'manual'}`，不暴露或接受安装路径。连接超时 15 秒，每请求最多 300 秒，元数据/校验文件最多 256 KiB、安装包最多 512 MiB；HTTPS 重定向仅允许 GitHub 发布资源域名，最多 5 次。并发下载被拒绝，下载失败不改变当前应用。
+- `install_app_update {expectedVersion}`：仅使用本次进程已下载的匹配版本，安装前重新核验缓存内容。Windows 在工作副本和配置保存成功后启动隐藏系统 PowerShell helper，等待当前进程退出（最多 120 秒），再次核验 SHA-256 后以 `/S /UPDATE /D=<当前 exe 目录>` 运行安装器；安装器最多等待 300 秒，退出码为 0 时删除缓存并重启同一路径应用；失败保留安装包，安装器已退出时重启原应用。超时不强制终止仍在安装的进程，也不并发启动应用。结果写入应用缓存 `updates/install-result.json`，只含版本、success 和无路径的错误码。helper 使用固定编码脚本和环境输入，不接受前端命令或路径；命令返回只证明 helper 启动，最终安装需以新进程版本核验。macOS 仅打开已核验 DMG，用户仍需手动拖入 Applications 替换，应用不自动退出，可重复打开 DMG。SHA-256 校验用于下载完整性验证，与安装包来自同一发行版，不能替代独立数字签名或 Apple 公证。
 - `open_project_link {target}`：target 仅允许 github、license、releases，分别映射项目仓库、GNU GPL 3.0 和项目发布页；Windows 使用 ShellExecuteW，macOS 使用系统 `/usr/bin/open` 在默认浏览器打开，不接受任意 URL 或 shell。
 
 前端参数使用 camelCase。错误返回中文字符串；数据库密码按用户授权加密持久化：Windows 使用当前用户 DPAPI，macOS 使用 AES-256-GCM，密钥保存在当前用户钥匙串。普通配置与恢复文件不含密码。

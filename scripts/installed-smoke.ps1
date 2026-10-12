@@ -16,6 +16,7 @@ $sourceIsolation = @('postgis-sources.json', 'mysql-sources.json', 'database-pas
 }
 $previousArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
 $previousUserData = $env:WEBVIEW2_USER_DATA_FOLDER
+$previousPort = $env:ZGIS_SMOKE_CDP_PORT
 $testProcess = $null
 $recoveryIsolated = $false
 $preferencesIsolated = $false
@@ -29,7 +30,11 @@ try {
     if ($source.Exists) { Move-Item -LiteralPath $source.Path -Destination $source.Backup }
     $source.Isolated = $true
   }
-  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9226'
+  $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+  $listener.Start()
+  $env:ZGIS_SMOKE_CDP_PORT = [string]$listener.LocalEndpoint.Port
+  $listener.Stop()
+  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$env:ZGIS_SMOKE_CDP_PORT"
   $env:WEBVIEW2_USER_DATA_FOLDER = Join-Path (Get-Location) 'output\desktop\installed-webview'
   & node (Join-Path $PSScriptRoot 'create-fixtures.mjs')
   if ($LASTEXITCODE -ne 0) { throw 'Fixture generation failed.' }
@@ -74,5 +79,6 @@ try {
   }
   $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $previousArguments
   $env:WEBVIEW2_USER_DATA_FOLDER = $previousUserData
+  $env:ZGIS_SMOKE_CDP_PORT = $previousPort
   Pop-Location
 }

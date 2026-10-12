@@ -134,6 +134,13 @@ export const api = {
   disconnect: (connectionId: string) =>
     invoke<void>("disconnect_database", { connectionId }),
   checkAppUpdate: () => invoke<AppUpdateStatus>("check_app_update"),
+  downloadAppUpdate: (expectedVersion: string) =>
+    invoke<{ version: string; installation: "restart" | "manual" }>(
+      "download_app_update",
+      { expectedVersion },
+    ),
+  installAppUpdate: (expectedVersion: string) =>
+    invoke<void>("install_app_update", { expectedVersion }),
   openProjectLink: (target: "github" | "license" | "releases") =>
     invoke<void>("open_project_link", { target }),
   mcpTools: () => invoke<McpToolDefinition[]>("gis_mcp_tool_catalog"),

@@ -24,6 +24,7 @@ mod preferences;
 mod codex_agent;
 mod basemap_preview;
 mod app_info;
+mod app_update;
 mod postgis_catalog;
 mod mysql_catalog;
 mod database_passwords;
@@ -1414,6 +1415,7 @@ async fn export_database(
 pub fn run() {
     tauri::Builder::default()
         .manage(Backend::default())
+        .manage(app_update::UpdateState::default())
         .manage(mysql_catalog::MysqlBackend::default())
         .manage(database_passwords::PasswordStore::default())
         .manage(processing::ProcessingState)
@@ -1460,6 +1462,8 @@ pub fn run() {
             preferences::save_preferences,
             basemap_preview::fetch_basemap_tile,
             app_info::check_app_update,
+            app_update::download_app_update,
+            app_update::install_app_update,
             app_info::open_project_link,
             connect_database,
             disconnect_database,

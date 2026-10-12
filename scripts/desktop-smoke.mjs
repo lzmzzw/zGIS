@@ -22,7 +22,7 @@ mkdirSync("output/desktop", { recursive: true });
 let browser;
 for (let attempt = 0; attempt < 50; attempt++) {
   try {
-    browser = await chromium.connectOverCDP("http://127.0.0.1:9226");
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${process.env.ZGIS_SMOKE_CDP_PORT ?? "9226"}`);
     break;
   } catch (reason) {
     if (attempt === 49) throw reason;
@@ -120,7 +120,7 @@ async function editCell(field) {
 await page.getByRole("button", { name: "设置", exact: true }).click();
 await page.getByRole("button", { name: "MCP", exact: true }).click();
 const nativeTools = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("gis_mcp_tool_catalog"));
-assert.equal(nativeTools.length, 28);
+assert.equal(nativeTools.length, 31);
 await page.getByRole("button", { name: /工具详情/ }).click();
 await page.waitForSelector(".mcp-tool-item");
 assert.deepEqual((await page.locator(".mcp-tool-item code").allTextContents()).sort(), nativeTools.map(tool => tool.name).sort());
@@ -280,9 +280,8 @@ await page
   .getByRole("button", { name: "关闭", exact: true })
   .first()
   .click();
-await page.getByRole("button", { name: "退出编辑", exact: true }).click();
-  if (await page.getByRole("dialog", {name:"退出编辑",exact:true}).count())
-    await page.getByRole("button", {name:"保存并退出",exact:true}).click();
+// 导出生成独立副本，保留编辑状态；退出编辑的保存入口会回写原 SHP。
+await fileAction("导出为");
 await page.getByLabel("输出格式").selectOption("shp");
 const shpCancelling = nativeDialog("", true);
 await page.getByRole("button", { name: "导出", exact: true }).click();
@@ -312,6 +311,18 @@ assert.equal(roundtrip.features[0].properties.code, "001");
 assert.deepEqual(roundtrip.features[0].geometry.coordinates, [117, 40]);
 for (const [ext, bytes] of Object.entries(originalGroup))
   assert.deepEqual(readFileSync(`output/smoke/fixtures/cities.${ext}`), bytes);
+assert.equal(await page.getByRole("button", { name: "退出编辑", exact: true }).isVisible(), true);
+await page.getByRole("button", { name: "退出编辑", exact: true }).click();
+await page.getByRole("button", {name:"保存并退出",exact:true}).click();
+await page.getByRole("button", { name: "编辑", exact: true }).waitFor();
+const sourceRoundtrip = await shp({
+  shp: readFileSync("output/smoke/fixtures/cities.shp"),
+  dbf: readFileSync("output/smoke/fixtures/cities.dbf"),
+  prj: readFileSync("output/smoke/fixtures/cities.prj", "utf8"),
+  cpg: "UTF-8",
+});
+assert.equal(sourceRoundtrip.features[0].properties.name, "北京编辑后");
+assert.deepEqual(sourceRoundtrip.features[0].geometry.coordinates, [117, 40]);
 assert.equal(await page.getByRole("button", { name: "编辑", exact: true }).isVisible(), true);
 await page.screenshot({ path: "output/desktop/shp-edited-export.png" });
 const folderCopyPath = `output/desktop/shp-copy-${Date.now()}`;
@@ -338,7 +349,7 @@ console.log("PASS: native SHP folder save keeps all five files, coordinates and 
 await fileAction("移除图层");
 await page.waitForFunction(() => document.querySelectorAll("tbody tr").length === 0);
 console.log(
-  "PASS: native SHP attribute/geometry editing, ZIP cancellation/save, independent Chinese/coordinate roundtrip and unchanged original group",
+  "PASS: native SHP editing, ZIP cancellation/save without source mutation, independent Chinese/coordinate roundtrip and explicit source-group save on edit exit",
 );
 if (!process.argv.includes("--installation-only")) {
   await mcpNativeSmoke(page, nativeDialog, fileAction);
@@ -499,7 +510,11 @@ await expect(page.getByRole("button", {name:"保存编辑",exact:true})).toBeDis
 await expect.poll(async()=>JSON.parse(await fs.readFile(renamedFixture,"utf8")).features.every(f => !Object.hasOwn(f.properties,"native_renamed"))).toBe(true);
 await expect(page.getByRole("button", {name:"编辑属性",exact:true})).toBeEnabled();
 console.log("PASS: native shared attribute field add, rename, delete and source-file save");
+// 分析按钮在编辑模式中正确禁用；侧栏主按钮对比度应在可操作状态验收。
+await page.getByRole("button", { name: "退出编辑", exact: true }).click();
+await page.getByRole("button", { name: "编辑", exact: true }).waitFor();
 await sidebarDesignSmoke(page);
+await page.getByRole("button", { name: "编辑", exact: true }).click();
 await page.locator("tbody tr").first().click();
 await editCell("城市");
 await page

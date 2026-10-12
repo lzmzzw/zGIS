@@ -1,5 +1,6 @@
 param(
   [string]$Installer,
+  [string]$ReleaseExecutable,
   [switch]$Smoke,
   [switch]$FullSmoke,
   [switch]$Launch,
@@ -73,7 +74,7 @@ if ($Worker) {
 $configuration = Get-Content -LiteralPath (Join-Path $repository 'src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json
 if (-not $Installer) { $Installer = Join-Path $repository "src-tauri/target/release/bundle/nsis/zGIS_$($configuration.version)_x64-setup.exe" }
 $Installer = (Resolve-Path -LiteralPath $Installer).Path
-$release = (Resolve-Path -LiteralPath (Join-Path $repository 'src-tauri/target/release/zgis.exe')).Path
+$release = (Resolve-Path -LiteralPath $(if ($ReleaseExecutable) { $ReleaseExecutable } else { Join-Path $repository 'src-tauri/target/release/zgis.exe' })).Path
 $id = [Guid]::NewGuid().ToString('N')
 $directory = Join-Path $repository 'output/install'
 New-Item -ItemType Directory -Path $directory -Force | Out-Null

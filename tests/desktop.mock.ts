@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import type { GeoFeature } from "../src/domain";
 import type { DatabaseSource, DatabaseCatalog } from "../src/bridge";
-type DeferredCommand = "gis_run_analysis" | "check_app_update" | "fetch_basemap_tile";
+type DeferredCommand = "gis_run_analysis" | "check_app_update" | "download_app_update" | "fetch_basemap_tile";
 export interface DesktopTestState {
   heldCommands: DeferredCommand[];
   completedCommands: Partial<Record<DeferredCommand, number>>;
@@ -40,6 +40,8 @@ export interface DesktopTestState {
   appVersion: string;
   updateResult: { currentVersion: string; status: "current" | "available" | "unpublished"; latestVersion?: string };
   updateError: string;
+  downloadError: string;
+  installError: string;
   linkError: string;
   mcpTools: { name: string; description: string; inputSchema: Record<string, unknown> }[];
   mcpToolsError: string;
@@ -97,6 +99,8 @@ export async function installDesktopMock(
         appVersion: "0.1.0",
         updateResult: { currentVersion: "0.1.0", status: "unpublished" },
         updateError: "",
+        downloadError: "",
+        installError: "",
         linkError: "",
         mcpTools: [],
         mcpToolsError: "",
@@ -201,6 +205,17 @@ export async function installDesktopMock(
                 if (failure) throw Error(failure);
                 return result;
               });
+            }
+            if (command === "download_app_update") {
+              const failure = state.downloadError;
+              return respond(command, () => {
+                if (failure) throw Error(failure);
+                return { version: args.expectedVersion, installation: "restart" };
+              });
+            }
+            if (command === "install_app_update") {
+              if (state.installError) throw Error(state.installError);
+              return null;
             }
             if (command === "fetch_basemap_tile") {
               const failure = state.tileError;

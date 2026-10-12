@@ -26,6 +26,8 @@ export async function sidebarDesignSmoke(page) {
       .click();
   if ((await option.getAttribute("aria-pressed")) !== "true")
     await option.click();
+  await toolbox.getByLabel("缓冲距离（米）", { exact: true }).fill("100");
+  await expect(toolbox.getByRole("button", { name: "运行分析", exact: true })).toBeEnabled();
 
   for (const theme of ["dark", "light"]) {
     await setTheme(theme);
@@ -40,11 +42,16 @@ export async function sidebarDesignSmoke(page) {
         .querySelector(".processing-tool-title")
         .getBoundingClientRect();
       const groups = node.querySelectorAll("fieldset");
-      const channels = (color) =>
-        color
-          .match(/[\d.]+/g)
-          .slice(0, 3)
-          .map(Number);
+      // Canvas 将 rgb() 和现代 color(srgb ...) 统一到 0..255 的 sRGB。
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      const channels = (color) => {
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+      };
       const luminance = (rgb) =>
         rgb
           .map((channel) => {

@@ -531,6 +531,7 @@ export default function App() {
     createRecoveryWriter((content) => api.backup(content)),
   );
   const exitPending = useRef(false);
+  const updateToInstall = useRef<string | null>(null);
   const exitPreviousModal = useRef<typeof modal>(null);
   const busyRef = useRef(false);
   busyRef.current = busy;
@@ -1011,7 +1012,7 @@ export default function App() {
       }
     });
   }
-  async function requestExit() {
+  async function requestExit(updateVersion?: string) {
     if (
       busyRef.current ||
       !recoveryReady ||
@@ -1020,6 +1021,7 @@ export default function App() {
     )
       return;
     exitPending.current = true;
+    updateToInstall.current = updateVersion ?? null;
     try {
       await analysisInFlight.current;
       const incoming = await api.mcpResults();
@@ -1058,6 +1060,7 @@ export default function App() {
   function cancelExit() {
     if (busyRef.current) return;
     exitPending.current = false;
+    updateToInstall.current = null;
     openModal(exitPreviousModal.current);
   }
   useEffect(() => {
@@ -2092,6 +2095,8 @@ export default function App() {
         await configQueue.current;
         if (configError.current) throw new Error(configError.current);
         if (desktop) {
+          if (updateToInstall.current)
+            await api.installAppUpdate(updateToInstall.current);
           setModal(null);
           await getCurrentWindow().destroy();
         } else {
@@ -2100,6 +2105,7 @@ export default function App() {
         }
       } catch (reason) {
         exitPending.current = false;
+        updateToInstall.current = null;
         throw reason;
       }
     });
@@ -5181,6 +5187,7 @@ export default function App() {
             onTheme={setTheme}
             error={error}
             onClose={() => openModal(null)}
+            onInstallUpdate={(version) => void requestExit(version)}
           />
         )}
         {modal === "layer" && active && (
