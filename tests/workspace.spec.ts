@@ -258,13 +258,22 @@ test("backup failure prevents normal exit and allows a successful retry", async 
   await installDesktopMock(page, snapshot);
   await page.goto("/");
   await expect(page.locator(".operation-status")).toContainText("已恢复");
-  await page.evaluate(() => {
+  await expect
+    .poll(() => page.evaluate(() => {
+      const stored = window.__ZG_TEST__.snapshot;
+      return stored ? JSON.parse(stored).version : undefined;
+    }))
+    .toBe(3);
+  const beforeFailure = await page.evaluate(() => {
     window.__ZG_TEST__.backupError = "snapshot failed";
+    // Recovery may already have persisted a migrated snapshot successfully.
+    // The failed exit must preserve the latest durable value, not the input fixture.
+    return window.__ZG_TEST__.snapshot;
   });
   await exit(page);
   await expect(page.getByRole("alert")).toContainText("snapshot failed");
   expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
-  expect(await page.evaluate(() => window.__ZG_TEST__.snapshot)).toBe(snapshot);
+  expect(await page.evaluate(() => window.__ZG_TEST__.snapshot)).toBe(beforeFailure);
   await page.evaluate(() => {
     window.__ZG_TEST__.backupError = "";
   });

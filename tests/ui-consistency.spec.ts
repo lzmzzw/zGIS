@@ -8,8 +8,10 @@ async function setup(page: Page, theme = "dark") {
     theme,
   );
   // 样式验证不依赖第三方底图网络，也不启动真实桌面服务。
-  await page.route(/^https?:\/\/(?!127\.0\.0\.1:1421)/, (route) =>
-    route.abort(),
+  const appOrigin = new URL(test.info().project.use.baseURL!).origin;
+  await page.route(
+    (url) => /^https?:$/.test(url.protocol) && url.origin !== appOrigin,
+    (route) => route.abort(),
   );
   await page.goto("/");
 }

@@ -80,7 +80,8 @@ jobs:
         run: |
           pnpm exec playwright install msedge
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $vite = Start-Process -FilePath node -ArgumentList @('node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '1421') -WindowStyle Hidden -PassThru -RedirectStandardOutput 'vite-ci.log' -RedirectStandardError 'vite-ci-error.log'
+          # 前一步已构建 dist；预览生产产物，避免开发模式的模块转换和 Worker 冷启动影响回归。
+          $vite = Start-Process -FilePath node -ArgumentList @('node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '1421', '--strictPort') -WindowStyle Hidden -PassThru -RedirectStandardOutput 'vite-ci.log' -RedirectStandardError 'vite-ci-error.log'
           try {
             $ready = $false
             for ($attempt = 0; $attempt -lt 60; $attempt++) {

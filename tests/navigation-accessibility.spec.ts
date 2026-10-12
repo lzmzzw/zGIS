@@ -1,10 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { installDesktopMock } from "./desktop.mock";
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, baseURL }) => {
   await installDesktopMock(page);
-  await page.route(/^https?:\/\/(?!127\.0\.0\.1:1421)/, (route) =>
-    route.abort(),
+  const appOrigin = new URL(baseURL!).origin;
+  await page.route(
+    (url) => /^https?:$/.test(url.protocol) && url.origin !== appOrigin,
+    (route) => route.abort(),
   );
   await page.goto("/");
   await expect(
@@ -45,7 +47,13 @@ test("主菜单支持键盘选择、跳过禁用项目、退出与互斥", async
   await expect(trigger).toBeFocused();
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await page.keyboard.press("Enter");
+  await expect(
+    file.getByRole("button", { name: "新建", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("End");
+  await expect(
+    file.getByRole("button", { name: "打开", exact: true }),
+  ).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(data.locator("summary")).toBeFocused();
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
