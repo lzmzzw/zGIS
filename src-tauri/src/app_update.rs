@@ -269,12 +269,15 @@ fn launch_installer(path: &Path, hash: &str, version: &str) -> Result<(), String
     let script = r#"$ErrorActionPreference='Stop'
 $success = $false
 $errorCode = 'helper_failed'
+$detail = $null
 $restart = $false
 try {
 try { Wait-Process -Id ([int]$env:ZGIS_UPDATE_PID) -Timeout 120 -ErrorAction Stop } catch { if (Get-Process -Id ([int]$env:ZGIS_UPDATE_PID) -ErrorAction SilentlyContinue) { $errorCode='application_exit_timeout'; throw 'stop' } }
 $restart = $true
 if (Get-Process -Name zgis -ErrorAction SilentlyContinue) { $errorCode='other_instance_running'; throw 'stop' }
+$errorCode = 'checksum_read_failed'
 if ((Get-FileHash -LiteralPath $env:ZGIS_UPDATE_PACKAGE -Algorithm SHA256).Hash -ne $env:ZGIS_UPDATE_HASH) { $errorCode='checksum_mismatch'; throw 'stop' }
+$errorCode = 'installer_prepare_failed'
 $info = New-Object System.Diagnostics.ProcessStartInfo
 $info.FileName = $env:ZGIS_UPDATE_PACKAGE
 $info.Arguments = '/S /UPDATE /D=' + $env:ZGIS_UPDATE_DIRECTORY
@@ -288,8 +291,8 @@ if ($process.ExitCode -ne 0) { $errorCode='installer_failed'; throw 'stop' }
 $success = $true
 $errorCode = $null
 Remove-Item -LiteralPath $env:ZGIS_UPDATE_PACKAGE -Force -ErrorAction SilentlyContinue
-} catch { }
-try { @{version=$env:ZGIS_UPDATE_VERSION;success=$success;error=$errorCode} | ConvertTo-Json -Compress | Set-Content -LiteralPath $env:ZGIS_UPDATE_RESULT -Encoding UTF8 } catch { }
+} catch { $detail = $_.FullyQualifiedErrorId }
+try { @{version=$env:ZGIS_UPDATE_VERSION;success=$success;error=$errorCode;detail=$detail} | ConvertTo-Json -Compress | Set-Content -LiteralPath $env:ZGIS_UPDATE_RESULT -Encoding UTF8 } catch { }
 if ($restart) { Start-Process -FilePath $env:ZGIS_UPDATE_EXE }
 "#;
     let encoded = base64::engine::general_purpose::STANDARD.encode(
@@ -302,6 +305,9 @@ if ($restart) { Start-Process -FilePath $env:ZGIS_UPDATE_EXE }
         PathBuf::from(std::env::var_os("SystemRoot").ok_or("无法定位系统 PowerShell")?)
             .join("System32/WindowsPowerShell/v1.0/powershell.exe");
     std::process::Command::new(powershell)
+        // PowerShell 7 launchers can export an incompatible module search path.
+        // Let Windows PowerShell initialize its own built-in modules.
+        .env_remove("PSModulePath")
         .args([
             "-NoProfile",
             "-NonInteractive",
