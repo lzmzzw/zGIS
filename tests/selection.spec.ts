@@ -1,5 +1,40 @@
 import { test, expect, type Page } from "@playwright/test";
 
+async function readSelectionOutline(page: Page) {
+  const png = await page.locator(".map-surface").screenshot();
+  return page.evaluate(async data => {
+    const image = new Image();
+    image.src = data;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    const points: [number, number][] = [];
+    for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
+      if (x < 70 || x >= canvas.width - 70 || y < 50 || y >= canvas.height - 40) continue;
+      const i = (y * canvas.width + x) * 4;
+      // Accept antialiasing for both themes, excluding translucent fill.
+      if ((pixels[i] > 100 && pixels[i] < 135 && pixels[i + 1] > 150 && pixels[i + 1] < 185 && pixels[i + 2] > 235) ||
+          (pixels[i] > 45 && pixels[i] < 80 && pixels[i + 1] > 100 && pixels[i + 1] < 130 && pixels[i + 2] > 195 && pixels[i + 2] < 230)) points.push([x, y]);
+    }
+    if (!points.length) return { count: 0, sharedEdgePixels: 0, centered: false };
+    const left = Math.min(...points.map(p => p[0]));
+    const right = Math.max(...points.map(p => p[0]));
+    const top = Math.min(...points.map(p => p[1]));
+    const bottom = Math.max(...points.map(p => p[1]));
+    return {
+      count: points.length,
+      sharedEdgePixels: points.filter(([x, y]) => x >= right - 3 && y > top + (bottom - top) * .25 && y < top + (bottom - top) * .75).length,
+      centered: right - left > 100 && bottom - top > 100 &&
+        Math.abs((left + right) / 2 - canvas.width / 2) < 3 &&
+        Math.abs((top + bottom) / 2 - canvas.height / 2) < 3,
+    };
+  }, "data:image/png;base64," + png.toString("base64"));
+}
+
 async function importPolygons(page: Page, count: number) {
   await page.goto("/");
   await page.getByRole("button", { name: "底图", exact: true }).click();
@@ -35,12 +70,20 @@ test("map selection locates its record across pages without filtering the attrib
   await page.locator("tbody tr").filter({ has: page.getByRole("cell", { name: "record-220", exact: true }) }).dblclick();
   // Fit the chosen geometry through the public table interaction, then navigate
   // away so the map click must locate the record rather than reuse the page.
-  await page.waitForTimeout(350);
+  await expect(page.locator("tbody tr.selected")).toContainText("record-220");
+  await expect.poll(async () => (await readSelectionOutline(page)).centered).toBe(true);
   await page.getByRole("button", { name: "上一页", exact: true }).click();
   await page.getByRole("button", { name: "上一页", exact: true }).click();
   await page.getByLabel("搜索属性", { exact: true }).fill("record-1");
+  // Ensure the debounced filter actually excludes record-220 before navigating
+  // from the map; otherwise this race can pass on a faster local runner.
+  await expect(page.locator(".pagination")).toContainText("1 / 2");
   const map = await page.locator(".map-surface").boundingBox();
   await page.mouse.click(map!.x + map!.width / 2, map!.y + 25);
+  // Confirm deselection before the next click; consecutive clicks can otherwise
+  // become an OpenLayers double-click and start another fit animation.
+  await expect(page.locator("tbody tr.selected")).toHaveCount(0);
+  await expect.poll(async () => (await readSelectionOutline(page)).count).toBe(0);
   await page.mouse.click(map!.x + map!.width / 2, map!.y + map!.height / 2);
   await expect(page.getByLabel("搜索属性", { exact: true })).toHaveValue("");
   await expect(page.locator(".pagination")).toContainText("3 / 3");
@@ -61,8 +104,10 @@ test("map selection locates its record across pages without filtering the attrib
   await expect(page.locator("tbody tr")).toHaveCount(100);
   await expect(page.locator("tbody tr").first()).toContainText("record-1");
   await page.getByRole("button", { name: "收起属性表", exact: true }).click();
+  await expect.poll(async () => (await readSelectionOutline(page)).centered).toBe(true);
   const collapsedMap = await page.locator(".map-surface").boundingBox();
   await page.mouse.click(collapsedMap!.x + collapsedMap!.width / 2, collapsedMap!.y + 25);
+  await expect.poll(async () => (await readSelectionOutline(page)).count).toBe(0);
   await page.mouse.click(collapsedMap!.x + collapsedMap!.width / 2, collapsedMap!.y + collapsedMap!.height / 2);
   await expect(page.locator(".attribute-panel")).toBeVisible();
   await expect(page.locator("tbody tr.selected")).toContainText("record-220");
@@ -71,37 +116,8 @@ test("map selection locates its record across pages without filtering the attrib
 test("selected polygon outlines remain above adjacent shared edges and deselection removes the overlay", async ({ page }) => {
   await importPolygons(page, 2);
   await page.locator("tbody tr").first().dblclick();
-  await page.waitForTimeout(350);
-  const readOutline = async () => {
-    const png = await page.locator(".map-surface").screenshot();
-    return page.evaluate(async data => {
-      const image = new Image();
-      image.src = data;
-      await image.decode();
-      const canvas = document.createElement("canvas");
-      canvas.width = image.width;
-      canvas.height = image.height;
-      const context = canvas.getContext("2d")!;
-      context.drawImage(image, 0, 0);
-      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-      const points: [number, number][] = [];
-      for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
-        if (x < 70 || x >= canvas.width - 70 || y < 50 || y >= canvas.height - 40) continue;
-        const i = (y * canvas.width + x) * 4;
-        // Accept antialiasing for both supported themes, but exclude translucent fill.
-        if ((pixels[i] > 100 && pixels[i] < 135 && pixels[i + 1] > 150 && pixels[i + 1] < 185 && pixels[i + 2] > 235) ||
-            (pixels[i] > 45 && pixels[i] < 80 && pixels[i + 1] > 100 && pixels[i + 1] < 130 && pixels[i + 2] > 195 && pixels[i + 2] < 230)) points.push([x, y]);
-      }
-      if (!points.length) return { count: 0, sharedEdgePixels: 0 };
-      const right = Math.max(...points.map(p => p[0]));
-      const top = Math.min(...points.map(p => p[1]));
-      const bottom = Math.max(...points.map(p => p[1]));
-      return {
-        count: points.length,
-        sharedEdgePixels: points.filter(([x, y]) => x >= right - 3 && y > top + (bottom - top) * .25 && y < top + (bottom - top) * .75).length,
-      };
-    }, "data:image/png;base64," + png.toString("base64"));
-  };
+  await expect.poll(async () => (await readSelectionOutline(page)).centered).toBe(true);
+  const readOutline = () => readSelectionOutline(page);
   await expect.poll(async () => (await readOutline()).sharedEdgePixels).toBeGreaterThan(100);
   const map = await page.locator(".map-surface").boundingBox();
   await page.mouse.click(map!.x + map!.width / 2, map!.y + 25);

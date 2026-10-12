@@ -90,6 +90,17 @@ jobs:
             pnpm exec playwright test --workers=3
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } finally { Stop-Process -Id $vite.Id -ErrorAction SilentlyContinue }
+      - name: 保存页面回归失败现场
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            output/playwright/
+            vite-ci.log
+            vite-ci-error.log
+          if-no-files-found: ignore
+          retention-days: 14
       - name: 构建 Windows x64 安装包
         if: inputs.build-installer || inputs.tag == ''
         uses: tauri-apps/tauri-action@v1

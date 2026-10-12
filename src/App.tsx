@@ -518,6 +518,7 @@ export default function App() {
   const [exportCrs, setExportCrs] = useState("EPSG:4326");
   const [exportFilename, setExportFilename] = useState("");
   const [search, setSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(0);
   const [tableLocateNonce, setTableLocateNonce] = useState(0);
   const [tableOpen, setTableOpen] = useState(false);
@@ -838,6 +839,9 @@ export default function App() {
     setSelectedId(id);
     if (id && locateInTable) {
       setSearch("");
+      // Map/record navigation must locate against the unfiltered data in the
+      // same render, rather than wait for the text-input debounce to expire.
+      setSearchQuery("");
       setTableOpen(true);
       setTableLocateNonce((n) => n + 1);
     }
@@ -2948,7 +2952,6 @@ export default function App() {
       />
     );
   }
-  const [searchQuery, setSearchQuery] = useState(search);
   useEffect(() => {
     const timer = setTimeout(() => setSearchQuery(search), 120);
     return () => clearTimeout(timer);
