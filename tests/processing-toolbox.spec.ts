@@ -265,7 +265,7 @@ test("failure preserves parameters, retry works, and duplicate runs or close are
   await toolbox(page).getByLabel("结果图层名称").fill("250米缓冲");
   await page.evaluate(() => {
     window.__ZG_TEST__.analysisError = "无效几何，请检查";
-    window.__ZG_TEST__.analysisDelay = 400;
+    window.__ZG_TEST__.heldCommands = ["gis_run_analysis"];
   });
   await run(page).click();
   await expect(
@@ -279,12 +279,12 @@ test("failure preserves parameters, retry works, and duplicate runs or close are
   ).toBeDisabled();
   await page.evaluate(() => window.__ZG_TEST__.requestClose());
   expect(await page.evaluate(() => window.__ZG_TEST__.destroyed)).toBe(false);
+  expect(await page.evaluate(() => window.__ZG_TEST__.releaseCommand("gis_run_analysis"))).toBe(1);
   await expect(toolbox(page).getByRole("alert")).toContainText("无效几何");
   await expect(toolbox(page).getByLabel("缓冲距离（米）")).toHaveValue("250");
   expect(await calls(page)).toHaveLength(1);
   await page.evaluate(() => {
     window.__ZG_TEST__.analysisError = "";
-    window.__ZG_TEST__.analysisDelay = 0;
   });
   await run(page).click();
   await expect(page.locator(".layer-text")).toHaveCount(3);
@@ -522,7 +522,7 @@ for (const theme of ["dark", "light"]) {
 test("analysis cancellation waits for backend completion and sends the active job ID", async ({ page }) => {
   await start(page);
   await tool(page, "质心");
-  await page.evaluate(() => { window.__ZG_TEST__.analysisDelay = 2000; });
+  await page.evaluate(() => { window.__ZG_TEST__.heldCommands = ["gis_run_analysis"]; });
   await run(page).click();
   await page.getByRole("button", { name: "取消分析", exact: true }).click();
   await expect(page.getByRole("button", { name: "正在取消…", exact: true })).toBeDisabled();
@@ -532,6 +532,7 @@ test("analysis cancellation waits for backend completion and sends the active jo
     return [calls.find(c => c.command === "gis_run_analysis")?.args.jobId, calls.find(c => c.command === "gis_cancel_analysis")?.args.jobId];
   });
   expect(typeof ids[0]).toBe("string"); expect(ids[1]).toBe(ids[0]);
+  expect(await page.evaluate(() => window.__ZG_TEST__.releaseCommand("gis_run_analysis"))).toBe(1);
   await expect(run(page)).toBeEnabled();
   await expect(page.locator(".layer-row")).toHaveCount(2);
 });
@@ -539,11 +540,12 @@ test("analysis cancellation waits for backend completion and sends the active jo
 test("a rejected cancellation does not claim the analysis was cancelled", async ({ page }) => {
   await start(page);
   await tool(page, "质心");
-  await page.evaluate(() => { window.__ZG_TEST__.analysisDelay = 2000; window.__ZG_TEST__.analysisCancellationAccepted = false; });
+  await page.evaluate(() => { window.__ZG_TEST__.heldCommands = ["gis_run_analysis"]; window.__ZG_TEST__.analysisCancellationAccepted = false; });
   await run(page).click();
   await page.getByRole("button", { name: "取消分析", exact: true }).click();
   await expect(page.getByText("分析已结束或当前任务不可取消，等待结果…", { exact: true })).toBeVisible();
   await expect(toolbox(page).locator(".processing-run")).toBeDisabled();
+  expect(await page.evaluate(() => window.__ZG_TEST__.releaseCommand("gis_run_analysis"))).toBe(1);
   await expect(run(page)).toBeEnabled();
   await expect(page.locator(".layer-row")).toHaveCount(3);
 });

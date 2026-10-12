@@ -126,7 +126,7 @@ test("checking disables repeat clicks and late responses do not affect a remount
   await setup(page);
   await category(page, "关于").click();
   await page.evaluate(() => {
-    window.__ZG_TEST__.updateDelay = 700;
+    window.__ZG_TEST__.heldCommands = ["check_app_update"];
     window.__ZG_TEST__.updateResult = {
       currentVersion: "0.1.0",
       status: "available",
@@ -142,7 +142,10 @@ test("checking disables repeat clicks and late responses do not affect a remount
   await expect(page.locator(".settings-about").getByRole("status")).toHaveText(
     "未检查",
   );
-  await page.waitForTimeout(850);
+  expect(await page.evaluate(() => window.__ZG_TEST__.releaseCommand("check_app_update"))).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.completedCommands.check_app_update)).toBe(1);
+  // Observe the remounted UI after the old response and its render opportunity.
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
   await expect(page.locator(".settings-about").getByRole("status")).toHaveText(
     "未检查",
   );

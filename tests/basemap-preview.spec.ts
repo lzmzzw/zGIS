@@ -144,9 +144,11 @@ test("failed refresh preserves a cache only when the tile URL remains unchanged"
 test("preview saving disables repeated submission and Escape ignores late tile responses", async ({
   page,
 }) => {
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
   await setup(page);
+  await page.clock.pauseAt(new Date("2026-01-01T01:00:00Z"));
   await page.evaluate(() => {
-    window.__ZG_TEST__.tileDelay = 1000;
+    window.__ZG_TEST__.heldCommands = ["fetch_basemap_tile"];
   });
   await add(page, "取消预览");
   const dialog = page.getByRole("dialog", { name: "添加底图", exact: true });
@@ -167,6 +169,7 @@ test("preview saving disables repeated submission and Escape ignores late tile r
     .locator("form")
     .evaluate((form: HTMLFormElement) => form.requestSubmit());
   expect(await tileCalls(page)).toHaveLength(4);
+  expect(await page.evaluate(() => window.__ZG_TEST__.tileCompleted)).toBe(0);
   const saves = await page.evaluate(
     () =>
       window.__ZG_TEST__.calls.filter(
@@ -179,6 +182,7 @@ test("preview saving disables repeated submission and Escape ignores late tile r
   await expect(
     page.getByRole("button", { name: "添加底图", exact: true }),
   ).toBeFocused();
+  expect(await page.evaluate(() => window.__ZG_TEST__.releaseCommand("fetch_basemap_tile"))).toBe(4);
   await expect
     .poll(() => page.evaluate(() => window.__ZG_TEST__.tileCompleted))
     .toBe(4);
@@ -196,18 +200,23 @@ test("preview saving disables repeated submission and Escape ignores late tile r
 test("preview timeout saves the service and ignores tiles that arrive after the deadline", async ({
   page,
 }) => {
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
   await setup(page);
+  await page.clock.pauseAt(new Date("2026-01-01T01:00:00Z"));
   await page.evaluate(() => {
-    window.__ZG_TEST__.tileDelay = 10000;
+    window.__ZG_TEST__.heldCommands = ["fetch_basemap_tile"];
   });
-  const started = Date.now();
   await add(page, "超时预览");
   const dialog = page.getByRole("dialog", { name: "添加底图", exact: true });
   await expect(
     dialog.getByRole("button", { name: "获取预览…", exact: true }),
   ).toBeDisabled();
-  await expect(dialog).toHaveCount(0, { timeout: 9500 });
-  expect(Date.now() - started).toBeLessThan(10000);
+  expect(await tileCalls(page)).toHaveLength(4);
+  await page.clock.runFor(7999);
+  await expect(dialog).toBeVisible();
+  expect(await service(page, "超时预览")).toBeUndefined();
+  await page.clock.runFor(1);
+  await expect(dialog).toHaveCount(0);
   await expect(page.locator(".basemap-preview-warning")).toContainText(
     "预览暂不可用",
   );
@@ -222,10 +231,9 @@ test("preview timeout saves the service and ignores tiles that arrive after the 
         (call) => call.command === "save_preferences",
       ).length,
   );
+  expect(await page.evaluate(() => window.__ZG_TEST__.releaseCommand("fetch_basemap_tile"))).toBe(4);
   await expect
-    .poll(() => page.evaluate(() => window.__ZG_TEST__.tileCompleted), {
-      timeout: 5000,
-    })
+    .poll(() => page.evaluate(() => window.__ZG_TEST__.tileCompleted))
     .toBe(4);
   expect((await service(page, "超时预览"))?.previewImage).toBeUndefined();
   expect(

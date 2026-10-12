@@ -1,7 +1,11 @@
 import type { Page } from "@playwright/test";
 import type { GeoFeature } from "../src/domain";
 import type { DatabaseSource, DatabaseCatalog } from "../src/bridge";
+type DeferredCommand = "gis_run_analysis" | "check_app_update" | "fetch_basemap_tile";
 export interface DesktopTestState {
+  heldCommands: DeferredCommand[];
+  completedCommands: Partial<Record<DeferredCommand, number>>;
+  releaseCommand: (command: DeferredCommand) => number;
   dropFiles: (files: {name:string;bytes:number[];sourceId?:string;sourcePath?:string;sourceHash?:string}[], error?:string) => Promise<void>;
   mcpEnabled: boolean;
   mcpPaths: string[];
@@ -27,18 +31,15 @@ export interface DesktopTestState {
   passwordDeleteError: string;
   backupError: string;
   analysisError: string;
-  analysisDelay: number;
   analysisCancellationAccepted: boolean;
   analysisResult: unknown;
   saveError: string;
   saveCancelled: boolean;
   tileError: string;
-  tileDelay: number;
   tileCompleted: number;
   appVersion: string;
   updateResult: { currentVersion: string; status: "current" | "available" | "unpublished"; latestVersion?: string };
   updateError: string;
-  updateDelay: number;
   linkError: string;
   mcpTools: { name: string; description: string; inputSchema: Record<string, unknown> }[];
   mcpToolsError: string;
@@ -63,7 +64,17 @@ export async function installDesktopMock(
       const listeners = new Map<number, { event: string; handler: number }>();
       let next = 1;
       const cancelledJobs = new Set<string>();
+      const pendingCommands = new Map<DeferredCommand, (() => void)[]>();
       const state: DesktopTestState = {
+        heldCommands: [],
+        completedCommands: {},
+        releaseCommand: (command) => {
+          state.heldCommands = state.heldCommands.filter(item => item !== command);
+          const pending = pendingCommands.get(command) ?? [];
+          pendingCommands.delete(command);
+          pending.forEach(resolve => resolve());
+          return pending.length;
+        },
         mcpEnabled: false,
         mcpPaths: [],
         mcpLayers: [],
@@ -77,18 +88,15 @@ export async function installDesktopMock(
         passwordLoadError:"", passwordSaveError:"", passwordDeleteError:"",
         backupError: "",
         analysisError: "",
-        analysisDelay: 0,
         analysisCancellationAccepted: true,
         analysisResult: null,
         saveError: "",
         saveCancelled: false,
         tileError: "",
-        tileDelay: 0,
         tileCompleted: 0,
         appVersion: "0.1.0",
         updateResult: { currentVersion: "0.1.0", status: "unpublished" },
         updateError: "",
-        updateDelay: 0,
         linkError: "",
         mcpTools: [],
         mcpToolsError: "",
@@ -117,6 +125,21 @@ export async function installDesktopMock(
                 payload: {},
               });
         },
+      };
+      // The test owns response order; slow runners must not expire pending states.
+      const respond = async <T>(command: DeferredCommand, result: () => T): Promise<T> => {
+        if (state.heldCommands.includes(command)) {
+          await new Promise<void>((resolve) => {
+            const pending = pendingCommands.get(command) ?? [];
+            pending.push(resolve);
+            pendingCommands.set(command, pending);
+          });
+        }
+        try {
+          return result();
+        } finally {
+          state.completedCommands[command] = (state.completedCommands[command] ?? 0) + 1;
+        }
       };
       Object.assign(window, {
         isTauri: true,
@@ -155,16 +178,16 @@ export async function installDesktopMock(
             if (command === "gis_run_analysis") {
               const failure = state.analysisError;
               const result = state.analysisResult;
-              if (state.analysisDelay)
-                await new Promise<void>((resolve) => window.setTimeout(resolve, state.analysisDelay));
-              if (cancelledJobs.delete(String(args.jobId))) throw Error("ANALYSIS_CANCELLED: 分析已取消");
-              if (failure) throw Error(failure);
-              if (result !== null) return structuredClone(result);
-              if (args.operation === "layer_summary")
-                return { featureCount: (args.source as unknown[]).length, geometryTypes: { Polygon: 1 }, fields: ["name"], bbox: [116, 40, 116.01, 40.01], crs: "EPSG:4326" };
-              if (args.operation === "topology_check")
-                return { featureCount: (args.source as unknown[]).length, valid: false, issues: [{ kind: "polygon_overlap", featureIndices: [0, 1] }], checks: ["geometry_validity", "exact_geometry_duplicates", "polygon_overlap"] };
-              return { type: "FeatureCollection", features: structuredClone(args.source) };
+              return respond(command, () => {
+                if (cancelledJobs.delete(String(args.jobId))) throw Error("ANALYSIS_CANCELLED: 分析已取消");
+                if (failure) throw Error(failure);
+                if (result !== null) return structuredClone(result);
+                if (args.operation === "layer_summary")
+                  return { featureCount: (args.source as unknown[]).length, geometryTypes: { Polygon: 1 }, fields: ["name"], bbox: [116, 40, 116.01, 40.01], crs: "EPSG:4326" };
+                if (args.operation === "topology_check")
+                  return { featureCount: (args.source as unknown[]).length, valid: false, issues: [{ kind: "polygon_overlap", featureIndices: [0, 1] }], checks: ["geometry_validity", "exact_geometry_duplicates", "polygon_overlap"] };
+                return { type: "FeatureCollection", features: structuredClone(args.source) };
+              });
             }
             if (command === "plugin:app|version") return state.appVersion;
             if (command === "open_project_link") {
@@ -174,27 +197,26 @@ export async function installDesktopMock(
             if (command === "check_app_update") {
               const result = { ...state.updateResult };
               const failure = state.updateError;
-              if (state.updateDelay)
-                await new Promise<void>((resolve) => window.setTimeout(resolve, state.updateDelay));
-              if (failure) throw Error(failure);
-              return result;
+              return respond(command, () => {
+                if (failure) throw Error(failure);
+                return result;
+              });
             }
             if (command === "fetch_basemap_tile") {
               const failure = state.tileError;
-              const delay = state.tileDelay;
-              if (delay > 0)
-                await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
-              state.tileCompleted++;
-              if (failure) throw Error(failure);
-              const canvas = document.createElement("canvas");
-              canvas.width = 256;
-              canvas.height = 256;
-              const context = canvas.getContext("2d")!;
-              context.fillStyle = "#5479b6";
-              context.fillRect(0, 0, 256, 256);
-              context.fillStyle = "#9fc5a8";
-              context.fillRect(0, 0, 64, 256);
-              return canvas.toDataURL("image/png");
+              return respond(command, () => {
+                state.tileCompleted++;
+                if (failure) throw Error(failure);
+                const canvas = document.createElement("canvas");
+                canvas.width = 256;
+                canvas.height = 256;
+                const context = canvas.getContext("2d")!;
+                context.fillStyle = "#5479b6";
+                context.fillRect(0, 0, 256, 256);
+                context.fillStyle = "#9fc5a8";
+                context.fillRect(0, 0, 64, 256);
+                return canvas.toDataURL("image/png");
+              });
             }
             if (command === "gis_mcp_tool_catalog") {
               if (state.mcpToolsError) throw Error(state.mcpToolsError);
