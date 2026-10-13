@@ -4,9 +4,17 @@ import {
   Download,
   FolderOpen,
   Hand,
+  Check,
   LocateFixed,
+  Magnet,
+  MapPin,
   MousePointer2,
+  Move,
+  Pencil,
+  Pentagon,
+  Route,
   Search,
+  Spline,
   Trash2,
   X,
 } from "lucide-react";
@@ -97,6 +105,12 @@ export default function WebApp() {
   const [fitNonce, setFitNonce] = useState(0);
   const [featureFitNonce, setFeatureFitNonce] = useState(0);
   const [tool, setTool] = useState<Tool>("select");
+  const [editingLayerId, setEditingLayerId] = useState<string>();
+  const [snapping, setSnapping] = useState(true);
+  const [finishNonce, setFinishNonce] = useState(0);
+  const [cancelNonce, setCancelNonce] = useState(0);
+  const [nodeCount, setNodeCount] = useState(0);
+  const [gestureActive, setGestureActive] = useState(false);
   const [basemap, setBasemap] = useState("osm");
   const [toolboxOpen, setToolboxOpen] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<InputFile[]>([]);
@@ -120,6 +134,7 @@ export default function WebApp() {
   const locked = useRef(false);
   const mounted = useRef(true);
   const active = layers.find((layer) => layer.id === activeId);
+  const editing = Boolean(activeId && editingLayerId === activeId);
   const exporting = layers.find((layer) => layer.id === exportId);
   const removing = layers.find((layer) => layer.id === removeId);
   const dirty = layers.some((layer) => layer.dirty);
@@ -161,9 +176,56 @@ export default function WebApp() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
   const locate = (id: string) => {
+    if (editingLayerId && editingLayerId !== id) {
+      setError("请先保存并退出当前图层编辑，再切换图层");
+      return;
+    }
     setActiveId(id);
     setSelectedId(undefined);
     setFitNonce((value) => value + 1);
+  };
+  const beginEditing = () => {
+    if (!active || busy || !active.features.length) return;
+    setEditingLayerId(active.id);
+    setTool("select");
+    setStatus("编辑中：可新增、移动或修改要素");
+  };
+  const finishEditing = () => {
+    if (gestureActive) return;
+    setEditingLayerId(undefined);
+    setTool("pan");
+    setNodeCount(0);
+    setCancelNonce((value) => value + 1);
+    setStatus("已退出编辑");
+  };
+  const editFeature = (feature: DocumentLayer["features"][number], insert: boolean) => {
+    if (!active || !editing) return false;
+    setLayers((old) =>
+      old.map((layer) => {
+        if (layer.id !== active.id) return layer;
+        const features = insert
+          ? [...layer.features, feature]
+          : layer.features.map((item) =>
+              item.id === feature.id ? { ...item, geometry: feature.geometry } : item,
+            );
+        return { ...layer, features, dirty: true };
+      }),
+    );
+    setSelectedId(feature.id);
+    setStatus(insert ? "已新增要素，继续绘制或保存编辑" : "几何已更新，可保存编辑");
+    return true;
+  };
+  const deleteSelected = () => {
+    if (!active || !editing || !selectedId) return;
+    setLayers((old) =>
+      old.map((layer) =>
+        layer.id === active.id
+          ? { ...layer, features: layer.features.filter((feature) => feature.id !== selectedId), dirty: true }
+          : layer,
+      ),
+    );
+    setSelectedId(undefined);
+    setStatus("已删除要素，可撤销或保存编辑");
   };
   const patchLayer = (id: string, patch: Partial<DocumentLayer>) =>
     setLayers((old) =>
@@ -418,6 +480,10 @@ export default function WebApp() {
                   className="web-name-button"
                   aria-label={nameOf(layer)}
                   onClick={() => {
+                    if (editingLayerId && editingLayerId !== layer.id) {
+                      setError("请先保存并退出当前图层编辑，再切换图层");
+                      return;
+                    }
                     setActiveId(layer.id);
                     setSelectedId(undefined);
                   }}
@@ -487,12 +553,14 @@ export default function WebApp() {
             <MapView
               services={defaultBasemaps}
               theme="light"
-              snapping={false}
-              editable={false}
+              snapping={snapping}
+              editable={editing}
               disabled={busy}
-              finishNonce={0}
+              finishNonce={finishNonce}
+              cancelNonce={cancelNonce}
               featureFitNonce={featureFitNonce}
-              onNodeCount={() => {}}
+              onNodeCount={setNodeCount}
+              onGestureState={setGestureActive}
               layers={layers}
               activeId={activeId}
               selectedId={selectedId}
@@ -501,7 +569,7 @@ export default function WebApp() {
               basemapVisible={basemap !== "none"}
               fitNonce={fitNonce}
               onSelect={setSelectedId}
-              onEdit={() => false}
+              onEdit={editFeature}
               onPosition={setPosition}
             />
             <div className="web-map-controls">
@@ -515,10 +583,75 @@ export default function WebApp() {
               <button
                 aria-label={t("平移地图")}
                 aria-pressed={tool === "pan"}
+                disabled={editing && Boolean(nodeCount)}
                 onClick={() => setTool("pan")}
               >
                 <Hand size={16} />
               </button>
+              <button
+                aria-label={t(editing ? "退出编辑" : "编辑")}
+                aria-pressed={editing}
+                disabled={!active || busy || gestureActive}
+                onClick={() => (editing ? finishEditing() : beginEditing())}
+              >
+                {editing ? <X size={16} /> : <Pencil size={16} />}
+              </button>
+              {editing && (
+                <div className="web-edit-controls" role="group" aria-label={t("几何编辑")}>
+                  {([
+                    ["Point", "新增点", MapPin],
+                    ["LineString", "新增线", Route],
+                    ["Polygon", "新增面", Pentagon],
+                    ["modify", "编辑顶点", Spline],
+                    ["move", "移动要素", Move],
+                  ] as const).map(([value, label, Icon]) => (
+                    <button
+                      key={value}
+                      aria-label={t(label)}
+                      aria-pressed={tool === value}
+                      disabled={busy || gestureActive}
+                      onClick={() => setTool(value)}
+                    >
+                      <Icon size={15} />
+                    </button>
+                  ))}
+                  {(tool === "Point" || tool === "LineString" || tool === "Polygon") && (
+                    <button
+                      aria-label={t("完成绘制")}
+                      disabled={nodeCount < (tool === "Polygon" ? 3 : tool === "LineString" ? 2 : 1)}
+                      onClick={() => setFinishNonce((value) => value + 1)}
+                    >
+                      <Check size={15} />
+                    </button>
+                  )}
+                  <button
+                    aria-label={t("捕捉当前图层顶点和边")}
+                    aria-pressed={snapping}
+                    onClick={() => setSnapping((value) => !value)}
+                  >
+                    <Magnet size={15} />
+                  </button>
+                  <button
+                    aria-label={t("删除选中要素")}
+                    disabled={!selectedId || busy || Boolean(nodeCount)}
+                    onClick={deleteSelected}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                  <button
+                    aria-label={t("保存编辑")}
+                    disabled={!active?.dirty || busy || Boolean(nodeCount)}
+                    onClick={() => {
+                      if (!active) return;
+                      setExportName(nameOf(active).replace(/\.[^.]+$/, ""));
+                      setExportMode("geojson");
+                      setExportId(active.id);
+                    }}
+                  >
+                    <Download size={15} />
+                  </button>
+                </div>
+              )}
               <select
                 aria-label={t("底图")}
                 value={basemap}
@@ -657,7 +790,7 @@ export default function WebApp() {
               layers={layers}
               activeLayerId={activeId}
               selectedFeatureId={selectedId}
-              editing={false}
+              editing={editing}
               blockedReason={
                 busy && !job.current ? t("请等待当前操作完成") : undefined
               }

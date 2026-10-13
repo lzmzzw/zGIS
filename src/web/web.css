@@ -143,7 +143,27 @@
   right: 12px;
   top: 12px;
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 5px;
+  max-width: min(760px, calc(100% - 24px));
+}
+.web-map-controls button[aria-pressed="true"] {
+  color: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.web-edit-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  background: var(--chrome);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.web-edit-controls button {
+  min-width: 30px;
+  padding: 6px;
 }
 .web-map-controls select {
   height: 32px;

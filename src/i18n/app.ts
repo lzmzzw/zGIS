@@ -1,6 +1,10 @@
 const messages: Record<string, string> = {
   "手形": "Pan", "选择": "Select", "编辑顶点": "Edit vertices", "移动要素": "Move feature",
   "新增点": "Add point", "新增线": "Add line", "新增面": "Add polygon", "关闭": "Close",
+  "编辑中：可新增、移动或修改要素": "Editing: add, move or modify features",
+  "已退出编辑": "Editing ended",
+  "几何已更新，可保存编辑": "Geometry updated. Save edits when ready",
+  "已删除要素，可撤销或保存编辑": "Feature deleted. Undo or save edits",
   "新建图层": "New layer", "就绪": "Ready",
   "空间分析图层同步失败：": "Analysis layer sync failed: ",
   "空间分析图层同步失败：{error}": "Analysis layer sync failed: {error}",
