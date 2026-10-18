@@ -72,6 +72,49 @@ try {
   });
   assert.equal(ipcChecks.accepted, true);
   assert.match(ipcChecks.cancelled, /取消|CANCELLED/);
+  const expansionIpc = await page.evaluate(async () => {
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    const point = (id, value) => ({ type: "Feature", id, properties: { group: "A", value }, geometry: { type: "Point", coordinates: [116, 40, 18] } });
+    const source = [point("number", 2), point("text", "2")];
+    const run = (operation, parameters, source, target) => invoke("gis_run_analysis", { operation, parameters, source, ...(target ? { target } : {}) });
+    const clean = await run("clean_geometries", {}, [source[0], { ...source[1], geometry: null }]);
+    const filtered = await run("extract_by_attribute", { condition: { field: "value", op: "eq", value: 2 } }, source);
+    const statistics = await run("field_statistics", { groupBy: "group", metrics: [
+      { name: "records", op: "count_all" }, { name: "total", op: "sum", field: "value" }, { name: "average", op: "mean", field: "value" },
+    ] }, [point("a", 2), point("b", 4), point("c", null)]);
+    const joinSource = [
+      { ...point("source", 0), properties: { total: 99 } },
+      { ...point("unmatched", 0), properties: { total_: 88 }, geometry: { type: "Point", coordinates: [117, 40, 23] } },
+    ];
+    const joinTarget = [point("a", 2), point("b", 4), {
+      ...point("multi", 6), geometry: { type: "MultiPoint", coordinates: [[116, 40, 8], [116, 40, 9]] },
+    }];
+    const joined = await run("spatial_join", { predicate: "intersects", aggregations: [
+      { name: "records", op: "count_all" }, { name: "total", op: "sum", field: "value" },
+    ] }, joinSource, joinTarget);
+    const legacyJoined = await run("spatial_join", { predicate: "intersects" }, joinSource, joinTarget);
+    return { clean, filtered, statistics, joined, legacyJoined };
+  });
+  assert.equal(expansionIpc.clean.features.length, 1);
+  assert.equal(expansionIpc.clean.analysis.removedCount, 1);
+  assert.equal(expansionIpc.filtered.features.length, 1);
+  assert.equal(expansionIpc.filtered.features[0].id, "number");
+  assert.deepEqual(expansionIpc.filtered.features[0].geometry.coordinates, [116, 40, 18]);
+  assert.equal(expansionIpc.statistics.type, "table");
+  assert.equal(expansionIpc.statistics.inputCount, 3);
+  assert.equal(expansionIpc.statistics.groupCount, 1);
+  assert.deepEqual(expansionIpc.statistics.rows[0].group, { type: "string", value: "A" });
+  assert.deepEqual(expansionIpc.statistics.rows[0].values, { records: 3, total: 6, average: 3 });
+  assert.deepEqual(expansionIpc.statistics.rows[0].counts.total, { validCount: 2, nullCount: 1, missingCount: 0 });
+  assert.equal(expansionIpc.joined.analysis.aggregationFields.total, "total__");
+  assert.equal(expansionIpc.joined.features[0].properties.records, 3);
+  assert.equal(expansionIpc.joined.features[0].properties.total__, 12);
+  assert.equal(expansionIpc.joined.features[0].properties.total, 99);
+  assert.equal(expansionIpc.joined.features[1].properties.records, 0);
+  assert.equal(expansionIpc.joined.features[1].properties.total__, null);
+  assert.deepEqual(expansionIpc.joined.features[1].geometry.coordinates, [117, 40, 23]);
+  assert.equal(expansionIpc.legacyJoined.features[0].properties.records, undefined);
+  assert.equal(expansionIpc.legacyJoined.features[0].properties.total__, undefined);
   const square = (x) => ({
     type: "Feature",
     geometry: {
@@ -112,8 +155,8 @@ try {
   const catalog = await page.evaluate(() =>
     window.__TAURI_INTERNALS__.invoke("gis_mcp_tool_catalog"),
   );
-  assert.equal(catalog.length, 31);
-  for (const name of ["list_results", "release_result", "clean_geometries"]) {
+  assert.equal(catalog.length, 33);
+  for (const name of ["list_results", "release_result", "clean_geometries", "extract_by_attribute", "field_statistics"]) {
     assert.ok(catalog.some(tool => tool.name === name), `Missing ${name}`);
   }
   assert.ok(catalog.some((tool) => tool.name === "intersection"));
@@ -272,15 +315,67 @@ try {
   await selectTool("拓扑检查");
   await toolbox.getByRole("button", { name: "运行分析", exact: true }).click();
   await expect(toolbox.getByLabel("分析结果")).toContainText("未发现");
+  await selectTool("剔除空或无效几何");
+  await toolbox.getByLabel("输入图层", { exact: true }).selectOption({ label: "native-a.geojson" });
+  const cleaned = await analyze("剔除空或无效几何", "native-clean");
+  assert.equal(cleaned.features.length, 1);
+  assert.deepEqual(cleaned.features[0].geometry, square(116).geometry);
+  await selectTool("按属性条件提取");
+  await toolbox.getByLabel("输入图层", { exact: true }).selectOption({ label: "native-a.geojson" });
+  await toolbox.getByLabel("条件字段", { exact: true }).selectOption("group");
+  await toolbox.getByLabel("比较值", { exact: true }).fill("甲");
+  const extracted = await analyze("按属性条件提取", "native-filtered");
+  assert.deepEqual(extracted.features[0].geometry, square(116).geometry);
+  assert.equal(extracted.features[0].properties.group, "甲");
+
+  // 真实桌面样式弹窗；颜色/标注只进入恢复配置，不修改原始业务属性。
+  await page.getByRole("button", { name: "native-a.geojson样式", exact: true }).click();
+  const styleDialog = page.getByRole("dialog", { name: "图层样式：native-a.geojson", exact: true });
+  await styleDialog.getByLabel("着色方式", { exact: true }).selectOption("unique");
+  await styleDialog.getByLabel("分类字段", { exact: true }).selectOption("group");
+  await styleDialog.getByLabel("类别 1 颜色", { exact: true }).fill("#c95842");
+  await styleDialog.getByLabel("显示标注", { exact: true }).check();
+  await styleDialog.getByLabel("标注字段", { exact: true }).selectOption("name");
+  await styleDialog.getByLabel("标注字号", { exact: true }).fill("18");
+  await styleDialog.getByLabel("标注描边宽度", { exact: true }).fill("4");
+  await page.screenshot({ path: resolve(output, "layer-display-dialog-native.png") });
+  await styleDialog.getByRole("button", { name: "应用样式", exact: true }).click();
+  await expect.poll(async () => (await snapshot()).layers.find(layer => layer.name === "native-a.geojson")?.labels?.fontSize).toBe(18);
+  const display = (await snapshot()).layers.find(layer => layer.name === "native-a.geojson");
+  assert.equal(display.categorizedStyle.field, "group");
+  assert.equal(display.categorizedStyle.categories[0].color, "#c95842");
+  assert.equal(display.labels.field, "name");
+  assert.equal(display.labels.haloWidth, 4);
+  await page.screenshot({ path: resolve(output, "layer-display-native.png") });
+
+  await page.locator("input[type=file]").setInputFiles({
+    name: "native-duplicates.geojson", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [square(116), square(116)] })),
+  });
+  await page.getByRole("button", { name: "导入", exact: true }).click();
+  await selectTool("拓扑检查");
+  await toolbox.getByLabel("输入图层", { exact: true }).selectOption({ label: "native-duplicates.geojson" });
+  await toolbox.getByRole("button", { name: "运行分析", exact: true }).click();
+  await toolbox.getByRole("button", { name: "定位问题", exact: true }).first().click();
+  await expect(page.locator('.attribute-panel tr[aria-selected="true"]')).toHaveCount(1);
+  await page.screenshot({ path: resolve(output, "topology-location-native.png") });
   const content = await snapshot();
   assert.deepEqual(
     content.layers.find((layer) => layer.name === "native-a.geojson")
       .features[0].geometry,
     square(116).geometry,
   );
-  assert.equal(content.layers.length, 6);
+  assert.equal(content.layers.length, 9);
   await page.reload();
-  await expect(page.locator(".layer-text")).toHaveCount(6);
+  await expect(page.locator(".layer-text")).toHaveCount(9);
+  const restoredDisplay = (await snapshot()).layers.find(layer => layer.name === "native-a.geojson");
+  assert.deepEqual(restoredDisplay.categorizedStyle, display.categorizedStyle);
+  assert.deepEqual(restoredDisplay.labels, display.labels);
+  await page.getByRole("button", { name: "native-a.geojson样式", exact: true }).click();
+  await expect(page.getByLabel("分类字段", { exact: true })).toHaveValue("group");
+  await expect(page.getByLabel("显示标注", { exact: true })).toBeChecked();
+  await expect(page.getByLabel("标注字号", { exact: true })).toHaveValue("18");
+  await page.getByRole("button", { name: "取消", exact: true }).click();
   assert.deepEqual(
     (await snapshot()).layers.find(
       (layer) => layer.displayName === "native-intersection",
@@ -308,7 +403,12 @@ try {
           "centroid-buffer-measure chain",
           "topology report",
           "source preservation",
-          "31 tool native catalog including cache lifecycle and geometry cleaning",
+          "33 tool native catalog including cache lifecycle, cleaning, attribute extraction and field statistics",
+          "native IPC cleaning count, strict typed extraction, XYZ and grouped statistics",
+          "optional spatial aggregation, globally collision-safe fields, MultiPoint counted once, unmatched null and legacy default",
+          "native toolbox cleaning and attribute extraction preserve source geometry",
+          "real desktop categorized style and label dialog with persisted configuration after reload",
+          "topology issue locate selects a source row",
           "normal snapshot exit",
           "XYZ overlay preserves source vertex Z and fills unknown Z with zero",
           "XYZ centroid-buffer chain and recovery snapshot",

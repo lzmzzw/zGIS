@@ -87,6 +87,6 @@ XYZ 结果通过 GeoJSON 或 WKT 保存，并在工作副本恢复中保留；XY
 
 执行 `pnpm test`、`pnpm build`、`pnpm exec playwright test tests/processing-toolbox.spec.ts`。载入 `scripts/msvc-environment.ps1` 后执行 `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`。
 
-原生隔离验证：创建 `output/processing-smoke.config.json`，内容为 `{"identifier":"com.personal.zgis.processing-smoke"}`；载入 MSVC 后执行 `pnpm tauri build --no-bundle --config output/processing-smoke.config.json`，再执行 `node scripts/processing-native-smoke.mjs`。脚本核对隔离标识，用生成数据验证面相交、属性保留、质心→缓冲→量算、拓扑报告和源图层保留；同时核验 XYZ 输入、高程保留、新增点 Z=0 和恢复快照；报告位于 `output/processing-native/report.json`。安装验证仍遵守 README 的包外安装流程。
+原生隔离验证：创建 `output/processing-smoke.config.json`，内容为 `{"identifier":"com.personal.zgis.processing-smoke"}`；载入 MSVC 后执行 `pnpm tauri build --no-bundle --config output/processing-smoke.config.json`，再执行 `node scripts/processing-native-smoke.mjs`。脚本核对隔离标识，用生成数据验证面相交、属性保留、质心→缓冲→量算、拓扑报告和源图层保留；同时核验 XYZ 输入、高程保留、新增点 Z=0 和恢复快照；扩展用例覆盖清理、类型敏感属性提取、字段统计 IPC、可选空间聚合、分类与标注恢复，以及拓扑问题记录定位。报告位于 `output/processing-native/report.json`。安装验证仍遵守 README 的包外安装流程。
 
 工具箱与 MCP 共用 2 个计算槽位及 120 秒协作式截止时间。分析中可点击取消，界面等待真实任务结束后恢复；已经完成的任务不会显示为取消成功。单次底层几何调用无法即时中断。详见 [运行时边界](analysis-runtime.md)和[前端性能与恢复机制](frontend-performance.md)。

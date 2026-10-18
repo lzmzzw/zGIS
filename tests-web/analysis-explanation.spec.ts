@@ -69,8 +69,8 @@ test("真实 WASM 缓冲结果说明与图层提示支持中英切换", async ({
   const resultLayer = page.locator(".web-layer").filter({
     has: page.getByRole("button", { name: "buffer_result", exact: true }),
   });
-  await resultLayer.locator("summary").click();
-  const notes = resultLayer.locator("details");
+  await resultLayer.locator("summary").filter({ hasText: "图层提示" }).click();
+  const notes = resultLayer.locator("details:not(.web-layer-display)");
   await expect(notes).toContainText("计算模型：局部等距圆柱近似");
   await expect(notes).toContainText("距离单位：米");
   await expect(notes).toContainText("不用于高精度测量");

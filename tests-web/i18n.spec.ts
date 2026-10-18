@@ -123,7 +123,7 @@ test("英文工具箱、分析结果与提示可切回中文，文件内容保�
     page.getByRole("button", { name: "原始结果名称", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".web-status")).toContainText("Buffer complete");
-  await page.locator(".web-layer").last().locator("summary").click();
+  await page.locator(".web-layer").last().locator("summary").filter({ hasText: "Layer notices" }).click();
   await expect(page.locator(".web-layer").last()).toContainText(
     "an independent browser copy",
   );
