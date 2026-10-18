@@ -21,7 +21,9 @@
     "test": "vitest run",
     "tauri": "tauri",
     "smoke": "playwright test",
-    "i18n:check": "node scripts/check-i18n.mjs"
+    "i18n:check": "node scripts/check-i18n.mjs",
+    "analysis:generate": "node scripts/analysis-catalog.mjs",
+    "analysis:check": "node scripts/analysis-catalog.mjs --check"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

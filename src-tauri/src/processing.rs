@@ -2,29 +2,6 @@
 use serde_json::Value;
 use tauri::State;
 
-// 大小校验直接计数，避免为每个要素及完整结果再分配一份 JSON。
-fn json_size(value: &impl serde::Serialize, limit: usize) -> Result<usize, String> {
-    struct Counter {
-        bytes: usize,
-        limit: usize,
-    }
-    impl std::io::Write for Counter {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            if bytes.len() > self.limit.saturating_sub(self.bytes) {
-                return Err(std::io::Error::other("分析数据超过大小上限"));
-            }
-            self.bytes += bytes.len();
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut counter = Counter { bytes: 0, limit };
-    serde_json::to_writer(&mut counter, value).map_err(|_| "分析数据超过大小上限")?;
-    Ok(counter.bytes)
-}
-
 #[derive(Default)]
 pub struct ProcessingState;
 
@@ -34,51 +11,9 @@ fn execute(
     source: &[Value],
     target: Option<&[Value]>,
 ) -> Result<Value, String> {
-    let parameters = parameters.as_object().ok_or("分析参数必须是对象")?;
-    if parameters.contains_key("source") || parameters.contains_key("target") {
-        return Err("工具箱只接受已加载的图层内容，不接受文件或缓存引用".into());
-    }
-    if source.is_empty() {
-        return Err("输入图层没有要素".into());
-    }
-    let limit = 100 * 1024 * 1024;
-    let mut bytes = json_size(parameters, limit)
-        .map_err(|_| "分析输入超过 100 MB，请缩小范围")?;
-    for input in [Some(source), target].into_iter().flatten() {
-        if input.len() > 10_000 {
-            return Err("图层超过 10000 个要素，请先缩小范围".into());
-        }
-        for feature in input {
-            crate::analysis_runtime::checkpoint()?;
-            let object = feature.as_object().ok_or("分析要素必须是对象")?;
-            if object
-                .keys()
-                .any(|key| !matches!(key.as_str(), "type" | "id" | "geometry" | "properties"))
-            {
-                return Err("分析要素只能包含 type、id、geometry、properties".into());
-            }
-            if object.get("type").and_then(Value::as_str) != Some("Feature") {
-                return Err("分析要素类型必须是 Feature".into());
-            }
-            if !object
-                .get("properties")
-                .is_some_and(|v| v.is_object() || v.is_null())
-            {
-                return Err("分析要素属性必须是对象或 null".into());
-            }
-            bytes += json_size(feature, limit.saturating_sub(bytes))
-                .map_err(|_| "分析输入超过 100 MB，请缩小范围")?;
-        }
-    }
-    let result = crate::spatial::analyze(
-        operation,
-        &Value::Object(parameters.clone()),
-        source,
-        target,
-    )?;
-    json_size(&result, limit)
-        .map_err(|_| "分析结果超过 100 MB，请缩小范围")?;
-    Ok(result)
+    spatial_core::with_checkpoint(crate::analysis_runtime::checkpoint, || {
+        spatial_core::input::execute(operation, parameters, source, target)
+    })
 }
 
 #[tauri::command]
@@ -112,6 +47,19 @@ mod tests {
         json!({"type":"Feature","id":"p","geometry":{"type":"Point","coordinates":[116.,40.,19.]},"properties":{"name":"测试"}})
     }
     #[test]
+    fn shared_input_entry_keeps_desktop_cancellation_and_restores_hook() {
+        let runtime =
+            crate::analysis_runtime::AnalysisRuntime::new(1, std::time::Duration::from_secs(10));
+        let guard = runtime.start("processing-test", "cancel").unwrap();
+        let result = guard.run(|| {
+            runtime.cancel("processing-test", "cancel");
+            execute("layer_summary", &json!({}), &[point()], None)
+        });
+        assert!(result.unwrap_err().contains("ANALYSIS_CANCELLED"));
+        assert!(spatial_core::checkpoint().is_ok());
+        assert!(execute("layer_summary", &json!({}), &[point()], None).is_ok());
+    }
+    #[test]
     fn direct_analysis_preserves_input_and_returns_geometry() {
         let source = vec![point()];
         let original = source.clone();
@@ -119,8 +67,12 @@ mod tests {
         assert_eq!(source, original);
         assert_eq!(result["type"], "FeatureCollection");
         assert_eq!(result["features"][0]["properties"]["name"], "测试");
-        let ring = result["features"][0]["geometry"]["coordinates"][0][0].as_array().unwrap();
-        assert!(ring.iter().all(|c| c.as_array().unwrap().len() == 3 && c[2] == 0));
+        let ring = result["features"][0]["geometry"]["coordinates"][0][0]
+            .as_array()
+            .unwrap();
+        assert!(ring
+            .iter()
+            .all(|c| c.as_array().unwrap().len() == 3 && c[2] == 0));
     }
     #[test]
     fn rejects_handles_paths_and_unknown_parameters() {
@@ -143,12 +95,5 @@ mod tests {
         let mut feature = point();
         feature["type"] = json!("Point");
         assert!(execute("layer_summary", &json!({}), &[feature], None).is_err());
-    }
-    #[test]
-    fn size_budget_counts_utf8_and_json_escaping_without_truncation() {
-        let value = json!({"text":"中文\n\"\\", "nested":[1,null,true]});
-        let bytes = serde_json::to_vec(&value).unwrap().len();
-        assert_eq!(json_size(&value, bytes).unwrap(), bytes);
-        assert!(json_size(&value, bytes - 1).is_err());
     }
 }

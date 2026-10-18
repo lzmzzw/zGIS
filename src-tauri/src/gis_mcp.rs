@@ -540,7 +540,7 @@ fn build_definitions() -> Vec<Value> {
     ];
     d.push(def("list_results", "列举未过期分析缓存、剩余预算及到期秒数；不读取源文件、不占用新缓存", json!({}), &[]));
     d.push(def("release_result", "仅释放指定resultId的临时分析缓存；不可撤销，后续引用失效；不删除已发布图层或待导入副本，重复释放安全", json!({"resultId":{"type":"string","minLength":1,"maxLength":100}}), &["resultId"]));
-    let mut spatial = super::spatial::tool_definitions();
+    let mut spatial = analysis_definitions();
     for tool in &mut spatial {
         tool["annotations"]["openWorldHint"] = json!(true);
         for name in ["source", "target"] {
@@ -553,6 +553,23 @@ fn build_definitions() -> Vec<Value> {
     d.extend(spatial);
     d
 }
+// 来源引用属于 MCP 宿主；核心目录仅定义纯分析参数。
+fn analysis_definitions() -> Vec<Value> {
+    let reference = json!({"oneOf":[{"type":"object","properties":{"layerId":{"type":"string","minLength":1}},"required":["layerId"],"additionalProperties":false},{"type":"object","properties":{"path":{"type":"string","minLength":1},"crs":{"type":"string","enum":["EPSG:4326","EPSG:4490","EPSG:3857"]},"wktField":{"type":"string","minLength":1},"xField":{"type":"string","minLength":1},"yField":{"type":"string","minLength":1}},"required":["path"],"additionalProperties":false}]});
+    spatial_core::registry::ANALYSES.iter().map(|spec| {
+        let mut schema=spec.parameter_schema();
+        schema["properties"]["source"]=reference.clone();
+        let mut required=vec![json!("source")];
+        if spec.target != spatial_core::registry::TargetRequirement::None {
+            schema["properties"]["target"]=reference.clone();
+            if spec.target == spatial_core::registry::TargetRequirement::Required {required.push(json!("target"));}
+        }
+        required.extend(schema["required"].as_array().unwrap().iter().cloned());
+        schema["required"]=json!(required);
+        json!({"name":spec.id(),"description":spec.description,"inputSchema":schema,"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}})
+    }).collect()
+}
+
 fn page_schema(id: &str) -> Value {
     let mut schema = json!({"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100},"properties":{"type":"array","maxItems":100,"items":{"type":"string","minLength":1,"maxLength":256}},"includeGeometry":{"type":"boolean"}});
     schema[id] = json!({"type":"string","minLength":1});
@@ -875,7 +892,11 @@ fn call_expected(m: &GisMcp, name: &str, args: &Value, generation: u64) -> Resul
             } else {
                 None
             };
-            let result = super::spatial::analyze(name, args, &s, target.as_ref().map(|t| t.as_slice()))?;
+            let mut parameters = args.clone();
+            let object = parameters.as_object_mut().ok_or("参数必须为对象")?;
+            object.remove("source");
+            object.remove("target");
+            let result = super::spatial::analyze(name, &parameters, &s, target.as_ref().map(|t| t.as_slice()))?;
             let publishable = result["type"] == "FeatureCollection";
             let mut summary = result;
             let features = match summary.as_object_mut().and_then(|o| o.remove("features")) {
@@ -1355,6 +1376,15 @@ mod tests {
         assert!(!m.status().enabled);
     }
     #[test]
+    fn resolved_sources_preserve_bbox_target_exclusion() {
+        let m=GisMcp::default();
+        let layer=json!({"id":"point","name":"point","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{}}]});
+        m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(layer).unwrap());
+        assert!(call(&m,"spatial_query",&json!({"source":{"layerId":"point"},"target":{"layerId":"point"},"bbox":[-1,-1,1,1]})).unwrap_err().contains("二选一"));
+        assert!(m.inner.lock().unwrap().results.is_empty());
+        assert!(call(&m,"spatial_query",&json!({"source":{"layerId":"point"},"bbox":[-1,-1,1,1]})).is_ok());
+    }
+    #[test]
     fn result_source_schema_and_chain_are_validated() {
         let m = GisMcp::default();
         let layer = json!({"id":"point","name":"point","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[116.,39.]},"properties":{}}]});
@@ -1470,5 +1500,14 @@ mod tests {
             .await
             .contains("2025-11-25"));
         h.abort();
+    }
+}
+
+#[cfg(test)]
+mod analysis_contract_tests {
+    #[test]
+    fn public_analysis_schemas_keep_the_baseline() {
+        let baseline: serde_json::Value = serde_json::from_str(include_str!("../../crates/spatial-core/tool-contract-baseline.json")).unwrap();
+        assert_eq!(serde_json::json!(super::analysis_definitions()), baseline);
     }
 }

@@ -19,6 +19,8 @@ zGIS 同仓维护 Tauri 2 桌面应用与纯静态 Web 版。React 保存编辑�
 
 ## 数据流
 
+分析操作的参数与 GUI 行为由 Rust 注册表统一定义，前端使用生成的静态目录，MCP 单独适配来源引用。维护与兼容性基线见 [分析工具契约](analysis-contract.md)。
+
 ```mermaid
 flowchart LR
   Files[GeoJSON / CSV / SHP] --> Worker[解析 Worker]

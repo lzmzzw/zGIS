@@ -1,0 +1,545 @@
+[
+  {
+    "description": "移除空/无效几何并报告总数及原因预览；生成独立结果，保留有效要素",
+    "gui": false,
+    "id": "clean_geometries",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "空间谓词查询；bbox与target二选一；经纬度平面关系，禁止跨日期变更线",
+    "gui": true,
+    "id": "spatial_query",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bbox": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "predicate": {
+          "default": "intersects",
+          "enum": [
+            "intersects",
+            "within",
+            "contains",
+            "touches",
+            "disjoint"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [
+      "predicate"
+    ],
+    "requiresTarget": true,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "targetKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "空间关联，保留源属性并附加匹配目标",
+    "gui": true,
+    "id": "spatial_join",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "predicate": {
+          "default": "intersects",
+          "enum": [
+            "intersects",
+            "within",
+            "contains",
+            "touches",
+            "disjoint"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [
+      "predicate"
+    ],
+    "requiresTarget": true,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "targetKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "点对采用 WGS84 椭球测地距离；其他几何采用成对局部等距圆柱近似",
+    "gui": true,
+    "id": "nearest",
+    "metric": true,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": true,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "targetKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "检查无效几何、重复几何及面重叠，返回有界报告",
+    "gui": true,
+    "id": "topology_check",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "report": true,
+    "requiresTarget": false,
+    "resultKind": "report",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "局部等距圆柱近似米制缓冲，限局部低中纬度数据",
+    "gui": true,
+    "id": "buffer",
+    "metric": true,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "distanceMeters": {
+          "exclusiveMinimum": 0,
+          "maximum": 100000,
+          "type": "number"
+        }
+      },
+      "required": [
+        "distanceMeters"
+      ],
+      "type": "object"
+    },
+    "parameters": [
+      "distanceMeters"
+    ],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "面与面裁剪",
+    "gui": true,
+    "id": "clip",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": true,
+    "resultKind": "features",
+    "sourceKinds": [
+      "polygon"
+    ],
+    "targetKinds": [
+      "polygon"
+    ]
+  },
+  {
+    "description": "合并面几何，可按字段类型和值分组",
+    "gui": true,
+    "id": "dissolve",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "groupBy": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [
+      "groupBy"
+    ],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "polygon"
+    ]
+  },
+  {
+    "description": "图层几何、属性、范围摘要",
+    "gui": true,
+    "id": "layer_summary",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "report": true,
+    "requiresTarget": false,
+    "resultKind": "report",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "面相交，逐对保留源属性与 target_ 前缀目标属性",
+    "gui": true,
+    "id": "intersection",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": true,
+    "resultKind": "features",
+    "sourceKinds": [
+      "polygon"
+    ],
+    "targetKinds": [
+      "polygon"
+    ]
+  },
+  {
+    "description": "面差集，保留源属性",
+    "gui": true,
+    "id": "difference",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": true,
+    "resultKind": "features",
+    "sourceKinds": [
+      "polygon"
+    ],
+    "targetKinds": [
+      "polygon"
+    ]
+  },
+  {
+    "description": "面对称差，分别保留两侧属性",
+    "gui": true,
+    "id": "symmetric_difference",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": true,
+    "resultKind": "features",
+    "sourceKinds": [
+      "polygon"
+    ],
+    "targetKinds": [
+      "polygon"
+    ]
+  },
+  {
+    "description": "每个要素的平面质心，可能位于面外",
+    "gui": true,
+    "id": "centroid",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "每个要素的表面代表点",
+    "gui": true,
+    "id": "point_on_surface",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "polygon"
+    ]
+  },
+  {
+    "description": "每个要素的凸包，退化结果为点或线",
+    "gui": true,
+    "id": "convex_hull",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "每个要素的轴对齐包络，退化结果为点或线",
+    "gui": true,
+    "id": "envelope",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "多部件转单部件，保留属性并移除旧 ID",
+    "gui": true,
+    "id": "multipart_to_singleparts",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "提取顶点，面环不重复末尾闭合点，保留部件/环/节点索引",
+    "gui": true,
+    "id": "extract_vertices",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "面边界转多线，包含洞",
+    "gui": true,
+    "id": "polygon_to_lines",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "polygon"
+    ]
+  },
+  {
+    "description": "Douglas–Peucker 近似米制简化；无效结果拒绝",
+    "gui": true,
+    "id": "simplify",
+    "metric": true,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "toleranceMeters": {
+          "exclusiveMinimum": 0,
+          "maximum": 100000,
+          "type": "number"
+        }
+      },
+      "required": [
+        "toleranceMeters"
+      ],
+      "type": "object"
+    },
+    "parameters": [
+      "toleranceMeters"
+    ],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "添加近似平方米面积及米制长度（面包含洞周长），冲突字段加下划线",
+    "gui": true,
+    "id": "geometry_attributes",
+    "metric": true,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  },
+  {
+    "description": "面内点计数，包含边界，多点按每个点计数",
+    "gui": true,
+    "id": "count_points",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": true,
+    "resultKind": "features",
+    "sourceKinds": [
+      "polygon"
+    ],
+    "targetKinds": [
+      "point"
+    ]
+  },
+  {
+    "description": "合并两层要素，保留属性并移除旧 ID",
+    "gui": true,
+    "id": "merge",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "parameters": [],
+    "requiresTarget": true,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "targetKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
+  }
+]

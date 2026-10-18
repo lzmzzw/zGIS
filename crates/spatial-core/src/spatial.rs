@@ -1,6 +1,9 @@
 //! Bounded planar spatial operations with XY/XYZ data preservation. Relations use longitude/latitude
 //! coordinates; metric operations use local approximations except point nearest distances,
 //! which use the WGS84 ellipsoid.
+#[cfg(test)]
+use crate::analyze;
+use crate::registry::Operation;
 use geo::{
     Area, BooleanOps, BoundingRect, Buffer, Centroid, ConvexHull, CoordsIter, Euclidean, Geometry,
     InteriorPoint, Length, MultiPolygon, Relate, Simplify, Validation,
@@ -180,21 +183,6 @@ fn coordinate_count(v: &Value) -> usize {
             }
         })
         .unwrap_or(0)
-}
-
-pub fn tool_definitions() -> Vec<Value> {
-    let reference = json!({"oneOf":[{"type":"object","properties":{"layerId":{"type":"string","minLength":1}},"required":["layerId"],"additionalProperties":false},{"type":"object","properties":{"path":{"type":"string","minLength":1},"crs":{"type":"string","enum":["EPSG:4326","EPSG:4490","EPSG:3857"]},"wktField":{"type":"string","minLength":1},"xField":{"type":"string","minLength":1},"yField":{"type":"string","minLength":1}},"required":["path"],"additionalProperties":false}]});
-    [("clean_geometries","移除空/无效几何并报告总数及原因预览；生成独立结果，保留有效要素"),("spatial_query","空间谓词查询；bbox与target二选一；经纬度平面关系，禁止跨日期变更线"),("spatial_join","空间关联，保留源属性并附加匹配目标"),("nearest","点对采用 WGS84 椭球测地距离；其他几何采用成对局部等距圆柱近似"),("topology_check","检查无效几何、重复几何及面重叠，返回有界报告"),("buffer","局部等距圆柱近似米制缓冲，限局部低中纬度数据"),("clip","面与面裁剪"),("dissolve","合并面几何，可按字段类型和值分组"),("layer_summary","图层几何、属性、范围摘要"),("intersection","面相交，逐对保留源属性与 target_ 前缀目标属性"),("difference","面差集，保留源属性"),("symmetric_difference","面对称差，分别保留两侧属性"),("centroid","每个要素的平面质心，可能位于面外"),("point_on_surface","每个要素的表面代表点"),("convex_hull","每个要素的凸包，退化结果为点或线"),("envelope","每个要素的轴对齐包络，退化结果为点或线"),("multipart_to_singleparts","多部件转单部件，保留属性并移除旧 ID"),("extract_vertices","提取顶点，面环不重复末尾闭合点，保留部件/环/节点索引"),("polygon_to_lines","面边界转多线，包含洞"),("simplify","Douglas–Peucker 近似米制简化；无效结果拒绝"),("geometry_attributes","添加近似平方米面积及米制长度（面包含洞周长），冲突字段加下划线"),("count_points","面内点计数，包含边界，多点按每个点计数"),("merge","合并两层要素，保留属性并移除旧 ID")].into_iter().map(|(name,description)| {
-        let mut properties = json!({"source":reference.clone()});
-        let mut required=vec!["source"];
-        if matches!(name,"spatial_query"|"spatial_join"|"nearest"|"clip"|"intersection"|"difference"|"symmetric_difference"|"count_points"|"merge") { properties["target"]=reference.clone(); if name!="spatial_query" {required.push("target");} }
-        if matches!(name,"spatial_query"|"spatial_join") {properties["predicate"]=json!({"type":"string","enum":["intersects","within","contains","touches","disjoint"],"default":"intersects"});}
-        if name=="spatial_query" {properties["bbox"]=json!({"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4});}
-        if name=="buffer" {properties["distanceMeters"]=json!({"type":"number","exclusiveMinimum":0,"maximum":100000});required.push("distanceMeters");}
-        if name=="simplify" {properties["toleranceMeters"]=json!({"type":"number","exclusiveMinimum":0,"maximum":100000});required.push("toleranceMeters");}
-        if name=="dissolve" {properties["groupBy"]=json!({"type":"string","minLength":1});}
-        json!({"name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}})
-    }).collect()
 }
 
 fn decode(features: &[Value], allow_invalid: bool) -> Result<Vec<Geometry<f64>>, String> {
@@ -649,18 +637,20 @@ fn perimeter(g: &Geometry<f64>) -> f64 {
     }
 }
 fn unary(
-    name: &str,
+    operation: Operation,
     args: &Value,
     source: &[Value],
     geometries: &[Geometry<f64>],
     output_limit: usize,
 ) -> Result<Value, String> {
-    let metric = matches!(name, "simplify" | "geometry_attributes");
-    let tolerance = if name == "simplify" {
+    let metric = matches!(
+        operation,
+        Operation::Simplify | Operation::GeometryAttributes
+    );
+    let tolerance = if operation == Operation::Simplify {
         Some(
             args["toleranceMeters"]
                 .as_f64()
-                .filter(|d| d.is_finite() && *d > 0.0 && *d <= 100000.0)
                 .ok_or("toleranceMeters 必须 > 0 且 <= 100000")?,
         )
     } else {
@@ -677,14 +667,14 @@ fn unary(
         crate::checkpoint()?;
         let f = &source[i];
         let elevations = Elevations::from_geometry(&f["geometry"]);
-        let generated_count = match name {
-            "multipart_to_singleparts" => match g {
+        let generated_count = match operation {
+            Operation::MultipartToSingleparts => match g {
                 Geometry::MultiPoint(p) => p.0.len(),
                 Geometry::MultiLineString(p) => p.0.len(),
                 Geometry::MultiPolygon(p) => p.0.len(),
                 _ => 1,
             },
-            "extract_vertices" => match g {
+            Operation::ExtractVertices => match g {
                 Geometry::Polygon(p) => g.coords_count().saturating_sub(1 + p.interiors().len()),
                 Geometry::MultiPolygon(ps) => g
                     .coords_count()
@@ -695,13 +685,13 @@ fn unary(
         };
         output_budget.repeated_properties(f, generated_count)?;
         let mut parts = Vec::new();
-        match name {
-            "centroid" => parts.push(Geometry::Point(g.centroid().ok_or("无法计算质心")?)),
-            "point_on_surface" => {
+        match operation {
+            Operation::Centroid => parts.push(Geometry::Point(g.centroid().ok_or("无法计算质心")?)),
+            Operation::PointOnSurface => {
                 parts.push(Geometry::Point(g.interior_point().ok_or("无法计算表面点")?))
             }
-            "convex_hull" => parts.push(degenerate_hull(g)),
-            "envelope" => {
+            Operation::ConvexHull => parts.push(degenerate_hull(g)),
+            Operation::Envelope => {
                 let r = g.bounding_rect().ok_or("无法计算包络")?;
                 parts.push(if r.min() == r.max() {
                     Geometry::Point(geo::Point(r.min()))
@@ -711,7 +701,7 @@ fn unary(
                     Geometry::Polygon(r.to_polygon())
                 });
             }
-            "multipart_to_singleparts" => match g {
+            Operation::MultipartToSingleparts => match g {
                 Geometry::MultiPoint(ps) => parts.extend(ps.0.iter().copied().map(Geometry::Point)),
                 Geometry::MultiLineString(ls) => {
                     parts.extend(ls.0.iter().cloned().map(Geometry::LineString))
@@ -721,7 +711,7 @@ fn unary(
                 }
                 _ => parts.push(g.clone()),
             },
-            "polygon_to_lines" => {
+            Operation::PolygonToLines => {
                 let ps = polygon(g)?;
                 let lines =
                     ps.0.iter()
@@ -730,7 +720,7 @@ fn unary(
                         .collect();
                 parts.push(Geometry::MultiLineString(geo::MultiLineString(lines)));
             }
-            "simplify" => {
+            Operation::Simplify => {
                 let projection = projection.as_ref().unwrap();
                 let projected = projection.map(g, false);
                 let tolerance = tolerance.unwrap();
@@ -753,7 +743,7 @@ fn unary(
                     .collect();
                 parts.push(simplified.map_coords(|c| originals[&xy_key(c.x, c.y)]));
             }
-            "geometry_attributes" => {
+            Operation::GeometryAttributes => {
                 let projected = projection.as_ref().unwrap().map(g, false);
                 let mut f = derived_feature(
                     f,
@@ -765,7 +755,7 @@ fn unary(
                 push_bounded(&mut out, &mut output_budget, f)?;
                 continue;
             }
-            "extract_vertices" => {
+            Operation::ExtractVertices => {
                 let rings: Vec<(usize, Option<usize>, Vec<geo::Coord<f64>>)> = match g {
                     Geometry::Polygon(p) => std::iter::once(p.exterior())
                         .chain(p.interiors().iter())
@@ -829,14 +819,14 @@ fn unary(
             let mut result =
                 derived_with_elevations(f, Some(&part), f["properties"].clone(), Some(&elevations));
             let raw = &f["geometry"]["coordinates"];
-            if name == "multipart_to_singleparts" {
+            if operation == Operation::MultipartToSingleparts {
                 result["geometry"]["coordinates"] =
                     if f["geometry"]["type"].as_str().unwrap().starts_with("Multi") {
                         raw[part_index].clone()
                     } else {
                         raw.clone()
                     };
-            } else if name == "polygon_to_lines" {
+            } else if operation == Operation::PolygonToLines {
                 result["geometry"]["coordinates"] = if f["geometry"]["type"] == "Polygon" {
                     raw.clone()
                 } else {
@@ -852,7 +842,7 @@ fn unary(
             push_bounded(
                 &mut out,
                 &mut output_budget,
-                if name == "multipart_to_singleparts" {
+                if operation == Operation::MultipartToSingleparts {
                     without_id(result)
                 } else {
                     result
@@ -863,15 +853,16 @@ fn unary(
     Ok(collection(out, metric))
 }
 
-pub fn analyze(
-    name: &str,
+pub(crate) fn execute_operation(
+    operation: crate::registry::Operation,
     args: &Value,
     source: &[Value],
     target: Option<&[Value]>,
 ) -> Result<Value, String> {
+    let name = operation.id();
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         crate::checkpoint()?;
-        let result = analyze_inner(name, args, source, target, MAX_OUTPUT_BYTES)?;
+        let result = analyze_registered(operation, args, source, target, MAX_OUTPUT_BYTES)?;
         crate::checkpoint()?;
         json_size(&result, MAX_OUTPUT_BYTES)?;
         if let Some(features) = result.get("features").and_then(Value::as_array) {
@@ -893,6 +884,7 @@ pub fn analyze(
     .map_err(|_| "几何引擎拒绝此数据，分析未完成；请先检查几何有效性".to_string())?
 }
 
+#[cfg(test)]
 fn analyze_inner(
     name: &str,
     args: &Value,
@@ -900,51 +892,47 @@ fn analyze_inner(
     target: Option<&[Value]>,
     output_limit: usize,
 ) -> Result<Value, String> {
-    let schema = tool_definitions()
-        .into_iter()
-        .find(|t| t["name"] == name)
-        .ok_or("未知空间工具")?;
-    let obj = args.as_object().ok_or("参数必须为对象")?;
-    for key in obj.keys() {
-        if schema["inputSchema"]["properties"].get(key).is_none() {
-            return Err(format!("未知参数: {key}"));
-        }
-    }
+    let spec = crate::registry::find(name).ok_or("未知空间工具")?;
+    spec.validate(args)?;
+    analyze_registered(spec.operation, args, source, target, output_limit)
+}
+
+fn analyze_registered(
+    operation: Operation,
+    args: &Value,
+    source: &[Value],
+    target: Option<&[Value]>,
+    output_limit: usize,
+) -> Result<Value, String> {
     let predicate = match args.get("predicate") {
         Some(v) => v.as_str().ok_or("predicate 必须为字符串")?,
-        None => "intersects",
+        None => crate::registry::DEFAULT_PREDICATE,
     };
-    if !["intersects", "within", "contains", "touches", "disjoint"].contains(&predicate) {
-        return Err("不支持的空间谓词".into());
-    }
-    if name == "topology_check" {
+    if operation == Operation::TopologyCheck {
         return topology(source);
     }
-    if name == "clean_geometries" {
+    if operation == Operation::CleanGeometries {
         return clean_geometries(source, output_limit);
     }
-    if name == "spatial_query"
-        && args.get("bbox").is_some()
-        && (target.is_some() || args.get("target").is_some())
-    {
+    if operation == Operation::SpatialQuery && args.get("bbox").is_some() && target.is_some() {
         return Err("spatial_query 的 bbox 与 target 必须二选一".into());
     }
     let s = decode(source, false)?;
     if matches!(
-        name,
-        "centroid"
-            | "point_on_surface"
-            | "convex_hull"
-            | "envelope"
-            | "multipart_to_singleparts"
-            | "extract_vertices"
-            | "polygon_to_lines"
-            | "simplify"
-            | "geometry_attributes"
+        operation,
+        Operation::Centroid
+            | Operation::PointOnSurface
+            | Operation::ConvexHull
+            | Operation::Envelope
+            | Operation::MultipartToSingleparts
+            | Operation::ExtractVertices
+            | Operation::PolygonToLines
+            | Operation::Simplify
+            | Operation::GeometryAttributes
     ) {
-        return unary(name, args, source, &s, output_limit);
+        return unary(operation, args, source, &s, output_limit);
     }
-    if name == "layer_summary" {
+    if operation == Operation::LayerSummary {
         let bounds = s.iter().filter_map(BoundingRect::bounding_rect).fold(
             None,
             |acc: Option<[f64; 4]>, r| {
@@ -973,10 +961,9 @@ fn analyze_inner(
             json!({"featureCount":s.len(),"geometryTypes":types,"fields":fields,"bbox":bounds,"crs":"EPSG:4326"}),
         );
     }
-    if name == "buffer" {
+    if operation == Operation::Buffer {
         let distance = args["distanceMeters"]
             .as_f64()
-            .filter(|d| *d > 0.0 && *d <= 100000.0)
             .ok_or("distanceMeters 必须 > 0 且 <= 100000")?;
         let projection = Projection::new(&s)?;
         let mut work = OverlayBudget(0);
@@ -999,13 +986,9 @@ fn analyze_inner(
         }
         return Ok(collection(out, true));
     }
-    if name == "dissolve" {
+    if operation == Operation::Dissolve {
         let group_by = match args.get("groupBy") {
-            Some(v) => Some(
-                v.as_str()
-                    .filter(|s| !s.is_empty())
-                    .ok_or("groupBy 必须是非空字符串")?,
-            ),
+            Some(v) => Some(v.as_str().ok_or("groupBy 必须是非空字符串")?),
             None => None,
         };
         let mut groups = std::collections::BTreeMap::<
@@ -1049,7 +1032,7 @@ fn analyze_inner(
         return Ok(collection(out, false));
     }
     let mut t = decode(target.unwrap_or(&[]), false)?;
-    if name == "merge" {
+    if operation == Operation::Merge {
         if target.is_none() {
             return Err("需要 target".into());
         }
@@ -1072,12 +1055,9 @@ fn analyze_inner(
         }
         return Ok(collection(out, false));
     }
-    if name == "spatial_query" {
+    if operation == Operation::SpatialQuery {
         if let Some(b) = args.get("bbox") {
-            let a = b
-                .as_array()
-                .filter(|a| a.len() == 4)
-                .ok_or("bbox 必须有四个数值")?;
+            let a = b.as_array().ok_or("bbox 必须有四个数值")?;
             let n: Vec<f64> = a
                 .iter()
                 .map(|v| v.as_f64().ok_or("bbox 必须为数值"))
@@ -1104,7 +1084,8 @@ fn analyze_inner(
         .iter()
         .chain(t.iter())
         .all(|g| matches!(g, Geometry::Point(_)));
-    if ((name == "nearest" && !all_points) || (name == "spatial_join" && predicate == "disjoint"))
+    if ((operation == Operation::Nearest && !all_points)
+        || (operation == Operation::SpatialJoin && predicate == "disjoint"))
         && s.len().saturating_mul(t.len()) > MAX_PAIRS
     {
         return Err("候选对超过 1000000，请缩小输入范围".into());
@@ -1116,7 +1097,7 @@ fn analyze_inner(
     let mut relation_work = OverlayBudget(0);
     let mut out = Vec::new();
     let mut output_budget = OutputBudget::new(output_limit);
-    if name == "count_points" {
+    if operation == Operation::CountPoints {
         let mut points = Vec::new();
         for g in &t {
             match g {
@@ -1157,10 +1138,13 @@ fn analyze_inner(
         return Ok(collection(out, false));
     }
     let mut overlay_budget = OverlayBudget(0);
-    if matches!(name, "intersection" | "difference" | "symmetric_difference") {
+    if matches!(
+        operation,
+        Operation::Intersection | Operation::Difference | Operation::SymmetricDifference
+    ) {
         let sp = s.iter().map(polygon).collect::<Result<Vec<_>, _>>()?;
         let tp = t.iter().map(polygon).collect::<Result<Vec<_>, _>>()?;
-        if name == "intersection" {
+        if operation == Operation::Intersection {
             for (i, a) in sp.iter().enumerate() {
                 for j in target_index.candidates(source_bounds[i], &mut pair_budget)? {
                     let b = &tp[j];
@@ -1219,7 +1203,7 @@ fn analyze_inner(
                     )?;
                 }
             }
-            if name == "symmetric_difference" {
+            if operation == Operation::SymmetricDifference {
                 let source_index = SpatialIndex::new(&source_bounds);
                 for (i, b) in tp.iter().enumerate() {
                     let candidates = source_index.candidates(target_bounds[i], &mut pair_budget)?;
@@ -1253,7 +1237,7 @@ fn analyze_inner(
         }
         return Ok(collection(out, false));
     }
-    if name == "nearest" {
+    if operation == Operation::Nearest {
         nearest_work_preflight(&s, &t)?;
         use geo::{Distance, Geodesic};
         let point_index = all_points.then(|| {
@@ -1337,7 +1321,7 @@ fn analyze_inner(
         result["analysis"] = json!({"distanceModel":if all_points {"WGS84_ellipsoidal_geodesic"} else {"point_geodesic_other_pair_local_approximation"},"units":"meters","geodesic":all_points,"exactDistanceEvaluations":pair_budget.0});
         return Ok(result);
     }
-    if name == "clip" {
+    if operation == Operation::Clip {
         let tp = t.iter().map(polygon).collect::<Result<Vec<_>, _>>()?;
         for (i, g) in s.iter().enumerate() {
             crate::checkpoint()?;
@@ -1367,7 +1351,7 @@ fn analyze_inner(
     }
     for (i, g) in s.iter().enumerate() {
         crate::checkpoint()?;
-        if name == "spatial_query" {
+        if operation == Operation::SpatialQuery {
             let candidates = target_index.candidates(source_bounds[i], &mut pair_budget)?;
             let mut matched = predicate == "disjoint";
             for j in candidates {
@@ -1745,8 +1729,8 @@ mod tests {
         add_z(&mut b, 91.);
         let mut pt = point(0.007, 0.007);
         add_z(&mut pt, 5.);
-        for tool in tool_definitions() {
-            let name = tool["name"].as_str().unwrap();
+        for tool in crate::registry::ANALYSES {
+            let name = tool.id();
             let args = match name {
                 "buffer" => json!({"distanceMeters":10}),
                 "simplify" => json!({"toleranceMeters":1}),

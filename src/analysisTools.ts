@@ -1,6 +1,16 @@
+import generatedCatalog from "./generated/analysis-catalog.json" with { type: "json" };
+
 export type AnalysisGeometryKind = "point" | "line" | "polygon";
 export type AnalysisParameter =
   "distanceMeters" | "toleranceMeters" | "groupBy" | "predicate";
+
+export interface AnalysisParameterSchema {
+  properties: Record<
+    string,
+    { type: string; exclusiveMinimum?: number; maximum?: number } | undefined
+  >;
+  required: string[];
+}
 
 export interface AnalysisTool {
   id: string;
@@ -15,6 +25,7 @@ export interface AnalysisTool {
   parameters: AnalysisParameter[];
   help: string;
   report?: boolean;
+  parameterSchema: AnalysisParameterSchema;
 }
 
 export const analysisToolCategories = [
@@ -23,21 +34,17 @@ export const analysisToolCategories = [
   "几何处理",
   "质量与统计",
 ] as const;
-const all: AnalysisGeometryKind[] = ["point", "line", "polygon"];
-const polygons: AnalysisGeometryKind[] = ["polygon"];
-const points: AnalysisGeometryKind[] = ["point"];
 
-export const analysisTools: AnalysisTool[] = [
+const presentation: Pick<
+  AnalysisTool,
+  "id" | "label" | "category" | "description" | "keywords" | "help"
+>[] = [
   {
     id: "buffer",
     label: "缓冲区",
     category: "叠加分析",
     description: "按距离生成要素周围的面。",
     keywords: ["buffer", "缓冲", "距离"],
-    requiresTarget: false,
-    sourceKinds: all,
-    metric: true,
-    parameters: ["distanceMeters"],
     help: "为每个输入要素生成缓冲面，保留其属性。正距离表示向外扩展；需要整体缓冲范围时，可对结果继续执行融合。",
   },
   {
@@ -46,11 +53,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "叠加分析",
     description: "保留输入面位于目标面范围内的部分。",
     keywords: ["clip", "裁切", "掩膜"],
-    requiresTarget: true,
-    sourceKinds: polygons,
-    targetKinds: polygons,
-    metric: false,
-    parameters: [],
     help: "输入与目标都须为面图层。目标面定义裁剪范围，结果保留输入属性，不修改原图层。",
   },
   {
@@ -59,11 +61,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "叠加分析",
     description: "提取两个面图层的共同部分。",
     keywords: ["intersection", "intersect", "交集"],
-    requiresTarget: true,
-    sourceKinds: polygons,
-    targetKinds: polygons,
-    metric: false,
-    parameters: [],
     help: "将输入面与目标面逐一相交，输出共同覆盖的区域，并关联双方属性。",
   },
   {
@@ -72,11 +69,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "叠加分析",
     description: "从输入面中扣除目标面覆盖的部分。",
     keywords: ["difference", "erase", "差集", "擦除"],
-    requiresTarget: true,
-    sourceKinds: polygons,
-    targetKinds: polygons,
-    metric: false,
-    parameters: [],
     help: "输入与目标的顺序决定结果：保留输入面未被目标覆盖的区域，结果保留输入属性。",
   },
   {
@@ -85,11 +77,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "叠加分析",
     description: "提取两个面图层各自独有的区域。",
     keywords: ["symmetric difference", "xor", "对称差"],
-    requiresTarget: true,
-    sourceKinds: polygons,
-    targetKinds: polygons,
-    metric: false,
-    parameters: [],
     help: "输出任一图层覆盖、但双方没有共同覆盖的部分，排除交集区域。",
   },
   {
@@ -98,10 +85,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "叠加分析",
     description: "消除面之间的内部边界，可按字段分组。",
     keywords: ["dissolve", "union", "合并面", "溶解"],
-    requiresTarget: false,
-    sourceKinds: polygons,
-    metric: false,
-    parameters: ["groupBy"],
     help: "不选择字段时融合全部输入面；选择字段后，将相同字段值的面融合为一组。输入属性不会逐条保留，请使用分组字段识别结果。",
   },
   {
@@ -116,11 +99,6 @@ export const analysisTools: AnalysisTool[] = [
       "空间查询",
       "选择",
     ],
-    requiresTarget: true,
-    sourceKinds: all,
-    targetKinds: all,
-    metric: false,
-    parameters: ["predicate"],
     help: "关系方向为“输入要素相对于目标要素”。通常满足任一目标即可匹配；选择不相交时，输入须与全部目标不相交。结果保留输入属性。",
   },
   {
@@ -134,11 +112,6 @@ export const analysisTools: AnalysisTool[] = [
       "空间关联",
       "连接",
     ],
-    requiresTarget: true,
-    sourceKinds: all,
-    targetKinds: all,
-    metric: false,
-    parameters: ["predicate"],
     help: "关系方向为“输入相对于目标”。保留输入几何与属性，附加匹配目标的数量和索引；未匹配输入也保留。本工具不复制目标图层的完整属性。",
   },
   {
@@ -147,11 +120,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "空间关系",
     description: "为每个输入要素寻找最近的目标。",
     keywords: ["nearest", "nearest neighbor", "最近邻", "距离"],
-    requiresTarget: true,
-    sourceKinds: all,
-    targetKinds: all,
-    metric: true,
-    parameters: [],
     help: "按要素间最近距离寻找目标，附加目标索引、距离与计算模型。Point 对使用 WGS84 椭球测地距离；其他几何使用各对的局部近似。相交或接触距离为零。",
   },
   {
@@ -160,11 +128,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "空间关系",
     description: "统计每个输入面包含的目标点数量。",
     keywords: ["count points in polygon", "点统计", "数量"],
-    requiresTarget: true,
-    sourceKinds: polygons,
-    targetKinds: points,
-    metric: false,
-    parameters: [],
     help: "输入选择面图层，目标选择点图层。统计与面内部或边界相交的点，保留输入面并添加计数字段。",
   },
   {
@@ -173,10 +136,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "几何处理",
     description: "为每个输入要素计算几何中心。",
     keywords: ["centroid", "中心点", "重心"],
-    requiresTarget: false,
-    sourceKinds: all,
-    metric: false,
-    parameters: [],
     help: "生成每个要素的质心并保留属性。凹面或含洞的面，其质心可能位于面外；需要内部点时使用“面内点”。",
   },
   {
@@ -190,10 +149,6 @@ export const analysisTools: AnalysisTool[] = [
       "interior point",
       "内部点",
     ],
-    requiresTarget: false,
-    sourceKinds: polygons,
-    metric: false,
-    parameters: [],
     help: "生成位于面内部的代表点，适合放置标签或表示面对象。结果保留输入属性。",
   },
   {
@@ -202,10 +157,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "几何处理",
     description: "生成包围每个输入要素的最小凸几何。",
     keywords: ["convex hull", "凸壳"],
-    requiresTarget: false,
-    sourceKinds: all,
-    metric: false,
-    parameters: [],
     help: "分别计算每个输入要素的凸包并保留属性。点或共线几何的凸包仍可能是点或线。",
   },
   {
@@ -214,10 +165,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "几何处理",
     description: "生成每个要素与坐标轴对齐的边界框。",
     keywords: ["envelope", "bounding box", "bbox", "外接矩形", "范围"],
-    requiresTarget: false,
-    sourceKinds: all,
-    metric: false,
-    parameters: [],
     help: "为每个输入要素生成经纬度边界框，保留属性。退化为单点或共线范围时，结果可能为点或线。",
   },
   {
@@ -226,10 +173,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "几何处理",
     description: "将多点、多线、多面拆成独立要素。",
     keywords: ["multipart to singleparts", "explode", "拆分", "单部件"],
-    requiresTarget: false,
-    sourceKinds: all,
-    metric: false,
-    parameters: [],
     help: "每个部件生成一个要素并复制原属性。单部件直接保留；面的内环仍属于原面，不拆成独立面。",
   },
   {
@@ -238,10 +181,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "几何处理",
     description: "将输入要素的顶点输出为点图层。",
     keywords: ["extract vertices", "nodes", "节点", "顶点"],
-    requiresTarget: false,
-    sourceKinds: all,
-    metric: false,
-    parameters: [],
     help: "提取线、面和多部件的顶点并保留原要素属性，附加顶点、部件和环的索引以定位来源。",
   },
   {
@@ -250,10 +189,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "几何处理",
     description: "将面的外边界和内环转换为线。",
     keywords: ["polygon to lines", "boundary", "边界线", "轮廓"],
-    requiresTarget: false,
-    sourceKinds: polygons,
-    metric: false,
-    parameters: [],
     help: "提取面的外环和内环作为线几何，保留输入属性。相邻面的共享边界仍分别保留。",
   },
   {
@@ -262,10 +197,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "几何处理",
     description: "按米制容差减少线、面的顶点。",
     keywords: ["simplify", "douglas peucker", "抽稀", "简化"],
-    requiresTarget: false,
-    sourceKinds: ["line", "polygon"],
-    metric: true,
-    parameters: ["toleranceMeters"],
     help: "容差越大，保留的顶点通常越少。结果保留属性；不提供相邻要素共享边界的拓扑联动，请对结果执行拓扑检查。",
   },
   {
@@ -282,10 +213,6 @@ export const analysisTools: AnalysisTool[] = [
       "长度",
       "周长",
     ],
-    requiresTarget: false,
-    sourceKinds: all,
-    metric: true,
-    parameters: [],
     help: "保留输入几何与原属性，添加适用于其几何类型的度量字段。长度和周长单位为米，面积为平方米。",
   },
   {
@@ -294,11 +221,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "几何处理",
     description: "把两个图层的要素汇集到独立图层。",
     keywords: ["merge vector layers", "append", "拼接", "合并"],
-    requiresTarget: true,
-    sourceKinds: all,
-    targetKinds: all,
-    metric: false,
-    parameters: [],
     help: "合并两个输入图层的要素与属性字段，不消除重叠或内部边界。结果可包含不同几何类型；需要消除面边界时使用融合。",
   },
   {
@@ -307,11 +229,6 @@ export const analysisTools: AnalysisTool[] = [
     category: "质量与统计",
     description: "检查无效几何、重复几何及面重叠。",
     keywords: ["topology check", "validity", "拓扑", "有效性", "重复", "重叠"],
-    requiresTarget: false,
-    sourceKinds: all,
-    metric: false,
-    parameters: [],
-    report: true,
     help: "返回问题清单，不自动修复数据。检查有效性、精确重复、XY 拓扑重复和面重叠；无效几何不参与成对检查。未覆盖面缝隙或共享边界一致性。要素序号按本次输入顺序显示。",
   },
   {
@@ -320,14 +237,57 @@ export const analysisTools: AnalysisTool[] = [
     category: "质量与统计",
     description: "查看要素数量、几何类型、字段和范围。",
     keywords: ["layer summary", "statistics", "摘要", "统计", "字段", "范围"],
-    requiresTarget: false,
-    sourceKinds: all,
-    metric: false,
-    parameters: [],
-    report: true,
     help: "查看输入图层的几何与字段概况、经纬度范围。勾选仅使用选中要素时，摘要只统计本次选中的输入。",
   },
 ];
+
+type AnalysisContract = Pick<
+  AnalysisTool,
+  | "id"
+  | "requiresTarget"
+  | "sourceKinds"
+  | "targetKinds"
+  | "metric"
+  | "parameters"
+  | "report"
+  | "parameterSchema"
+> & { gui: boolean };
+const contracts = new Map(
+  (generatedCatalog as AnalysisContract[]).map((spec) => [spec.id, spec]),
+);
+
+// Presentation copy stays localizable; behavior comes exclusively from the Rust registry.
+export const analysisTools: AnalysisTool[] = presentation.map((copy) => {
+  const spec = contracts.get(copy.id);
+  if (!spec?.gui) throw new Error(`Missing GUI analysis contract: ${copy.id}`);
+  return {
+    ...copy,
+    requiresTarget: spec.requiresTarget,
+    sourceKinds: spec.sourceKinds,
+    ...(spec.targetKinds ? { targetKinds: spec.targetKinds } : {}),
+    metric: spec.metric,
+    parameters: spec.parameters,
+    parameterSchema: spec.parameterSchema,
+    ...(spec.report ? { report: true } : {}),
+  };
+});
+
+export function validAnalysisNumber(
+  tool: AnalysisTool,
+  key: AnalysisParameter,
+  input: string,
+): boolean {
+  const schema = tool.parameterSchema.properties[key];
+  const value = Number(input);
+  return (
+    schema?.type === "number" &&
+    input.trim() !== "" &&
+    Number.isFinite(value) &&
+    (schema.exclusiveMinimum === undefined ||
+      value > schema.exclusiveMinimum) &&
+    (schema.maximum === undefined || value <= schema.maximum)
+  );
+}
 
 export function getAnalysisTool(id: string): AnalysisTool | undefined {
   return analysisTools.find((tool) => tool.id === id);

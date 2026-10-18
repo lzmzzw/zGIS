@@ -61,6 +61,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo clippy --manifest-path crates/spatial-core/Cargo.toml --all-targets --locked -- -D warnings
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm analysis:check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: 浏览器验证静态资源
         run: |
           pnpm exec playwright install msedge
