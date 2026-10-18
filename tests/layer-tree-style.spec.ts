@@ -139,10 +139,8 @@ test("checkboxes and nested indentation align and geometry symbols open the only
   await page
     .getByRole("button", { name: "points.geojson样式", exact: true })
     .click();
-  await expect(page.getByRole("dialog")).toHaveAccessibleName(
-    "图层样式：points.geojson",
-  );
-  await page.getByLabel("points.geojson颜色", { exact: true }).fill("#ff8833");
+  await expect(page.locator(".layer-inspector")).toContainText("points.geojson");
+  await page.getByLabel("颜色", { exact: true }).fill("#ff8833");
   await page.getByRole("button", { name: "应用样式", exact: true }).click();
   await expect(row(page, "points.geojson").locator(".layer-swatch")).toHaveCSS(
     "background-color",
@@ -159,6 +157,21 @@ test("checkboxes and nested indentation align and geometry symbols open the only
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+});
+
+test("switching layers closes the inspector and discards an unapplied style preview", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("button", { name: "points.geojson样式", exact: true }).click();
+  const inspector = page.locator(".layer-inspector");
+  const color = inspector.getByLabel("颜色", { exact: true });
+  const original = await color.inputValue();
+  await color.fill("#fa1234");
+  await expect(inspector).toContainText("当前预览尚未应用");
+  await row(page, "lines.geojson").locator(".layer-text").click();
+  await expect(inspector).toHaveCount(0);
+  await page.getByRole("button", { name: "points.geojson样式", exact: true }).click();
+  await expect(color).toHaveValue(original);
+  await inspector.getByRole("button", { name: "取消", exact: true }).click();
 });
 
 test("renaming changes display only, keeps save filenames and survives work-copy recovery", async ({

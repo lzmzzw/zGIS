@@ -182,14 +182,16 @@ test("field menus support keyboard access, restore focus and open an editable fi
     page.getByRole("menu", { name: "字段操作", exact: true }),
   ).toBeVisible();
   await expect(item(page, "复制字段名")).toBeFocused();
-  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名"]);
+  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名", "字段概览"]);
   await page.keyboard.press("Enter");
   await expectClipboard(page, "name");
   await expect(summary).toBeFocused();
   await page.getByRole("button", {name:"编辑属性",exact:true}).click();
   await summary.focus();
   await page.keyboard.press("Shift+F10");
-  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名", "添加字段", "重命名字段", "删除字段"]);
+  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名", "字段概览", "添加字段", "重命名字段", "删除字段"]);
+  await page.keyboard.press("ArrowDown");
+  await expect(item(page, "字段概览")).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(item(page, "添加字段")).toBeFocused();
   await page.keyboard.press("Space");
@@ -402,9 +404,9 @@ test("read-only database records expose copying while edits and schema changes r
     .filter({ hasText: /^name$/ })
     .focus();
   await page.keyboard.press("Shift+F10");
-  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名"]);
+  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名", "字段概览"]);
   await page.keyboard.press("End");
-  await expect(item(page, "复制字段名")).toBeFocused();
+  await expect(item(page, "字段概览")).toBeFocused();
 
 });
 

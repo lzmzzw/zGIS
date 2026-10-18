@@ -259,29 +259,30 @@ test("layer symbol styles target the clicked layer and support apply and cancel"
   await page
     .getByRole("button", { name: "attributes.geojson样式", exact: true })
     .click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toHaveAccessibleName("图层样式：attributes.geojson");
+  const dialog = page.locator(".layer-inspector");
+  await expect(dialog).toContainText("attributes.geojson");
   await page
-    .getByLabel("attributes.geojson颜色", { exact: true })
+    .getByLabel("颜色", { exact: true })
     .fill("#ff0000");
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
   await page
     .getByRole("button", { name: "attributes.geojson样式", exact: true })
     .click();
   await expect(
-    page.getByLabel("attributes.geojson颜色", { exact: true }),
+    page.getByLabel("颜色", { exact: true }),
   ).not.toHaveValue("#ff0000");
   await page
-    .getByLabel("attributes.geojson颜色", { exact: true })
+    .getByLabel("颜色", { exact: true })
     .fill("#00ff00");
   await dialog.getByRole("button", { name: "应用样式", exact: true }).click();
   await page
     .getByRole("button", { name: "attributes.geojson样式", exact: true })
     .click();
   await expect(
-    page.getByLabel("attributes.geojson颜色", { exact: true }),
+    page.getByLabel("颜色", { exact: true }),
   ).toHaveValue("#00ff00");
   await page.screenshot({ path: "output/smoke/layer-properties.png" });
+  await dialog.getByLabel("颜色", { exact: true }).focus();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(page.locator(".inspector")).toHaveCount(0);
@@ -299,7 +300,7 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
     .getByRole("button", { name: "attributes.geojson样式", exact: true })
     .click();
   await page
-    .getByLabel("attributes.geojson颜色", { exact: true })
+    .getByLabel("颜色", { exact: true })
     .fill("#123456");
   const drainsBefore = await page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_results_drain").length);
   await page.evaluate(() =>
@@ -319,9 +320,7 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
     .poll(() => page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_results_drain").length))
     .toBeGreaterThan(drainsBefore);
   expect(await page.evaluate(() => window.__ZG_TEST__.analysisResults.length)).toBe(1);
-  await expect(page.getByRole("dialog")).toHaveAccessibleName(
-    "图层样式：attributes.geojson",
-  );
+  await expect(page.locator(".layer-inspector")).toContainText("attributes.geojson");
   await expect(
     page.locator(".layer-text").filter({ hasText: "分析结果" }),
   ).toHaveCount(0);
@@ -332,7 +331,7 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
     .getByRole("button", { name: "返回编辑", exact: true })
     .click();
   await expect(
-    page.getByLabel("attributes.geojson颜色", { exact: true }),
+    page.getByLabel("颜色", { exact: true }),
   ).toHaveValue("#123456");
   await page.getByRole("button", { name: "应用样式", exact: true }).click();
   await expect(page.locator(".layer-text").filter({ hasText: "分析结果" })).toHaveCount(0);
@@ -346,7 +345,7 @@ test("layer style drafts survive cancelled native exit and defer incoming analys
     .getByRole("button", { name: "attributes.geojson样式", exact: true })
     .click();
   await expect(
-    page.getByLabel("attributes.geojson颜色", { exact: true }),
+    page.getByLabel("颜色", { exact: true }),
   ).toHaveValue("#123456");
 });
 
@@ -359,10 +358,10 @@ test("confirmed native exit includes deferred analysis layers but discards uncon
     .getByRole("button", { name: "attributes.geojson样式", exact: true })
     .click();
   const originalColor = await page
-    .getByLabel("attributes.geojson颜色", { exact: true })
+    .getByLabel("颜色", { exact: true })
     .inputValue();
   await page
-    .getByLabel("attributes.geojson颜色", { exact: true })
+    .getByLabel("颜色", { exact: true })
     .fill("#abcdef");
   const drainsBefore = await page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "gis_results_drain").length);
   await page.evaluate(() =>

@@ -78,7 +78,7 @@ async function noChineseUi(root: Locator) {
   expect(fragments).toEqual([]);
 }
 
-test("all 22 shared tools translate labels, help, parameters and validation while preserving drafts", async ({
+test("all shared tools translate labels, help, parameters and validation while preserving drafts", async ({
   page,
 }) => {
   await start(page);
@@ -86,7 +86,7 @@ test("all 22 shared tools translate labels, help, parameters and validation whil
   const box = page.locator(".processing-toolbox");
   for (const toggle of await box.locator(".processing-group-toggle").all())
     await toggle.click();
-  await expect(box.locator(".processing-tool-option:visible")).toHaveCount(22);
+  await expect(box.locator(".processing-tool-option:visible")).toHaveCount(analysisTools.length);
   for (const tool of analysisTools) {
     const label = shared[tool.label];
     expect(label).toBeTruthy();
@@ -133,18 +133,18 @@ test("topology and summary reports switch existing issue labels, ordinals and ge
     .getByRole("button", { name: "Topology check", exact: true })
     .click();
   await box.getByRole("button", { name: "Run analysis", exact: true }).click();
-  await expect(box.locator(".processing-report")).toContainText(
+  await expect(box.locator(".processing-report:not(.processing-explanation)")).toContainText(
     "Overlapping polygons",
   );
-  await expect(box.locator(".processing-report")).toContainText("Feature 1");
+  await expect(box.locator(".processing-report:not(.processing-explanation)")).toContainText("Feature 1");
   await noChineseUi(box);
   await switchLocale(page, "zh-CN");
-  await expect(box.locator(".processing-report")).toContainText("面重叠");
-  await expect(box.locator(".processing-report")).toContainText("第 1 个");
+  await expect(box.locator(".processing-report:not(.processing-explanation)")).toContainText("面重叠");
+  await expect(box.locator(".processing-report:not(.processing-explanation)")).toContainText("第 1 个");
   await switchLocale(page, "en");
   await box.getByRole("button", { name: "Layer summary", exact: true }).click();
   await box.getByRole("button", { name: "Run analysis", exact: true }).click();
-  await expect(box.locator(".processing-report")).toContainText("Fields (1)");
+  await expect(box.locator(".processing-report:not(.processing-explanation)")).toContainText("Fields (1)");
   await noChineseUi(box);
 });
 
@@ -164,12 +164,12 @@ test("MCP catalogue and retained About update failures use the selected language
   await page.getByRole("button", { name: /Tool details/ }).click();
   for (const summary of await page.locator(".mcp-tool-item summary").all())
     await summary.click();
-  await expect(page.locator(".mcp-tool-item")).toHaveCount(22);
+  await expect(page.locator(".mcp-tool-item")).toHaveCount(analysisTools.length);
   await noChineseUi(page.locator(".mcp-panel"));
   await switchLocale(page, "zh-CN");
-  await expect(page.locator(".mcp-tool-item[open]")).toHaveCount(22);
+  await expect(page.locator(".mcp-tool-item[open]")).toHaveCount(analysisTools.length);
   await switchLocale(page, "en");
-  await expect(page.locator(".mcp-tool-item[open]")).toHaveCount(22);
+  await expect(page.locator(".mcp-tool-item[open]")).toHaveCount(analysisTools.length);
   await page.getByRole("button", { name: "About", exact: true }).click();
   await page.evaluate(() => {
     window.__ZG_TEST__.updateResult = {
