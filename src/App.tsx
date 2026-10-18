@@ -2328,7 +2328,10 @@ export default function App() {
                 !/geometry|geography/i.test(c.type),
             )
             .map((c) => c.name),
-          dbBaseline: cloneFeatures(result.features),
+          dbBaseline:
+            result.writable === false || !layer.keyColumns.length
+              ? []
+              : cloneFeatures(result.features),
           dbReadLimit: dbLimit,
           dbBounds: bbox,
           db: {
@@ -2342,7 +2345,7 @@ export default function App() {
             : [],
         },
       );
-      dbBaselines.current.set(doc.id, cloneFeatures(doc.features));
+      dbBaselines.current.set(doc.id, cloneFeatures(doc.dbBaseline!));
       dbReadLimits.current.set(doc.id, dbLimit);
       if (bbox) dbBounds.current.set(doc.id, bbox);
       addLayers([doc]);

@@ -142,7 +142,16 @@ function safeFeatures(values: unknown, requireIds = false): GeoFeature[] {
   return result;
 }
 
-function safeDatabaseBaseline(values: unknown): GeoFeature[] {
+function safeDatabaseBaseline(
+  values: unknown,
+  writable: boolean,
+): GeoFeature[] {
+  // 只读查询可能为每行返回空 dbKey；它们不是可用于提交或合并的记录身份。
+  // 兼容旧副本中的只读基线，仅校验要素结构，重连时由原表重新读取。
+  if (!writable) {
+    safeFeatures(values, true);
+    return [];
+  }
   const identities = validatedDatabaseIdentities(values);
   return safeFeatures(values, true).map((feature, index) => ({
     ...feature,
@@ -419,7 +428,10 @@ function snapshotLayerData(layers: DocumentLayer[]) {
             dbBaseline:
               layer.dbBaseline === undefined
                 ? undefined
-                : safeDatabaseBaseline(layer.dbBaseline),
+                : safeDatabaseBaseline(
+                    layer.dbBaseline,
+                    Boolean(layer.db?.keyColumns.length),
+                  ),
             dbReadLimit: safeDatabaseReadLimit(layer.dbReadLimit),
             dbBounds: safeDatabaseBounds(layer.dbBounds),
             dbCommitUncertain: layer.dbCommitUncertain,
@@ -598,7 +610,10 @@ export function restoreLayers(raw: string): DocumentLayer[] {
             dbBaseline:
               value.dbBaseline === undefined
                 ? undefined
-                : safeDatabaseBaseline(value.dbBaseline),
+                : safeDatabaseBaseline(
+                    value.dbBaseline,
+                    db.keyColumns.length > 0,
+                  ),
             dbNeedsVerification: true,
             dbReadLimit: safeDatabaseReadLimit(value.dbReadLimit),
             dbBounds: safeDatabaseBounds(value.dbBounds),

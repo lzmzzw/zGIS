@@ -757,8 +757,68 @@ it("旧快照仅残留数据库 connectionId 时恢复为无原表身份占位�
   }
 });
 
+it("只读数据库图层的空键记录可保存和恢复，不保留不可核对的提交基线", () => {
+  for (const engine of ["postgis", "mysql"] as const) {
+    const layer = databaseRecoveryFixture(engine);
+    layer.db!.keyColumns = [];
+    layer.dirty = false;
+    layer.schemaChanges = undefined;
+    layer.dbCommitUncertain = undefined;
+    const rows = [1, 2].map((value) => ({
+      id: `readonly-${value}`,
+      geometry: null,
+      properties: { name: `记录-${value}` },
+      dbKey: {},
+      baseline: engine === "mysql" ? {} : { name: `记录-${value}` },
+    }));
+    layer.features = rows;
+    layer.dbBaseline = rows;
+    const file = makeLayer(
+      "local",
+      [{ id: "local-1", geometry: null, properties: { name: "本地工作稿" } }],
+      "geojson",
+      { dirty: true },
+    );
+    const snapshot = snapshotWorkspace(
+      [layer, file],
+      [layer, file].map(({ id }) => ({ kind: "layer", id })),
+    );
+    const workspace = restoreWorkspace(snapshot);
+    const restored = workspace.layers[0];
+    expect(workspace.layers[1].features).toEqual(file.features);
+    expect(workspace.layers[1].dirty).toBe(true);
+    expect(restored.features.map((feature) => feature.properties)).toEqual(
+      rows.map((feature) => feature.properties),
+    );
+    expect(restored.db).toMatchObject({
+      engine,
+      keyColumns: [],
+      connectionId: "",
+    });
+    expect(restored.dbBaseline).toEqual([]);
+    expect(restored.dbNeedsVerification).toBe(true);
+    expect(restored.dirty).toBe(false);
+    expect(() => snapshotLayers([restored])).not.toThrow();
+
+    // 兼容旧版写入的只读基线，同时保留来源和读取范围。
+    const legacy = JSON.parse(snapshot);
+    legacy.layers[0].dbBaseline = rows;
+    const oldRestored = restoreWorkspace(JSON.stringify(legacy)).layers[0];
+    expect(oldRestored.dbBaseline).toEqual([]);
+    expect(oldRestored.db?.sourceId).toBe(layer.db!.sourceId);
+    expect(oldRestored.dbReadLimit).toBe(layer.dbReadLimit);
+    expect(oldRestored.dbBounds).toEqual(layer.dbBounds);
+  }
+});
+
 it("数据库基线及读取条件损坏明确拒绝，空只读基线允许恢复", () => {
   const layer = databaseRecoveryFixture();
+  const duplicate = { ...layer.dbBaseline![0], id: "duplicate-key" };
+  expect(() =>
+    snapshotLayers([
+      { ...layer, dbBaseline: [...layer.dbBaseline!, duplicate] },
+    ]),
+  ).toThrow("重复键");
   const original = JSON.parse(snapshotLayers([layer]));
   const corruptions = [
     (raw: typeof original) => {
