@@ -1,0 +1,2093 @@
+[
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "移除空/无效几何并报告总数及原因预览；生成独立结果，保留有效要素",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "clean_geometries"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "空间谓词查询；bbox与target二选一；经纬度平面关系，禁止跨日期变更线",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bbox": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "predicate": {
+          "default": "intersects",
+          "enum": [
+            "intersects",
+            "within",
+            "contains",
+            "touches",
+            "disjoint"
+          ],
+          "type": "string"
+        },
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "spatial_query"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "空间关联，保留源属性并附加匹配目标",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "predicate": {
+          "default": "intersects",
+          "enum": [
+            "intersects",
+            "within",
+            "contains",
+            "touches",
+            "disjoint"
+          ],
+          "type": "string"
+        },
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "type": "object"
+    },
+    "name": "spatial_join"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "点对采用 WGS84 椭球测地距离；其他几何采用成对局部等距圆柱近似",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "type": "object"
+    },
+    "name": "nearest"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "检查无效几何、重复几何及面重叠，返回有界报告",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "topology_check"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "局部等距圆柱近似米制缓冲，限局部低中纬度数据",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "distanceMeters": {
+          "exclusiveMinimum": 0,
+          "maximum": 100000,
+          "type": "number"
+        },
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "distanceMeters"
+      ],
+      "type": "object"
+    },
+    "name": "buffer"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "面与面裁剪",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "type": "object"
+    },
+    "name": "clip"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "合并面几何，可按字段类型和值分组",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "groupBy": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "dissolve"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "图层几何、属性、范围摘要",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "layer_summary"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "面相交，逐对保留源属性与 target_ 前缀目标属性",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "type": "object"
+    },
+    "name": "intersection"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "面差集，保留源属性",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "type": "object"
+    },
+    "name": "difference"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "面对称差，分别保留两侧属性",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "type": "object"
+    },
+    "name": "symmetric_difference"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "每个要素的平面质心，可能位于面外",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "centroid"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "每个要素的表面代表点",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "point_on_surface"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "每个要素的凸包，退化结果为点或线",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "convex_hull"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "每个要素的轴对齐包络，退化结果为点或线",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "envelope"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "多部件转单部件，保留属性并移除旧 ID",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "multipart_to_singleparts"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "提取顶点，面环不重复末尾闭合点，保留部件/环/节点索引",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "extract_vertices"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "面边界转多线，包含洞",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "polygon_to_lines"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Douglas–Peucker 近似米制简化；无效结果拒绝",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "toleranceMeters": {
+          "exclusiveMinimum": 0,
+          "maximum": 100000,
+          "type": "number"
+        }
+      },
+      "required": [
+        "source",
+        "toleranceMeters"
+      ],
+      "type": "object"
+    },
+    "name": "simplify"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "添加近似平方米面积及米制长度（面包含洞周长），冲突字段加下划线",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "name": "geometry_attributes"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "面内点计数，包含边界，多点按每个点计数",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "type": "object"
+    },
+    "name": "count_points"
+  },
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "合并两层要素，保留属性并移除旧 ID",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "target": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "layerId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "layerId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "enum": [
+                    "EPSG:4326",
+                    "EPSG:4490",
+                    "EPSG:3857"
+                  ],
+                  "type": "string"
+                },
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "wktField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "xField": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "yField": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "type": "object"
+    },
+    "name": "merge"
+  }
+]

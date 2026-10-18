@@ -1,0 +1,274 @@
+[
+  {
+    "id": "buffer",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": true,
+    "parameters": [
+      "distanceMeters"
+    ]
+  },
+  {
+    "id": "clip",
+    "requiresTarget": true,
+    "sourceKinds": [
+      "polygon"
+    ],
+    "targetKinds": [
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "intersection",
+    "requiresTarget": true,
+    "sourceKinds": [
+      "polygon"
+    ],
+    "targetKinds": [
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "difference",
+    "requiresTarget": true,
+    "sourceKinds": [
+      "polygon"
+    ],
+    "targetKinds": [
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "symmetric_difference",
+    "requiresTarget": true,
+    "sourceKinds": [
+      "polygon"
+    ],
+    "targetKinds": [
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "dissolve",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": [
+      "groupBy"
+    ]
+  },
+  {
+    "id": "spatial_query",
+    "requiresTarget": true,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "targetKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": [
+      "predicate"
+    ]
+  },
+  {
+    "id": "spatial_join",
+    "requiresTarget": true,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "targetKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": [
+      "predicate"
+    ]
+  },
+  {
+    "id": "nearest",
+    "requiresTarget": true,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "targetKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": true,
+    "parameters": []
+  },
+  {
+    "id": "count_points",
+    "requiresTarget": true,
+    "sourceKinds": [
+      "polygon"
+    ],
+    "targetKinds": [
+      "point"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "centroid",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "point_on_surface",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "convex_hull",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "envelope",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "multipart_to_singleparts",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "extract_vertices",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "polygon_to_lines",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "simplify",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "line",
+      "polygon"
+    ],
+    "metric": true,
+    "parameters": [
+      "toleranceMeters"
+    ]
+  },
+  {
+    "id": "geometry_attributes",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": true,
+    "parameters": []
+  },
+  {
+    "id": "merge",
+    "requiresTarget": true,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "targetKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": []
+  },
+  {
+    "id": "topology_check",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": [],
+    "report": true
+  },
+  {
+    "id": "layer_summary",
+    "requiresTarget": false,
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ],
+    "metric": false,
+    "parameters": [],
+    "report": true
+  }
+]
