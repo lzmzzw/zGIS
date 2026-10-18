@@ -74,6 +74,67 @@
     "parameterSchema": {
       "additionalProperties": false,
       "properties": {
+        "aggregations": {
+          "items": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "op": {
+                    "enum": [
+                      "count_all"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "op"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "field": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "op": {
+                    "enum": [
+                      "count_valid",
+                      "sum",
+                      "mean",
+                      "min",
+                      "max"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "op",
+                  "field"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        },
         "predicate": {
           "default": "intersects",
           "enum": [
@@ -90,7 +151,8 @@
       "type": "object"
     },
     "parameters": [
-      "predicate"
+      "predicate",
+      "aggregations"
     ],
     "requiresTarget": true,
     "resultKind": "features",

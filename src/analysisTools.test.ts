@@ -24,11 +24,17 @@ it("工具契约迁移保留 GUI 顺序、几何限制、参数与结果类型",
         sourceKinds,
         targetKinds,
         metric,
-        parameters,
+        parameters: id === "spatial_join" ? parameters.filter(parameter => parameter !== "aggregations") : parameters,
         report,
       }),
     ),
   ).toEqual(baseline);
+});
+
+it("空间关联仅增补可选聚合参数，默认谓词契约保持不变", () => {
+  const tool = getAnalysisTool("spatial_join")!;
+  expect(tool.parameters).toEqual(["predicate", "aggregations"]);
+  expect(tool.parameterSchema.required).not.toContain("aggregations");
 });
 
 it("数值表单使用注册表的开下界与闭上界，拒绝空值和非有限数", () => {

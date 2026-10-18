@@ -68,6 +68,7 @@ pub enum TargetRequirement {
 }
 #[derive(Clone, Copy, Debug)]
 pub enum Parameter {
+    Aggregations,
     Metrics,
     StatisticsGroupBy,
     Condition,
@@ -80,6 +81,7 @@ pub enum Parameter {
 impl Parameter {
     pub fn key(self) -> &'static str {
         match self {
+            Self::Aggregations => "aggregations",
             Self::Metrics => "metrics",
             Self::StatisticsGroupBy => "groupBy",
             Self::Condition => "condition",
@@ -98,7 +100,7 @@ impl Parameter {
     }
     pub fn schema(self) -> Value {
         match self {
-            Self::Metrics => crate::statistics::metrics_schema(),
+            Self::Metrics | Self::Aggregations => crate::statistics::metrics_schema(),
             Self::StatisticsGroupBy => json!({"type":"string","minLength":1,"maxLength":256}),
             Self::Condition => crate::attributes::condition_schema(),
             Self::Predicate => {
@@ -114,7 +116,7 @@ impl Parameter {
         }
     }
     fn validate(self, value: &Value) -> Result<(), String> {
-        if matches!(self, Self::Metrics) {
+        if matches!(self, Self::Metrics | Self::Aggregations) {
             return crate::statistics::parse_metrics(value).map(|_| ());
         }
         if matches!(self, Self::Condition) {
@@ -122,7 +124,7 @@ impl Parameter {
         }
         let schema = self.schema();
         match self {
-            Self::Condition | Self::Metrics => unreachable!(),
+            Self::Condition | Self::Metrics | Self::Aggregations => unreachable!(),
             Self::StatisticsGroupBy => {
                 if value
                     .as_str()
@@ -260,7 +262,7 @@ pub static ANALYSES: &[AnalysisSpec] = &[
         operation: Operation::SpatialJoin,
         description: "空间关联，保留源属性并附加匹配目标",
         target: TargetRequirement::Required,
-        parameters: &[Parameter::Predicate],
+        parameters: &[Parameter::Predicate, Parameter::Aggregations],
         gui: true,
         source_kinds: &["point", "line", "polygon"],
         target_kinds: &["point", "line", "polygon"],

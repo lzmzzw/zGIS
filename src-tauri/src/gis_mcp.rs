@@ -1395,6 +1395,41 @@ mod tests {
         assert!(!m.status().enabled);
     }
     #[test]
+    fn spatial_join_aggregations_share_schema_cache_and_independent_publication() {
+        let m=GisMcp::default();
+        let source=json!({"id":"source","name":"source","features":[
+            {"type":"Feature","id":"a","geometry":{"type":"Point","coordinates":[0,0,17]},"properties":{"sum":99}},
+            {"type":"Feature","id":"b","geometry":{"type":"Point","coordinates":[10,0,18]},"properties":{}}
+        ]});
+        let target=json!({"id":"target","name":"target","features":[
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[0,0,2]},"properties":{"x":2}},
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[0,0,3]},"properties":{"x":3}}
+        ]});
+        {let mut inner=m.inner.lock().unwrap();inner.layers.push(LayerSnapshot::from_value(source.clone()).unwrap());inner.layers.push(LayerSnapshot::from_value(target.clone()).unwrap());}
+        let aggregations=json!([{"name":"count","op":"count_all"},{"name":"sum","op":"sum","field":"x"}]);
+        let args=json!({"source":{"layerId":"source"},"target":{"layerId":"target"},"aggregations":aggregations});
+        let result=call(&m,"spatial_join",&args).unwrap();
+        assert_eq!(result["summary"]["analysis"]["aggregationFields"]["sum"],"sum_");
+        let read=call(&m,"read_result",&json!({"resultId":result["resultId"]})).unwrap();
+        assert_eq!(read["features"].as_array().unwrap().len(),2);
+        assert_eq!(read["features"][0]["properties"]["sum"],99);
+        assert_eq!(read["features"][0]["properties"]["sum_"].as_f64(),Some(5.0));
+        assert_eq!(read["features"][0]["properties"]["count"],2);
+        assert_eq!(read["features"][1]["properties"]["count"],0);
+        assert!(read["features"][1]["properties"]["sum_"].is_null());
+        assert_eq!(read["features"][0]["geometry"],source["features"][0]["geometry"]);
+        call(&m,"publish_result",&json!({"resultId":result["resultId"],"name":"关联统计"})).unwrap();
+        assert_eq!(m.inner.lock().unwrap().queue[0].features[0],read["features"][0]);
+        assert_eq!(m.inner.lock().unwrap().layers[0].value(),source);
+        assert_eq!(m.inner.lock().unwrap().layers[1].value(),target);
+        let count=m.inner.lock().unwrap().results.len();
+        for invalid in [json!([]),json!([{"name":"x","op":"eval","field":"x"}]),json!([{"name":"x","op":"count_all","path":"arbitrary"}])] {
+            let mut args=args.clone();args["aggregations"]=invalid;
+            assert!(call(&m,"spatial_join",&args).is_err());
+        }
+        assert_eq!(m.inner.lock().unwrap().results.len(),count);
+    }
+    #[test]
     fn statistics_reports_page_rows_and_reject_vector_publication_or_sources() {
         let m=GisMcp::default();
         let features:Vec<_>=(0..205).map(|n|json!({"type":"Feature","geometry":{"type":"Point","coordinates":[116,39,17]},"properties":{"g":n,"x":n}})).collect();
@@ -1619,7 +1654,11 @@ mod analysis_contract_tests {
     fn public_analysis_schemas_keep_the_baseline() {
         let baseline: serde_json::Value = serde_json::from_str(include_str!("../../crates/spatial-core/tool-contract-baseline.json")).unwrap();
         let definitions=super::analysis_definitions();
-        let existing: Vec<_> = definitions.iter().filter(|tool| baseline.as_array().unwrap().iter().any(|old| old["name"]==tool["name"])).cloned().collect();
+        let mut existing: Vec<_> = definitions.iter().filter(|tool| baseline.as_array().unwrap().iter().any(|old| old["name"]==tool["name"])).cloned().collect();
+        let join=existing.iter_mut().find(|tool|tool["name"]=="spatial_join").unwrap();
+        assert_eq!(join["inputSchema"]["properties"]["aggregations"],spatial_core::registry::Parameter::Metrics.schema());
+        assert!(!join["inputSchema"]["required"].as_array().unwrap().iter().any(|p|p=="aggregations"));
+        join["inputSchema"]["properties"].as_object_mut().unwrap().remove("aggregations");
         assert_eq!(serde_json::json!(existing), baseline);
         let new: Vec<_> = definitions.iter().filter(|tool| !baseline.as_array().unwrap().iter().any(|old| old["name"]==tool["name"])).map(|tool| tool["name"].as_str().unwrap()).collect();
         assert_eq!(new, ["extract_by_attribute","field_statistics"]);

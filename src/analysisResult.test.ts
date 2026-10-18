@@ -9,6 +9,18 @@ const context = {
   parameters: { distanceMeters: 12 },
 };
 describe("analysis result explanations", () => {
+  it("explains declared aggregation scope and collision-safe output names", () => {
+    const explanation = explainAnalysisResult({ type: "FeatureCollection", features: [], analysis: {
+      aggregationScope: "target_features_per_source", overlapPolicy: "targets_may_contribute_to_multiple_sources",
+      numericPrecision: "approximate_non_financial",
+      aggregationFields: { total: "total_" },
+    } }, { ...context, operation: "spatial_join" });
+    expect(explanation.details).toContainEqual({ label: "聚合输出字段", value: "total → total_" });
+    expect(explanation.warnings).toHaveLength(3);
+    expect(explanation.warnings).toContain("聚合使用带补偿求和的浮点近似，不用于要求精确小数的财务结算。");
+    expect(analysisLayerNotes(explanation)).toEqual(["聚合输出字段：total → total_", ...explanation.warnings]);
+    expect(explainAnalysisResult({ type: "FeatureCollection", features: [] }, { ...context, operation: "spatial_join" }).warnings).toEqual([]);
+  });
   it("translates persisted model notes after switching languages", () => {
     expect(translate("计算模型：局部等距圆柱近似", "en")).toBe(
       "Calculation model: Local equirectangular approximation",

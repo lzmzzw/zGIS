@@ -2,7 +2,7 @@ import generatedCatalog from "./generated/analysis-catalog.json" with { type: "j
 
 export type AnalysisGeometryKind = "point" | "line" | "polygon";
 export type AnalysisParameter =
-  "distanceMeters" | "toleranceMeters" | "groupBy" | "predicate" | "condition" | "metrics";
+  "distanceMeters" | "toleranceMeters" | "groupBy" | "predicate" | "condition" | "metrics" | "aggregations";
 
 export interface AnalysisParameterSchema {
   properties: Record<

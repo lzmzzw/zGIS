@@ -113,6 +113,27 @@ pub(crate) fn validate_fields(
     Ok(())
 }
 
+/// 关联前验证目标字段类型，不对全体目标做求和，以免混淆每个源要素的累计范围。
+pub(crate) fn validate_values(metrics: &[Metric], source: &[Value]) -> Result<(), String> {
+    validate_fields(metrics, None, source)?;
+    for feature in source {
+        for metric in metrics {
+            crate::checkpoint()?;
+            if matches!(metric.op, MetricOp::CountAll | MetricOp::CountValid) {
+                continue;
+            }
+            if let Some(value) = feature["properties"]
+                .as_object()
+                .and_then(|p| p.get(metric.field.as_ref().unwrap()))
+                .filter(|v| !v.is_null())
+            {
+                numeric(value)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct Accumulator {
     valid: usize,

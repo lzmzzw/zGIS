@@ -49,6 +49,7 @@ export interface ProcessingToolboxProps {
 }
 interface ToolForm {
   metrics?: AnalysisMetric[];
+  aggregateTargets?: boolean;
   condition?: ConditionDraft;
   sourceId: string;
   targetId: string;
@@ -390,6 +391,10 @@ export function ProcessingToolbox({
       (tool.requiresTarget ? layerIssue(target, tool, true) : ""),
     [validationSource, target, tool],
   );
+  const targetFields = useMemo(() => target ? [...new Set([
+    ...(target.fieldNames ?? []),
+    ...target.features.flatMap(feature => Object.keys(feature.properties)),
+  ])].filter(Boolean).sort() : [], [target]);
   const numericKey = tool.parameters.includes("distanceMeters")
     ? "distanceMeters"
     : "toleranceMeters";
@@ -412,6 +417,8 @@ export function ProcessingToolbox({
   const condition = form.condition ?? newCondition(fields[0]);
   const metrics = form.metrics ?? [{ name: "count", op: "count_all" }];
   const statisticsError = tool.parameters.includes("metrics") ? metricsError(metrics, fields) : "";
+  const aggregationsEnabled = tool.parameters.includes("aggregations") && form.aggregateTargets === true;
+  const aggregationError = aggregationsEnabled ? metricsError(metrics, targetFields) : "";
   let parsedCondition: Record<string, unknown> | undefined;
   let conditionError = "";
   if (tool.parameters.includes("condition")) {
@@ -428,6 +435,7 @@ export function ProcessingToolbox({
         fieldError ||
         conditionError ||
         statisticsError ||
+        aggregationError ||
         (!tool.report && !form.outputName.trim()
           ? "请输入结果图层名称。"
           : "") ||
@@ -490,6 +498,7 @@ export function ProcessingToolbox({
     setResult(undefined);
     const parameters: Record<string, unknown> = {};
     if (tool.parameters.includes("metrics")) parameters.metrics = normalizedMetrics(metrics);
+    if (aggregationsEnabled) parameters.aggregations = normalizedMetrics(metrics);
     if (tool.parameters.includes("condition")) parameters.condition = parsedCondition;
     if (tool.parameters.includes("distanceMeters"))
       parameters.distanceMeters = Number(form.distanceMeters);
@@ -773,6 +782,13 @@ export function ProcessingToolbox({
                       </label>
                     )}
                     {tool.parameters.includes("metrics") && <AnalysisMetrics value={metrics} fields={fields} onChange={(metrics) => changeForm({ metrics })} />}
+                    {tool.parameters.includes("aggregations") && <>
+                      <label className="processing-selected"><input type="checkbox" checked={form.aggregateTargets === true} onChange={event => changeForm({ aggregateTargets: event.target.checked })} />{t("汇总匹配目标的属性")}</label>
+                      {aggregationsEnabled && <>
+                        <AnalysisMetrics value={metrics} fields={targetFields} onChange={(metrics) => changeForm({ metrics })} />
+                        <p className="processing-note">{t("指标来自目标图层，按匹配要素统计；同一目标可计入多个输入区域，MultiPoint 按一个目标要素计算。")}</p>
+                      </>}
+                    </>}
                     {tool.parameters.includes("condition") && <AttributeConditionEditor value={condition} fields={fields} onChange={(condition) => changeForm({ condition })} />}
                     {tool.parameters.includes("predicate") && (
                       <label>

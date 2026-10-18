@@ -517,6 +517,27 @@ fn properties(f: &Value, key: &str, value: Value) -> Value {
     Value::Object(p)
 }
 
+// 全层统一输出字段名，同时预留各要素原有空间关联元数据的实际字段名。
+fn aggregation_fields(source: &[Value], metrics: &[crate::statistics::Metric]) -> Result<Vec<String>, String> {
+    let mut occupied = std::collections::BTreeSet::new();
+    for feature in source {
+        crate::checkpoint()?;
+        if let Some(properties) = feature["properties"].as_object() {
+            occupied.extend(properties.keys().cloned());
+            let mut join_key = "_zgis_join".to_string();
+            while properties.contains_key(&join_key) {crate::checkpoint()?;join_key.push('_');}
+            occupied.insert(join_key);
+        } else {occupied.insert("_zgis_join".into());}
+    }
+    let mut fields=Vec::new();
+    for metric in metrics {
+        let mut field=metric.name.clone();
+        while occupied.contains(&field) {crate::checkpoint()?;field.push('_');}
+        occupied.insert(field.clone());fields.push(field);
+    }
+    Ok(fields)
+}
+
 fn without_id(mut f: Value) -> Value {
     if let Some(o) = f.as_object_mut() {
         o.remove("id");
@@ -1048,6 +1069,14 @@ fn analyze_registered(
         }
         return Ok(collection(out, false));
     }
+    let aggregations = if operation == Operation::SpatialJoin {
+        args.get("aggregations").map(crate::statistics::parse_metrics).transpose()?
+    } else {None};
+    let aggregation_fields = if let Some(metrics) = &aggregations {
+        crate::input::validate_features(args,source,target)?;
+        crate::statistics::validate_values(metrics,target.unwrap_or(&[]))?;
+        aggregation_fields(source,metrics)?
+    } else {Vec::new()};
     let mut t = decode(target.unwrap_or(&[]), false)?;
     if operation == Operation::Merge {
         if target.is_none() {
@@ -1400,22 +1429,29 @@ fn analyze_registered(
                     matches.push(j);
                 }
             }
-            push_bounded(
-                &mut out,
-                &mut output_budget,
-                derived_feature(
-                    &source[i],
-                    None,
-                    properties(
-                        &source[i],
-                        "_zgis_join",
-                        json!({"count":matches.len(),"targetIndices":matches}),
-                    ),
-                ),
-            )?;
+            let mut joined_properties=properties(&source[i],"_zgis_join",json!({"count":matches.len(),"targetIndices":matches}));
+            if let Some(metrics)=&aggregations {
+                let mut accumulators=vec![crate::statistics::Accumulator::default();metrics.len()];
+                for j in &matches {
+                    for (metric,accumulator) in metrics.iter().zip(&mut accumulators) {
+                        accumulator.add(metric,&target.unwrap()[*j])?;
+                    }
+                }
+                for ((metric,accumulator),field) in metrics.iter().zip(accumulators).zip(&aggregation_fields) {
+                    joined_properties[field]=accumulator.value(metric);
+                }
+            }
+            push_bounded(&mut out,&mut output_budget,derived_feature(&source[i],None,joined_properties))?;
         }
     }
-    Ok(collection(out, false))
+    let mut result=collection(out,false);
+    if let Some(metrics)=aggregations {
+        let fields:serde_json::Map<String,Value>=metrics.iter().zip(aggregation_fields).map(|(m,f)|(m.name.clone(),json!(f))).collect();
+        result["analysis"]=json!({"aggregations":args["aggregations"],"aggregationFields":fields,
+            "aggregationScope":"target_features_per_source","overlapPolicy":"targets_may_contribute_to_multiple_sources",
+            "numericModel":"finite_f64_safe_integer_guard","numericPrecision":"approximate_non_financial"});
+    }
+    Ok(result)
 }
 
 // Bound repeated geometry traversal, including intermediate union growth.

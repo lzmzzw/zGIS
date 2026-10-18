@@ -1,5 +1,12 @@
 // Shared UI and analysis catalogue translations. Source phrases remain canonical.
 const messages: Record<string, string> = {
+  聚合输出字段: "Aggregate output fields",
+  "聚合使用带补偿求和的浮点近似，不用于要求精确小数的财务结算。": "Aggregates use floating-point approximations with compensated summation, not financial settlement requiring exact decimals.",
+  "聚合输出字段：{0}": "Aggregate output fields: {0}",
+  "聚合按每个输入的匹配目标要素计算，MultiPoint 只计一个目标要素；无匹配时计数为 0，数值指标为空值。": "Aggregates use matching target features for each input. A MultiPoint counts as one target feature; no matches produce zero counts and null numeric metrics.",
+  "同一目标可计入多个输入区域，各区域合计不等于全图唯一总量。": "A target can contribute to multiple input areas; totals across areas are not a unique total for the whole dataset.",
+  "汇总匹配目标的属性": "Aggregate matching target attributes",
+  "指标来自目标图层，按匹配要素统计；同一目标可计入多个输入区域，MultiPoint 按一个目标要素计算。": "Metrics use target fields and count matching features. A target may contribute to multiple input areas; a MultiPoint counts as one target feature.",
   "不分组，统计全部输入": "No grouping; aggregate all input features",
   "全部": "All",
   "统计指标格式无效": "Invalid statistics metric",

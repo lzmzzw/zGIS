@@ -40,7 +40,7 @@ Agent 对 zGIS 内部图层的操作统一使用 zGIS MCP，具体操作以工�
 | `read_features` | 当前图层分页要素 |
 | `load_vector_file` | 按路径加载外部矢量文件，生成缓存结果 |
 | `spatial_query` | bbox 或 intersects/within/contains/touches/disjoint 查询 |
-| `spatial_join` | 空间关联，源属性加匹配目标信息 |
+| `spatial_join` | 空间关联，源属性加匹配目标信息，可选 aggregations 指标 |
 | `nearest` | 最近目标：点对使用 WGS84 椭球测地距离，其他几何使用成对局部近似 |
 | `topology_check` | 无效几何、精确重复、XY 拓扑重复及面重叠报告 |
 | `clean_geometries` | 移除空/无效几何，输出独立结果与移除原因预览 |
@@ -86,7 +86,7 @@ Agent 对 zGIS 内部图层的操作统一使用 zGIS MCP，具体操作以工�
 
 `field_statistics` 接受可选 `groupBy` 和必填 `metrics`（1–8 项 `{name,op,field?}`），`count_all` 不带 field，其余指标必填。返回 `type:table`、分组/输入数量和有界行预览；完整报告通过 `read_result` 的 `resultKind:rows` 分页读取，每行含 typed group、values 与 valid/null/missing counts。报告不能用于矢量来源或 `publish_result`；版本变化、过期和缓存预算规则不变。数值近似与类型规则见工具箱说明。
 
-`read_features` 和 `read_result` 返回 `resultKind`、`returnedCount`、`nextOffset`、`hasMore`、`truncated`。按返回的 `nextOffset` 继续，不按请求 limit 推算；末页游标为 null。拓扑报告使用 `issues`，矢量结果使用 `features`。矢量分页可传 `properties:["字段名"]` 只读取指定属性（空数组表示不读属性），以及 `includeGeometry:false` 省略几何及 bbox；投影不修改缓存或源图层。超过响应预算的首条记录明确返回 `RESULT_ITEM_TOO_LARGE`，调整字段/几何选择后重试，不返回无法推进的空成功页。加载/分析预览使用 `sampleTruncated` 提示样本不完整。
+`read_features` 和 `read_result` 返回 `resultKind`、`returnedCount`、`nextOffset`、`hasMore`、`truncated`。按返回的 `nextOffset` 继续，不按请求 limit 推算；末页游标为 null。拓扑报告使用 `issues`，统计表使用 `rows`，矢量结果使用 `features`。矢量分页可传 `properties:["字段名"]` 只读取指定属性（空数组表示不读属性），以及 `includeGeometry:false` 省略几何及 bbox；投影不修改缓存或源图层。超过响应预算的首条记录明确返回 `RESULT_ITEM_TOO_LARGE`，调整字段/几何选择后重试，不返回无法推进的空成功页。加载/分析预览使用 `sampleTruncated` 提示样本不完整。
 
 `load_vector_file` 的结果摘要包含独立的 `sourceCrs` 与 `workingCrs`。分析中间结果使用完毕后，先用 `list_results` 查看 `resultId`、剩余结果数/要素数/字节数和 `expiresInSeconds`，再调用 `release_result({resultId})`。释放仅影响指定临时缓存，后续读取或分析引用失效；已发布图层和待导入副本不变，重复释放返回 `released:false`。释放与正在执行的分析使用互斥锁协调：分析已取得的独立输入快照不受后续释放影响。没有自动淘汰仍在引用的有效结果。
 
@@ -117,3 +117,5 @@ PostGIS 表按实际场景选择 zGIS MCP 分析已加载图层快照，或通�
 发布队列可重复读取，桌面按稳定结果 ID 去重，成功写入恢复副本后才确认移除。队列跨 MCP 停止/重启保留，但尚未进入恢复副本的队列不能跨 Rust 进程崩溃恢复。释放缓存不影响已接受的发布。分页先对借用数据计数，确认响应预算后才复制所选字段。共享引用、计算槽位和字节预算不等同于全进程 RSS 硬限制。
 
 外部读取增加单要素 100 万坐标位置、单次加载 200 万坐标位置预算。GeoJSON 常见的 type 在 features 之前的顺序可逐要素读取；兼容其他键顺序时仍可能先构造完整 JSON。文件加载与后续分析预算不同，加载成功不保证整层可一次分析。算法及实测范围见 [空间计算性能](spatial-performance.md)。
+
+空间关联 `spatial_join` 可传 `aggregations`，指标定义与 `field_statistics.metrics` 相同；省略时兼容旧输出。每源按匹配目标要素累计，输出字段冲突统一追加下划线，`analysis.aggregationFields` 给出指标名到实际字段名的映射；`aggregationScope` 和 `overlapPolicy` 标明按源统计及跨源重复计入规则。数值保护、预算、取消与缓存规则沿用既有入口，参见[工具箱](processing-toolbox.md)。

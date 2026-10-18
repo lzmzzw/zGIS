@@ -93,6 +93,17 @@ export function explainAnalysisResult(
   }
   if (analysis.units === "meters")
     details.push({ label: "距离单位", value: "米", translate: true });
+  if (analysis.aggregationScope === "target_features_per_source") {
+    if (analysis.numericPrecision === "approximate_non_financial")
+      warnings.push("聚合使用带补偿求和的浮点近似，不用于要求精确小数的财务结算。");
+    warnings.push("聚合按每个输入的匹配目标要素计算，MultiPoint 只计一个目标要素；无匹配时计数为 0，数值指标为空值。");
+    if (analysis.overlapPolicy === "targets_may_contribute_to_multiple_sources")
+      warnings.push("同一目标可计入多个输入区域，各区域合计不等于全图唯一总量。");
+    const mappings = Object.entries(object(analysis.aggregationFields))
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .slice(0, 8);
+    if (mappings.length) details.push({ label: "聚合输出字段", value: mappings.map(([name, field]) => `${name} → ${field}`).join("; ") });
+  }
   addCount("移除要素", analysis.removedCount);
   if (analysis.removedTruncated === true)
     warnings.push("移除明细仅包含部分要素，移除总数以统计值为准。");
@@ -138,7 +149,7 @@ export function analysisLayerNotes(explanation: AnalysisExplanation): string[] {
   return [
     ...explanation.details
       .filter(({ label }) =>
-        ["计算模型", "距离单位", "移除要素"].includes(label),
+        ["计算模型", "距离单位", "移除要素", "聚合输出字段"].includes(label),
       )
       .map(({ label, value }) => `${label}：${value}`),
     ...explanation.warnings,
