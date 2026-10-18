@@ -148,7 +148,7 @@ jobs:
               try { $null = Invoke-WebRequest 'http://127.0.0.1:1421'; $ready = $true; break } catch { Start-Sleep -Seconds 1 }
             }
             if (-not $ready) { throw 'Vite 测试服务未启动。' }
-            pnpm exec playwright test --workers=3
+            pnpm exec playwright test --workers=2
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } finally { Stop-Process -Id $vite.Id -ErrorAction SilentlyContinue }
       - name: 保存页面回归失败现场

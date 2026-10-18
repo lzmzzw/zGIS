@@ -361,6 +361,9 @@ test("Escape cancels an active move and consecutive drags remain editable", asyn
   await page.mouse.move(origin.x, origin.y);
   await page.mouse.down();
   await page.mouse.move(origin.x + 50, origin.y + 25, { steps: 10 });
+  // A missed hit pans the map and leaves the saved geometry unchanged too.
+  // Require an actual edit gesture before checking Escape restores it.
+  await expect(button(page, "退出编辑")).toBeDisabled();
   await page.keyboard.press("Escape");
   await page.mouse.up();
   await recovery(

@@ -185,6 +185,13 @@ export default function MapView(props: Props) {
     map.addLayer(selection);
     selectionRef.current = selection;
     const pointerDown = (event: PointerEvent) => {
+      // A panel resize may precede OL's next render. Refresh the pixel transform
+      // before Draw/Translate interpret this pointer using the previous frame.
+      const size = map.getSize();
+      map.updateSize();
+      const updatedSize = map.getSize();
+      if (size?.[0] !== updatedSize?.[0] || size?.[1] !== updatedSize?.[1])
+        map.renderSync();
       pointerDownTime.current = event.timeStamp;
       suppressedSelectionTime.current = undefined;
       element.current?.focus({ preventScroll: true });
@@ -232,7 +239,10 @@ export default function MapView(props: Props) {
         Math.min(85, bbox[3]),
       ]);
     });
-    const resize = new ResizeObserver(() => map.updateSize());
+    const resize = new ResizeObserver(() => {
+      map.updateSize();
+      map.renderSync();
+    });
     resize.observe(element.current!);
     return () => {
       resize.disconnect();
@@ -667,6 +677,8 @@ export default function MapView(props: Props) {
       gestureEvent = null;
       if (gestureRef.current) current.current.onGestureState?.(false);
       gestureRef.current = false;
+      // Restore the hit-detection frame before a new pointerdown can hit the old position.
+      map.renderSync();
     };
     cancelGestureRef.current = cancelGesture;
     selectionRef.current?.changed();
