@@ -42,3 +42,13 @@
 .layer-category-list small {
   color: var(--muted);
 }
+.layer-display-controls .layer-label-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+}
+.layer-label-range input[type="range"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+}

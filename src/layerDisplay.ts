@@ -1,6 +1,81 @@
-import type { CategorizedStyle, DocumentLayer } from "./domain/types";
+import type {
+  CategorizedStyle,
+  DocumentLayer,
+  LayerLabels,
+} from "./domain/types";
 
 export const MAX_DISPLAY_CATEGORIES = 32;
+export const MAX_LAYER_LABELS = 1000;
+export const MAX_LABEL_CHARACTERS = 80;
+
+export function createLayerLabels(field: string): LayerLabels {
+  return {
+    field,
+    fontSize: 13,
+    color: "#202733",
+    haloColor: "#ffffff",
+    haloWidth: 3,
+  };
+}
+export function normalizeLayerLabels(value: unknown): LayerLabels | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const labels = value as Record<string, unknown>;
+  if (
+    typeof labels.field !== "string" ||
+    !labels.field ||
+    labels.field.length > 1024 ||
+    typeof labels.fontSize !== "number" ||
+    !Number.isInteger(labels.fontSize) ||
+    labels.fontSize < 8 ||
+    labels.fontSize > 32 ||
+    typeof labels.haloWidth !== "number" ||
+    !Number.isFinite(labels.haloWidth) ||
+    labels.haloWidth < 0 ||
+    labels.haloWidth > 6 ||
+    !isColor(labels.color) ||
+    !isColor(labels.haloColor)
+  )
+    return;
+  return {
+    field: labels.field,
+    fontSize: labels.fontSize,
+    color: labels.color,
+    haloColor: labels.haloColor,
+    haloWidth: labels.haloWidth,
+  };
+}
+export function labelText(value: unknown): string {
+  if (
+    typeof value !== "string" &&
+    typeof value !== "boolean" &&
+    !(typeof value === "number" && Number.isFinite(value))
+  )
+    return "";
+  // 先约束输入长度，再按码点截断；不拆开代理对，也不复制超长属性全文。
+  const text = String(value)
+    .slice(0, MAX_LABEL_CHARACTERS * 2 + 2)
+    .replace(/[\r\n\t]/g, " ")
+    .trim();
+  const characters = Array.from(text);
+  return characters.length > MAX_LABEL_CHARACTERS
+    ? characters.slice(0, MAX_LABEL_CHARACTERS - 1).join("") + "…"
+    : text;
+}
+export function layerLabelTexts(layer: DocumentLayer): Map<string, string> {
+  const labels = new Map<string, string>();
+  if (!layer.labels) return labels;
+  for (const feature of layer.features) {
+    if (
+      !feature.geometry ||
+      !Object.hasOwn(feature.properties, layer.labels.field)
+    )
+      continue;
+    const text = labelText(feature.properties[layer.labels.field]);
+    if (text) labels.set(feature.id, text);
+    if (labels.size === MAX_LAYER_LABELS) break;
+  }
+  return labels;
+}
 const palette = [
   "#3978b8",
   "#e38d3d",

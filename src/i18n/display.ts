@@ -1,4 +1,15 @@
 const messages: Record<string, string> = {
+  字段标注: "Field labels",
+  显示标注: "Show labels",
+  标注字段: "Label field",
+  标注字号: "Label font size",
+  标注颜色: "Label color",
+  标注描边颜色: "Label halo color",
+  标注描边宽度: "Label halo width",
+  "标注字段已不存在，暂不显示文字；可重新选择字段。":
+    "The label field no longer exists. Labels are hidden until you select an available field.",
+  "每层最多标注前 1000 个有效要素，每条最多 80 个字符；拥挤文字自动避让，空值、缺失和对象不显示。":
+    "Labels cover the first 1,000 eligible features per layer, with up to 80 characters each. Overlapping text is hidden; null, missing and object values are not labeled.",
   图层样式: "Layer style",
   分类着色: "Categorized colors",
   着色方式: "Color mode",

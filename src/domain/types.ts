@@ -28,6 +28,13 @@ export interface CategorizedStyle {
   nullColor: string;
   missingColor: string;
 }
+export interface LayerLabels {
+  field: string;
+  fontSize: number;
+  color: string;
+  haloColor: string;
+  haloWidth: number;
+}
 export interface DocumentLayer {
   schemaChanges?: SchemaChange[];
   id: string;
@@ -42,6 +49,7 @@ export interface DocumentLayer {
   opacity?: number;
   strokeWidth?: number;
   categorizedStyle?: CategorizedStyle;
+  labels?: LayerLabels;
   restored?: boolean;
   restoredFrom?: string;
   sourceKind: "geojson" | "csv" | "shp" | "postgis" | "mysql";

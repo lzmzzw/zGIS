@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import MapView, { type Tool } from "../MapView";
 import { ImportPanel } from "../FilePanels";
-import { CategorizedStyleControls } from "../LayerDisplayControls";
+import { CategorizedStyleControls, LabelStyleControls } from "../LayerDisplayControls";
 import { captureAnalysisLocation, type AnalysisFocus } from "../analysisLocation";
 import ProcessingToolbox, {
   type ProcessingRequest,
@@ -551,6 +551,8 @@ export default function WebApp() {
                 <fieldset disabled={busy}>
                   <CategorizedStyleControls layer={layer} value={layer.categorizedStyle}
                     onChange={(categorizedStyle) => patchLayer(layer.id, { categorizedStyle })} />
+                  <LabelStyleControls layer={layer} value={layer.labels}
+                    onChange={(labels) => patchLayer(layer.id, { labels })} />
                 </fieldset>
               </details>
               {!!layer.warnings?.length && (

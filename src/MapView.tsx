@@ -300,9 +300,10 @@ export default function MapView(props: Props) {
       }
       layer.setVisible(item.visible);
       layer.setOpacity(item.opacity ?? 1);
+      layer.setDeclutter(item.labels ? "zgis-labels" : false);
       layer.setZIndex(props.layers.length - index + 10);
-      const styleKey = JSON.stringify([item.color, item.strokeWidth ?? 2, item.categorizedStyle]);
-      if (layer.get("styleKey") !== styleKey || (item.categorizedStyle && layer.get("dataRef") !== item.features)) {
+      const styleKey = JSON.stringify([item.color, item.strokeWidth ?? 2, item.categorizedStyle, item.labels]);
+      if (layer.get("styleKey") !== styleKey || ((item.categorizedStyle || item.labels) && layer.get("dataRef") !== item.features)) {
         layer.setStyle(
           createLayerDisplayStyle(item),
         );

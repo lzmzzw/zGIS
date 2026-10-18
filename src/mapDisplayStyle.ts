@@ -1,7 +1,10 @@
-import { Fill, Stroke, Circle, Style } from "ol/style";
+import { Fill, Stroke, Circle, Style, Text } from "ol/style";
 import type { StyleFunction } from "ol/style/Style";
+import MultiPoint from "ol/geom/MultiPoint";
+import MultiLineString from "ol/geom/MultiLineString";
+import MultiPolygon from "ol/geom/MultiPolygon";
 import type { DocumentLayer } from "./domain/types";
-import { categoryColor } from "./layerDisplay";
+import { categoryColor, layerLabelTexts } from "./layerDisplay";
 
 export function geometryDisplayStyle(
   color: string,
@@ -16,6 +19,7 @@ export function geometryDisplayStyle(
     }),
     fill: new Fill({ color: (selected ? accent : color) + "24" }),
     image: new Circle({
+      declutterMode: "none",
       radius: selected ? 8 : 5,
       fill: new Fill({ color: selected ? accent : color }),
       stroke: new Stroke({ color: selected ? accent : color, width: 1 }),
@@ -26,7 +30,7 @@ export function geometryDisplayStyle(
 export function createLayerDisplayStyle(
   layer: DocumentLayer,
 ): Style | StyleFunction {
-  if (!layer.categorizedStyle)
+  if (!layer.categorizedStyle && !layer.labels)
     return geometryDisplayStyle(
       layer.color,
       false,
@@ -37,10 +41,14 @@ export function createLayerDisplayStyle(
   const colors = new Map(
     layer.features.map((feature) => [
       feature.id,
-      categoryColor(feature.properties, configuration),
+      configuration
+        ? categoryColor(feature.properties, configuration)
+        : layer.color,
     ]),
   );
   const styles = new Map<string, Style>();
+  const texts = layerLabelTexts(layer);
+  const textStyles = new Map<string, Style>();
   return (feature) => {
     const color = colors.get(String(feature.getId())) ?? layer.color;
     let style = styles.get(color);
@@ -53,6 +61,41 @@ export function createLayerDisplayStyle(
       );
       styles.set(color, style);
     }
-    return style;
+    const text = texts.get(String(feature.getId()));
+    if (!text || !layer.labels) return style;
+    let textStyle = textStyles.get(text);
+    if (!textStyle) {
+      textStyle = new Style({
+        // 多部件只标注首个部件，避免单条要素绕过文字数量预算。
+        geometry: (feature) => {
+          const geometry = feature.getGeometry();
+          if (geometry instanceof MultiPoint)
+            return geometry.getPoint(0) ?? undefined;
+          if (geometry instanceof MultiLineString)
+            return geometry.getLineString(0) ?? undefined;
+          if (geometry instanceof MultiPolygon)
+            return geometry.getPolygon(0) ?? undefined;
+          return geometry;
+        },
+        text: new Text({
+          text,
+          font: `${layer.labels.fontSize}px sans-serif`,
+          fill: new Fill({ color: layer.labels.color }),
+          stroke:
+            layer.labels.haloWidth > 0
+              ? new Stroke({
+                  color: layer.labels.haloColor,
+                  width: layer.labels.haloWidth,
+                })
+              : undefined,
+          offsetY: -12,
+          overflow: false,
+          padding: [2, 2, 2, 2],
+          declutterMode: "declutter",
+        }),
+      });
+      textStyles.set(text, textStyle);
+    }
+    return [style, textStyle];
   };
 }

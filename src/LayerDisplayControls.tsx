@@ -1,11 +1,133 @@
 import { t, useLocale } from "./i18n";
-import type { CategorizedStyle, DocumentLayer } from "./domain/types";
+import type {
+  CategorizedStyle,
+  DocumentLayer,
+  LayerLabels,
+} from "./domain/types";
 import {
   categoryKey,
   createCategorizedStyle,
   displayFields,
+  createLayerLabels,
 } from "./layerDisplay";
 import "./layer-display.css";
+
+export function LabelStyleControls({
+  layer,
+  value,
+  onChange,
+}: {
+  layer: DocumentLayer;
+  value?: LayerLabels;
+  onChange: (value: LayerLabels | undefined) => void;
+}) {
+  useLocale();
+  const fields = displayFields(layer);
+  return (
+    <fieldset className="layer-display-controls">
+      <legend>{t("字段标注")}</legend>
+      <label>
+        <span>{t("显示标注")}</span>
+        <input
+          type="checkbox"
+          aria-label={t("显示标注")}
+          checked={Boolean(value)}
+          disabled={!fields.length && !value}
+          onChange={(event) =>
+            onChange(
+              event.target.checked ? createLayerLabels(fields[0]) : undefined,
+            )
+          }
+        />
+      </label>
+      {value && (
+        <>
+          <label>
+            <span>{t("标注字段")}</span>
+            <select
+              aria-label={t("标注字段")}
+              value={value.field}
+              onChange={(event) =>
+                onChange({ ...value, field: event.target.value })
+              }
+            >
+              {!fields.includes(value.field) && (
+                <option value={value.field}>{value.field}</option>
+              )}
+              {fields.map((field) => (
+                <option key={field} value={field}>
+                  {field}
+                </option>
+              ))}
+            </select>
+          </label>
+          {!fields.includes(value.field) && (
+            <p role="status">
+              {t("标注字段已不存在，暂不显示文字；可重新选择字段。")}
+            </p>
+          )}
+          <label className="layer-label-range">
+            <span>{t("标注字号")}</span>
+            <output>{value.fontSize} px</output>
+            <input
+              type="range"
+              aria-label={t("标注字号")}
+              min="8"
+              max="32"
+              step="1"
+              value={value.fontSize}
+              onChange={(event) =>
+                onChange({ ...value, fontSize: Number(event.target.value) })
+              }
+            />
+          </label>
+          <label>
+            <span>{t("标注颜色")}</span>
+            <input
+              type="color"
+              aria-label={t("标注颜色")}
+              value={value.color}
+              onChange={(event) =>
+                onChange({ ...value, color: event.target.value })
+              }
+            />
+          </label>
+          <label>
+            <span>{t("标注描边颜色")}</span>
+            <input
+              type="color"
+              aria-label={t("标注描边颜色")}
+              value={value.haloColor}
+              onChange={(event) =>
+                onChange({ ...value, haloColor: event.target.value })
+              }
+            />
+          </label>
+          <label className="layer-label-range">
+            <span>{t("标注描边宽度")}</span>
+            <output>{value.haloWidth} px</output>
+            <input
+              type="range"
+              aria-label={t("标注描边宽度")}
+              min="0"
+              max="6"
+              step="0.5"
+              value={value.haloWidth}
+              onChange={(event) =>
+                onChange({ ...value, haloWidth: Number(event.target.value) })
+              }
+            />
+          </label>
+          <p>
+            {t(
+              "每层最多标注前 1000 个有效要素，每条最多 80 个字符；拥挤文字自动避让，空值、缺失和对象不显示。",
+            )}
+          </p>
+        </>
+      )}
+    </fieldset>
+  );
+}
 
 export function CategorizedStyleControls({
   layer,
@@ -71,7 +193,11 @@ export function CategorizedStyleControls({
               "最多保留前 32 个唯一值；额外值及对象归入其他，空值与缺失分别着色。",
             )}
           </p>
-          <div className="layer-category-list" role="group" aria-label={t("分类颜色")}>
+          <div
+            className="layer-category-list"
+            role="group"
+            aria-label={t("分类颜色")}
+          >
             {value.categories.map((category, index) => (
               <label key={categoryKey(category.value)}>
                 <span title={String(category.value)}>

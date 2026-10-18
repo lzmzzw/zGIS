@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import Feature from "ol/Feature";
+import MultiPoint from "ol/geom/MultiPoint";
 import { makeLayer, exportGeoJSON } from "./domain";
 import {
   categoryColor,
@@ -9,6 +10,12 @@ import {
 } from "./layerDisplay";
 import { createLayerDisplayStyle } from "./mapDisplayStyle";
 import { snapshotLayers, restoreLayers } from "./workspace";
+import {
+  createLayerLabels,
+  labelText,
+  layerLabelTexts,
+  normalizeLayerLabels,
+} from "./layerDisplay";
 
 const make = (values: unknown[]) =>
   makeLayer(
@@ -114,5 +121,85 @@ describe("categorized display", () => {
     expect(next.getStroke()?.getColor()).toBe(
       layer.categorizedStyle.categories[0].color,
     );
+  });
+});
+
+describe("field labels", () => {
+  it("bounds Unicode text and only displays supported scalar values", () => {
+    expect(labelText("武汉设施😀")).toBe("武汉设施😀");
+    const text = labelText("😀".repeat(100));
+    expect(Array.from(text)).toHaveLength(80);
+    expect(text.endsWith("…")).toBe(true);
+    expect(text).not.toContain("\uFFFD");
+    expect(labelText(false)).toBe("false");
+    expect(labelText(0)).toBe("0");
+    for (const value of [null, undefined, {}, [], Infinity, NaN])
+      expect(labelText(value)).toBe("");
+  });
+  it("bounds eligible labels and hides a missing field without discarding configuration", () => {
+    const layer = make(Array.from({ length: 10001 }, (_, i) => i));
+    layer.labels = createLayerLabels("kind");
+    layer.features[0].geometry = null;
+    const labels = layerLabelTexts(layer);
+    expect(labels.size).toBe(1000);
+    expect(labels.has("0")).toBe(false);
+    expect(labels.has("1000")).toBe(true);
+    expect(labels.has("1001")).toBe(false);
+    const changed = {
+      ...layer,
+      features: layer.features.map((feature) => ({
+        ...feature,
+        properties: {},
+      })),
+    };
+    expect(layerLabelTexts(changed).size).toBe(0);
+    expect(changed.labels).toEqual(layer.labels);
+    expect(layerLabelTexts({ ...changed, features: layer.features }).size).toBe(
+      1000,
+    );
+  });
+  it("round-trips settings without adding labels to data exports", () => {
+    const layer = { ...make(["中文"]), labels: createLayerLabels("kind") };
+    expect(restoreLayers(snapshotLayers([layer]))[0].labels).toEqual(
+      layer.labels,
+    );
+    expect(
+      restoreLayers(snapshotLayers([make(["old"])]))[0].labels,
+    ).toBeUndefined();
+    expect(
+      normalizeLayerLabels({ ...layer.labels, fontSize: 100 }),
+    ).toBeUndefined();
+    expect(
+      normalizeLayerLabels({ ...layer.labels, haloWidth: NaN }),
+    ).toBeUndefined();
+    expect(
+      normalizeLayerLabels({ ...layer.labels, color: "url(file)" }),
+    ).toBeUndefined();
+    expect(exportGeoJSON(layer.features)).not.toContain("haloColor");
+  });
+  it("keeps geometry visible during decluttering and labels multipart only once", () => {
+    const layer = {
+      ...make(["中文"]),
+      labels: { ...createLayerLabels("kind"), haloWidth: 0 },
+    };
+    const feature = new Feature(
+      new MultiPoint([
+        [0, 0],
+        [1, 1],
+      ]),
+    );
+    feature.setId("0");
+    const render = createLayerDisplayStyle(layer);
+    if (typeof render !== "function")
+      throw new Error("expected style function");
+    const styles = render(feature, 1);
+    if (!Array.isArray(styles))
+      throw new Error("expected geometry and text styles");
+    expect(styles[0].getImage()?.getDeclutterMode()).toBe("none");
+    expect(styles[1].getText()?.getDeclutterMode()).toBe("declutter");
+    expect(styles[1].getText()?.getText()).toBe("中文");
+    expect(styles[1].getText()?.getStroke()).toBeNull();
+    expect(styles[1].getGeometryFunction()(feature)?.getType()).toBe("Point");
+    expect(feature.getGeometry()?.getType()).toBe("MultiPoint");
   });
 });

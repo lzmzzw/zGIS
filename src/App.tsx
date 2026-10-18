@@ -88,7 +88,7 @@ import {
 import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
 import RightSidebar from "./RightSidebar";
-import { CategorizedStyleControls } from "./LayerDisplayControls";
+import { CategorizedStyleControls, LabelStyleControls } from "./LayerDisplayControls";
 import { captureAnalysisLocation, type AnalysisFocus } from "./analysisLocation";
 import ProcessingToolbox, {
   type ProcessingRequest,
@@ -427,6 +427,7 @@ export default function App() {
     opacity: number;
     strokeWidth: number;
     categorizedStyle?: DocumentLayer["categorizedStyle"];
+    labels?: DocumentLayer["labels"];
   } | null>(null);
   const [tableEditing, setTableEditing] = useState(false);
   const [closingLayerId, setClosingLayerId] = useState<string>();
@@ -1061,7 +1062,8 @@ export default function App() {
         (layerStyleDraft.color !== active?.color ||
           layerStyleDraft.opacity !== (active?.opacity ?? 1) ||
           layerStyleDraft.strokeWidth !== (active?.strokeWidth ?? 2) ||
-          JSON.stringify(layerStyleDraft.categorizedStyle) !== JSON.stringify(active?.categorizedStyle))) ||
+          JSON.stringify(layerStyleDraft.categorizedStyle) !== JSON.stringify(active?.categorizedStyle) ||
+          JSON.stringify(layerStyleDraft.labels) !== JSON.stringify(active?.labels))) ||
       (editable &&
         !featurePreview &&
         (modal === "json" || modal === "wkt" || modal === "field"))
@@ -3790,6 +3792,7 @@ export default function App() {
                   opacity: layer.opacity ?? 1,
                   strokeWidth: layer.strokeWidth ?? 2,
                   categorizedStyle: layer.categorizedStyle,
+                  labels: layer.labels,
                 });
                 openModal("style");
               }}
@@ -5327,6 +5330,7 @@ export default function App() {
               </label>
             </div>
             <CategorizedStyleControls layer={active} value={layerStyleDraft.categorizedStyle} onChange={(categorizedStyle) => setLayerStyleDraft((draft) => draft ? { ...draft, categorizedStyle } : null)} />
+            <LabelStyleControls layer={active} value={layerStyleDraft.labels} onChange={(labels) => setLayerStyleDraft((draft) => draft ? { ...draft, labels } : null)} />
             <div className="modal-actions">
               <button onClick={() => openModal(null)}>{t("取消")}</button>
               <button
@@ -5341,6 +5345,7 @@ export default function App() {
                             opacity: layerStyleDraft.opacity,
                             strokeWidth: layerStyleDraft.strokeWidth,
                             categorizedStyle: layerStyleDraft.categorizedStyle,
+                            labels: layerStyleDraft.labels,
                           }
                         : l,
                     ),
