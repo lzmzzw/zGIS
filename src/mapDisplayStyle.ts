@@ -4,7 +4,7 @@ import MultiPoint from "ol/geom/MultiPoint";
 import MultiLineString from "ol/geom/MultiLineString";
 import MultiPolygon from "ol/geom/MultiPolygon";
 import type { DocumentLayer } from "./domain/types";
-import { categoryColor, layerLabelTexts } from "./layerDisplay";
+import { categoryColor, graduatedColor, layerLabelTexts } from "./layerDisplay";
 
 export function geometryDisplayStyle(
   color: string,
@@ -30,7 +30,7 @@ export function geometryDisplayStyle(
 export function createLayerDisplayStyle(
   layer: DocumentLayer,
 ): Style | StyleFunction {
-  if (!layer.categorizedStyle && !layer.labels)
+  if (!layer.categorizedStyle && !layer.graduatedStyle && !layer.labels)
     return geometryDisplayStyle(
       layer.color,
       false,
@@ -41,9 +41,11 @@ export function createLayerDisplayStyle(
   const colors = new Map(
     layer.features.map((feature) => [
       feature.id,
-      configuration
-        ? categoryColor(feature.properties, configuration)
-        : layer.color,
+      layer.graduatedStyle
+        ? graduatedColor(feature.properties, layer.graduatedStyle)
+        : configuration
+          ? categoryColor(feature.properties, configuration)
+          : layer.color,
     ]),
   );
   const styles = new Map<string, Style>();

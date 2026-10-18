@@ -35,6 +35,16 @@ export interface LayerLabels {
   haloColor: string;
   haloWidth: number;
 }
+export interface GraduatedStyle {
+  field: string;
+  method: "equal_interval" | "quantile" | "manual";
+  /** 严格递增的内部分割点；区间左开右闭，首尾无界。 */
+  breaks: number[];
+  colors: string[];
+  otherColor: string;
+  nullColor: string;
+  missingColor: string;
+}
 export interface DocumentLayer {
   schemaChanges?: SchemaChange[];
   id: string;
@@ -49,6 +59,7 @@ export interface DocumentLayer {
   opacity?: number;
   strokeWidth?: number;
   categorizedStyle?: CategorizedStyle;
+  graduatedStyle?: GraduatedStyle;
   labels?: LayerLabels;
   restored?: boolean;
   restoredFrom?: string;
