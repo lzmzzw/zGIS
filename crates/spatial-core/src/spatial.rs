@@ -917,6 +917,18 @@ fn analyze_registered(
     if operation == Operation::SpatialQuery && args.get("bbox").is_some() && target.is_some() {
         return Err("spatial_query 的 bbox 与 target 必须二选一".into());
     }
+    if operation == Operation::ExtractByAttribute {
+        crate::input::validate_features(args, source, None)?;
+        decode(source, false)?;
+        let indices = crate::attributes::matching_indices(&args["condition"], source)?;
+        let mut output = Vec::new();
+        let mut budget = OutputBudget::new(output_limit);
+        for index in indices {
+            crate::checkpoint()?;
+            push_bounded(&mut output, &mut budget, source[index].clone())?;
+        }
+        return Ok(collection(output, false));
+    }
     let s = decode(source, false)?;
     if matches!(
         operation,
@@ -1726,12 +1738,14 @@ mod tests {
         let mut a = square(0., 0., 0.01);
         let mut b = square(0.005, 0.005, 0.01);
         add_z(&mut a, 17.);
+        a["properties"]["contract"] = json!(true);
         add_z(&mut b, 91.);
         let mut pt = point(0.007, 0.007);
         add_z(&mut pt, 5.);
         for tool in crate::registry::ANALYSES {
             let name = tool.id();
             let args = match name {
+                "extract_by_attribute" => json!({"condition":{"field":"contract","op":"eq","value":true}}),
                 "buffer" => json!({"distanceMeters":10}),
                 "simplify" => json!({"toleranceMeters":1}),
                 _ => json!({}),

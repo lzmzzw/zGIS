@@ -140,7 +140,7 @@ test("子目录静态部署：本地导入、样式、属性选择、底图与�
   expect(uploads).toEqual([]);
 });
 
-test("真实 WASM：22 项工具与分析结果继续分析", async ({ page }) => {
+test("真实 WASM：所有已开放工具与分析结果继续分析", async ({ page }) => {
   test.setTimeout(180000);
   await start(page);
   await load(page, [areas, mask, points]);

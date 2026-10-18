@@ -541,5 +541,2552 @@
       "line",
       "polygon"
     ]
+  },
+  {
+    "description": "按结构化属性条件提取完整要素副本；严格类型、区分大小写，保留身份和XYZ；要求有效几何",
+    "gui": true,
+    "id": "extract_by_attribute",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "condition": {
+          "description": "区分大小写；不转换类型；root深度1，最多4层、32个叶子、IN100项。null/missing不参与普通比较。",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "op": {
+                  "enum": [
+                    "eq",
+                    "ne"
+                  ],
+                  "type": "string"
+                },
+                "value": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "op": {
+                  "enum": [
+                    "gt",
+                    "gte",
+                    "lt",
+                    "lte"
+                  ],
+                  "type": "string"
+                },
+                "value": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "op": {
+                  "enum": [
+                    "contains"
+                  ],
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "op": {
+                  "enum": [
+                    "in"
+                  ],
+                  "type": "string"
+                },
+                "value": {
+                  "items": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "maxItems": 100,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "field",
+                "op",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "field": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "op": {
+                  "enum": [
+                    "is_null",
+                    "is_missing"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field",
+                "op"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "all": {
+                  "items": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "ne"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "boolean"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "gt",
+                              "gte",
+                              "lt",
+                              "lte"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "contains"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "boolean"
+                                }
+                              ]
+                            },
+                            "maxItems": 100,
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "is_null",
+                              "is_missing"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "all": {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "eq",
+                                        "ne"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "oneOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "boolean"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "gt",
+                                        "gte",
+                                        "lt",
+                                        "lte"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "contains"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "in"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "boolean"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 100,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "is_null",
+                                        "is_missing"
+                                      ],
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "all": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "eq",
+                                                  "ne"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "oneOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "boolean"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "gt",
+                                                  "gte",
+                                                  "lt",
+                                                  "lte"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "number"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "contains"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "in"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "items": {
+                                                  "oneOf": [
+                                                    {
+                                                      "type": "string"
+                                                    },
+                                                    {
+                                                      "type": "number"
+                                                    },
+                                                    {
+                                                      "type": "boolean"
+                                                    }
+                                                  ]
+                                                },
+                                                "maxItems": 100,
+                                                "minItems": 1,
+                                                "type": "array"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "is_null",
+                                                  "is_missing"
+                                                ],
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op"
+                                            ],
+                                            "type": "object"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 32,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "all"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "any": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "eq",
+                                                  "ne"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "oneOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "boolean"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "gt",
+                                                  "gte",
+                                                  "lt",
+                                                  "lte"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "number"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "contains"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "in"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "items": {
+                                                  "oneOf": [
+                                                    {
+                                                      "type": "string"
+                                                    },
+                                                    {
+                                                      "type": "number"
+                                                    },
+                                                    {
+                                                      "type": "boolean"
+                                                    }
+                                                  ]
+                                                },
+                                                "maxItems": 100,
+                                                "minItems": 1,
+                                                "type": "array"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "is_null",
+                                                  "is_missing"
+                                                ],
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op"
+                                            ],
+                                            "type": "object"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 32,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "any"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            "maxItems": 32,
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "all"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "any": {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "eq",
+                                        "ne"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "oneOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "boolean"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "gt",
+                                        "gte",
+                                        "lt",
+                                        "lte"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "contains"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "in"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "boolean"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 100,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "is_null",
+                                        "is_missing"
+                                      ],
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "all": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "eq",
+                                                  "ne"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "oneOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "boolean"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "gt",
+                                                  "gte",
+                                                  "lt",
+                                                  "lte"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "number"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "contains"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "in"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "items": {
+                                                  "oneOf": [
+                                                    {
+                                                      "type": "string"
+                                                    },
+                                                    {
+                                                      "type": "number"
+                                                    },
+                                                    {
+                                                      "type": "boolean"
+                                                    }
+                                                  ]
+                                                },
+                                                "maxItems": 100,
+                                                "minItems": 1,
+                                                "type": "array"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "is_null",
+                                                  "is_missing"
+                                                ],
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op"
+                                            ],
+                                            "type": "object"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 32,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "all"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "any": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "eq",
+                                                  "ne"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "oneOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "boolean"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "gt",
+                                                  "gte",
+                                                  "lt",
+                                                  "lte"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "number"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "contains"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "in"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "items": {
+                                                  "oneOf": [
+                                                    {
+                                                      "type": "string"
+                                                    },
+                                                    {
+                                                      "type": "number"
+                                                    },
+                                                    {
+                                                      "type": "boolean"
+                                                    }
+                                                  ]
+                                                },
+                                                "maxItems": 100,
+                                                "minItems": 1,
+                                                "type": "array"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "is_null",
+                                                  "is_missing"
+                                                ],
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op"
+                                            ],
+                                            "type": "object"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 32,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "any"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            "maxItems": 32,
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "any"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "all"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "any": {
+                  "items": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "ne"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "boolean"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "gt",
+                              "gte",
+                              "lt",
+                              "lte"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "contains"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "boolean"
+                                }
+                              ]
+                            },
+                            "maxItems": 100,
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "is_null",
+                              "is_missing"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "all": {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "eq",
+                                        "ne"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "oneOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "boolean"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "gt",
+                                        "gte",
+                                        "lt",
+                                        "lte"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "contains"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "in"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "boolean"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 100,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "is_null",
+                                        "is_missing"
+                                      ],
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "all": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "eq",
+                                                  "ne"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "oneOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "boolean"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "gt",
+                                                  "gte",
+                                                  "lt",
+                                                  "lte"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "number"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "contains"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "in"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "items": {
+                                                  "oneOf": [
+                                                    {
+                                                      "type": "string"
+                                                    },
+                                                    {
+                                                      "type": "number"
+                                                    },
+                                                    {
+                                                      "type": "boolean"
+                                                    }
+                                                  ]
+                                                },
+                                                "maxItems": 100,
+                                                "minItems": 1,
+                                                "type": "array"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "is_null",
+                                                  "is_missing"
+                                                ],
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op"
+                                            ],
+                                            "type": "object"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 32,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "all"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "any": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "eq",
+                                                  "ne"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "oneOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "boolean"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "gt",
+                                                  "gte",
+                                                  "lt",
+                                                  "lte"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "number"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "contains"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "in"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "items": {
+                                                  "oneOf": [
+                                                    {
+                                                      "type": "string"
+                                                    },
+                                                    {
+                                                      "type": "number"
+                                                    },
+                                                    {
+                                                      "type": "boolean"
+                                                    }
+                                                  ]
+                                                },
+                                                "maxItems": 100,
+                                                "minItems": 1,
+                                                "type": "array"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "is_null",
+                                                  "is_missing"
+                                                ],
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op"
+                                            ],
+                                            "type": "object"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 32,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "any"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            "maxItems": 32,
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "all"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "any": {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "eq",
+                                        "ne"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "oneOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "boolean"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "gt",
+                                        "gte",
+                                        "lt",
+                                        "lte"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "contains"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "in"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "value": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "number"
+                                          },
+                                          {
+                                            "type": "boolean"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 100,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op",
+                                    "value"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "field": {
+                                      "maxLength": 256,
+                                      "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "op": {
+                                      "enum": [
+                                        "is_null",
+                                        "is_missing"
+                                      ],
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "op"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "all": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "eq",
+                                                  "ne"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "oneOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "boolean"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "gt",
+                                                  "gte",
+                                                  "lt",
+                                                  "lte"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "number"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "contains"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "in"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "items": {
+                                                  "oneOf": [
+                                                    {
+                                                      "type": "string"
+                                                    },
+                                                    {
+                                                      "type": "number"
+                                                    },
+                                                    {
+                                                      "type": "boolean"
+                                                    }
+                                                  ]
+                                                },
+                                                "maxItems": 100,
+                                                "minItems": 1,
+                                                "type": "array"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "is_null",
+                                                  "is_missing"
+                                                ],
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op"
+                                            ],
+                                            "type": "object"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 32,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "all"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "any": {
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "eq",
+                                                  "ne"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "oneOf": [
+                                                  {
+                                                    "type": "string"
+                                                  },
+                                                  {
+                                                    "type": "number"
+                                                  },
+                                                  {
+                                                    "type": "boolean"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "gt",
+                                                  "gte",
+                                                  "lt",
+                                                  "lte"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "number"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "contains"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "in"
+                                                ],
+                                                "type": "string"
+                                              },
+                                              "value": {
+                                                "items": {
+                                                  "oneOf": [
+                                                    {
+                                                      "type": "string"
+                                                    },
+                                                    {
+                                                      "type": "number"
+                                                    },
+                                                    {
+                                                      "type": "boolean"
+                                                    }
+                                                  ]
+                                                },
+                                                "maxItems": 100,
+                                                "minItems": 1,
+                                                "type": "array"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op",
+                                              "value"
+                                            ],
+                                            "type": "object"
+                                          },
+                                          {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                              "field": {
+                                                "maxLength": 256,
+                                                "minLength": 1,
+                                                "type": "string"
+                                              },
+                                              "op": {
+                                                "enum": [
+                                                  "is_null",
+                                                  "is_missing"
+                                                ],
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "field",
+                                              "op"
+                                            ],
+                                            "type": "object"
+                                          }
+                                        ]
+                                      },
+                                      "maxItems": 32,
+                                      "minItems": 1,
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "any"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            "maxItems": 32,
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "any"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "maxItems": 32,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "any"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "condition"
+      ],
+      "type": "object"
+    },
+    "parameters": [
+      "condition"
+    ],
+    "requiresTarget": false,
+    "resultKind": "features",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
   }
 ]

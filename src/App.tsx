@@ -1,4 +1,4 @@
-import { explainAnalysisResult, analysisLayerNotes } from "./analysisResult";
+import { explainAnalysisResult, analysisLayerNotes, restoreAnalysisSourceIds } from "./analysisResult";
 import { t, useLocale } from "./i18n";
 import {
   assertDatabaseUnchanged,
@@ -1366,7 +1366,7 @@ export default function App() {
         result.type === "FeatureCollection" &&
         Array.isArray(result.features)
       ) {
-        const features = importGeoJSON(JSON.stringify(result));
+        const features = importGeoJSON(JSON.stringify(restoreAnalysisSourceIds(request.operation, result, input)));
         const layer = makeLayer(
           /\.geojson$/i.test(name) ? name : `${name}.geojson`,
           features,

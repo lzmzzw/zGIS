@@ -1,4 +1,4 @@
-import { explainAnalysisResult, analysisLayerNotes } from "../analysisResult";
+import { explainAnalysisResult, analysisLayerNotes, restoreAnalysisSourceIds } from "../analysisResult";
 import { useLocale } from "../i18n";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -322,7 +322,7 @@ export default function WebApp() {
         result.type === "FeatureCollection" &&
         Array.isArray(result.features)
       ) {
-        const output = importGeoJSON(JSON.stringify(result));
+        const output = importGeoJSON(JSON.stringify(restoreAnalysisSourceIds(request.operation, result, features)));
         const layer = makeLayer(
           /\.geojson$/i.test(name) ? name : `${name}.geojson`,
           output,

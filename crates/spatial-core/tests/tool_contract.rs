@@ -81,14 +81,14 @@ fn registry_is_unique_and_does_not_expand_gui_exposure() {
             }
         }
     }
-    assert_eq!(ids.len(), 23);
+    assert_eq!(ids.len(), 24);
     let metadata = spatial_core::registry::metadata();
-    assert_eq!(metadata.iter().filter(|s| s["gui"] == true).count(), 22);
+    assert_eq!(metadata.iter().filter(|s| s["gui"] == true).count(), 24);
     assert_eq!(
         metadata
             .iter()
             .find(|s| s["id"] == "clean_geometries")
             .unwrap()["gui"],
-        false
+        true
     );
 }

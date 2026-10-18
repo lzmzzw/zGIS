@@ -28,6 +28,19 @@ pub fn execute(
     source: &[Value],
     target: Option<&[Value]>,
 ) -> Result<Value, String> {
+    validate_features(parameters, source, target)?;
+    let limit = 100 * 1024 * 1024;
+    let result = crate::analyze(operation, parameters, source, target)?;
+    json_size(&result, limit).map_err(|_| "分析结果超过 100 MB，请缩小范围")?;
+    Ok(result)
+}
+
+// 纯属性工具的直接 core/MCP 入口也必须守住 Feature 与输入字节边界。
+pub(crate) fn validate_features(
+    parameters: &Value,
+    source: &[Value],
+    target: Option<&[Value]>,
+) -> Result<(), String> {
     let parameters = parameters.as_object().ok_or("分析参数必须是对象")?;
     if parameters.contains_key("source") || parameters.contains_key("target") {
         return Err("工具箱只接受已加载的图层内容，不接受文件或缓存引用".into());
@@ -63,14 +76,7 @@ pub fn execute(
                 .map_err(|_| "分析输入超过 100 MB，请缩小范围")?;
         }
     }
-    let result = crate::analyze(
-        operation,
-        &Value::Object(parameters.clone()),
-        source,
-        target,
-    )?;
-    json_size(&result, limit).map_err(|_| "分析结果超过 100 MB，请缩小范围")?;
-    Ok(result)
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1119,7 +1119,7 @@ mod tests {
         let m=GisMcp::default();
         let original=json!({"id":"dirty","name":"dirty","features":[test_feature(0),{"type":"Feature","geometry":null,"properties":{"name":"empty"}}]});
         m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(original.clone()).unwrap());
-        assert_eq!(definitions().len(),31);
+        assert_eq!(definitions().len(),32);
         let cleaned=call(&m,"clean_geometries",&json!({"source":{"layerId":"dirty"}})).unwrap();
         assert_eq!(cleaned["featureCount"],1);
         assert_eq!(cleaned["summary"]["analysis"]["removedCount"],1);
@@ -1376,6 +1376,38 @@ mod tests {
         assert!(!m.status().enabled);
     }
     #[test]
+    fn attribute_extract_schema_cache_publication_and_freshness() {
+        let m=GisMcp::default();
+        let first=json!({"type":"Feature","id":"a","geometry":{"type":"Point","coordinates":[116,39,17]},"properties":{"area":150,"kind":"住宅"}});
+        let second=json!({"type":"Feature","id":"b","geometry":{"type":"Point","coordinates":[117,39,18]},"properties":{"area":50,"kind":"住宅"}});
+        let layer=json!({"id":"attributes","name":"attributes","features":[first,second]});
+        m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(layer.clone()).unwrap());
+        let condition=json!({"all":[{"field":"area","op":"gt","value":100},{"field":"kind","op":"eq","value":"住宅"}]});
+        let tool=definitions().into_iter().find(|t| t["name"]=="extract_by_attribute").unwrap();
+        let args=json!({"source":{"layerId":"attributes"},"condition":condition});
+        assert!(validate(&args,&tool["inputSchema"]).is_ok());
+        let result=call(&m,"extract_by_attribute",&args).unwrap();
+        assert_eq!(result["featureCount"],1);
+        let read=call(&m,"read_result",&json!({"resultId":result["resultId"]})).unwrap();
+        assert_eq!(read["features"],json!([first]));
+        call(&m,"publish_result",&json!({"resultId":result["resultId"],"name":"属性提取"})).unwrap();
+        assert_eq!(m.inner.lock().unwrap().queue[0].features[0],first);
+        let count=m.inner.lock().unwrap().results.len();
+        assert!(call(&m,"extract_by_attribute",&json!({"source":{"layerId":"attributes"},"condition":{"field":"area","op":"gt","value":"100"}})).is_err());
+        assert!(call(&m,"extract_by_attribute",&json!({"source":{"layerId":"attributes"},"condition":{"field":"area","op":"eq","value":100,"script":"ignored"}})).is_err());
+        let leaf=json!({"field":"area","op":"gt","value":0});
+        assert!(call(&m,"extract_by_attribute",&json!({"source":{"layerId":"attributes"},"condition":{"all":[{"all":vec![leaf.clone();17]},{"all":vec![leaf;16]}]}})).is_err());
+        assert_eq!(m.inner.lock().unwrap().results.len(),count);
+        let empty=call(&m,"extract_by_attribute",&json!({"source":{"layerId":"attributes"},"condition":{"field":"area","op":"gt","value":1000}})).unwrap();
+        assert_eq!(empty["featureCount"],0);
+        assert_eq!(m.inner.lock().unwrap().layers[0].value(),layer);
+        let mut changed=layer; changed["features"][0]["properties"]["area"]=json!(99);
+        m.inner.lock().unwrap().layers[0]=LayerSnapshot::from_value(changed).unwrap();
+        assert_eq!(call(&m,"read_result",&json!({"resultId":result["resultId"]})).unwrap()["stale"],true);
+        assert!(call(&m,"extract_by_attribute",&json!({"source":{"resultId":result["resultId"]},"condition":{"field":"area","op":"gt","value":0}})).is_err());
+        assert!(call(&m,"publish_result",&json!({"resultId":result["resultId"],"name":"过期结果"})).is_err());
+    }
+    #[test]
     fn resolved_sources_preserve_bbox_target_exclusion() {
         let m=GisMcp::default();
         let layer=json!({"id":"point","name":"point","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{}}]});
@@ -1508,6 +1540,10 @@ mod analysis_contract_tests {
     #[test]
     fn public_analysis_schemas_keep_the_baseline() {
         let baseline: serde_json::Value = serde_json::from_str(include_str!("../../crates/spatial-core/tool-contract-baseline.json")).unwrap();
-        assert_eq!(serde_json::json!(super::analysis_definitions()), baseline);
+        let definitions=super::analysis_definitions();
+        let existing: Vec<_> = definitions.iter().filter(|tool| baseline.as_array().unwrap().iter().any(|old| old["name"]==tool["name"])).cloned().collect();
+        assert_eq!(serde_json::json!(existing), baseline);
+        let new: Vec<_> = definitions.iter().filter(|tool| !baseline.as_array().unwrap().iter().any(|old| old["name"]==tool["name"])).map(|tool| tool["name"].as_str().unwrap()).collect();
+        assert_eq!(new, ["extract_by_attribute"]);
     }
 }

@@ -1,6 +1,7 @@
 //! 桌面与浏览器共享的空间算法与内存导出；取消检查由宿主提供。
 use std::cell::Cell;
 const MAX_FILE: u64 = 100 * 1024 * 1024;
+mod attributes;
 pub mod export;
 pub mod input;
 pub mod registry;

@@ -2,12 +2,12 @@ import generatedCatalog from "./generated/analysis-catalog.json" with { type: "j
 
 export type AnalysisGeometryKind = "point" | "line" | "polygon";
 export type AnalysisParameter =
-  "distanceMeters" | "toleranceMeters" | "groupBy" | "predicate";
+  "distanceMeters" | "toleranceMeters" | "groupBy" | "predicate" | "condition";
 
 export interface AnalysisParameterSchema {
   properties: Record<
     string,
-    { type: string; exclusiveMinimum?: number; maximum?: number } | undefined
+    { type?: string; exclusiveMinimum?: number; maximum?: number } | undefined
   >;
   required: string[];
 }
@@ -39,6 +39,11 @@ const presentation: Pick<
   AnalysisTool,
   "id" | "label" | "category" | "description" | "keywords" | "help"
 >[] = [
+  {
+    id: "extract_by_attribute", label: "按属性条件提取", category: "质量与统计",
+    description: "按字段条件提取独立要素副本。", keywords: ["attribute", "filter", "属性筛选"],
+    help: "条件区分文本与数字及大小写；空值与缺失值单独查询。仅处理已加载图层，输出独立副本，保留原属性和高程。",
+  },
   {
     id: "buffer",
     label: "缓冲区",

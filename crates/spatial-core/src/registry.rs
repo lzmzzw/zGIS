@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 pub const DEFAULT_PREDICATE: &str = "intersects";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operation {
+    ExtractByAttribute,
     CleanGeometries,
     SpatialQuery,
     SpatialJoin,
@@ -30,6 +31,7 @@ pub enum Operation {
 impl Operation {
     pub fn id(self) -> &'static str {
         match self {
+            Self::ExtractByAttribute => "extract_by_attribute",
             Self::CleanGeometries => "clean_geometries",
             Self::SpatialQuery => "spatial_query",
             Self::SpatialJoin => "spatial_join",
@@ -64,6 +66,7 @@ pub enum TargetRequirement {
 }
 #[derive(Clone, Copy, Debug)]
 pub enum Parameter {
+    Condition,
     Predicate,
     Bbox,
     DistanceMeters,
@@ -73,6 +76,7 @@ pub enum Parameter {
 impl Parameter {
     pub fn key(self) -> &'static str {
         match self {
+            Self::Condition => "condition",
             Self::Predicate => "predicate",
             Self::Bbox => "bbox",
             Self::DistanceMeters => "distanceMeters",
@@ -81,10 +85,14 @@ impl Parameter {
         }
     }
     pub fn required(self) -> bool {
-        matches!(self, Self::DistanceMeters | Self::ToleranceMeters)
+        matches!(
+            self,
+            Self::DistanceMeters | Self::ToleranceMeters | Self::Condition
+        )
     }
     pub fn schema(self) -> Value {
         match self {
+            Self::Condition => crate::attributes::condition_schema(),
             Self::Predicate => {
                 json!({"type":"string","enum":["intersects","within","contains","touches","disjoint"],"default":DEFAULT_PREDICATE})
             }
@@ -98,8 +106,12 @@ impl Parameter {
         }
     }
     fn validate(self, value: &Value) -> Result<(), String> {
+        if matches!(self, Self::Condition) {
+            return crate::attributes::validate_condition(value);
+        }
         let schema = self.schema();
         match self {
+            Self::Condition => unreachable!(),
             Self::Predicate => {
                 value.as_str().ok_or("predicate 必须为字符串")?;
                 if !schema["enum"].as_array().unwrap().contains(value) {
@@ -452,6 +464,18 @@ pub static ANALYSES: &[AnalysisSpec] = &[
         gui: true,
         source_kinds: &["point", "line", "polygon"],
         target_kinds: &["point", "line", "polygon"],
+        metric: false,
+        result_kind: ResultKind::Features,
+    },
+    AnalysisSpec {
+        operation: Operation::ExtractByAttribute,
+        description:
+            "按结构化属性条件提取完整要素副本；严格类型、区分大小写，保留身份和XYZ；要求有效几何",
+        target: TargetRequirement::None,
+        parameters: &[Parameter::Condition],
+        gui: true,
+        source_kinds: &["point", "line", "polygon"],
+        target_kinds: &[],
         metric: false,
         result_kind: ResultKind::Features,
     },

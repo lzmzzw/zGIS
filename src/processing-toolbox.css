@@ -430,3 +430,6 @@
 .processing-explanation summary { cursor: pointer; margin-top: 10px; }
 .processing-report .processing-detail-row { display: contents; }
 .processing-explanation dd { overflow-wrap: anywhere; }
+.attribute-condition { min-width: 0; border-left: 2px solid var(--border); padding: 8px; margin: 8px 0; }
+.attribute-condition > div { min-width: 0; }
+.attribute-condition input, .attribute-condition select { min-width: 0; max-width: 100%; }

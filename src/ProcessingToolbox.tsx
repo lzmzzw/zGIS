@@ -1,4 +1,5 @@
 import type { AnalysisExplanation } from "./analysisResult";
+import AttributeConditionEditor, { conditionValue, newCondition, type ConditionDraft } from "./AttributeConditionEditor";
 import { locateAnalysisIssue, refreshAnalysisLocation, type AnalysisLocation, type AnalysisFocus } from "./analysisLocation";
 import { t, useLocale } from "./i18n";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -45,6 +46,7 @@ export interface ProcessingToolboxProps {
   onRunningChange?: (running: boolean) => void;
 }
 interface ToolForm {
+  condition?: ConditionDraft;
   sourceId: string;
   targetId: string;
   selectedOnly: boolean;
@@ -403,6 +405,13 @@ export function ProcessingToolbox({
     !fields.includes(form.groupBy)
       ? "分组字段已不存在，请重新选择。"
       : "";
+  const condition = form.condition ?? newCondition(fields[0]);
+  let parsedCondition: Record<string, unknown> | undefined;
+  let conditionError = "";
+  if (tool.parameters.includes("condition")) {
+    try { parsedCondition = conditionValue(condition, fields); }
+    catch (reason) { conditionError = (reason as Error).message; }
+  }
   const unavailableReason = running
     ? ""
     : editing
@@ -411,6 +420,7 @@ export function ProcessingToolbox({
         geometryError ||
         numericError ||
         fieldError ||
+        conditionError ||
         (!tool.report && !form.outputName.trim()
           ? "请输入结果图层名称。"
           : "") ||
@@ -471,6 +481,7 @@ export function ProcessingToolbox({
     setError("");
     setResult(undefined);
     const parameters: Record<string, unknown> = {};
+    if (tool.parameters.includes("condition")) parameters.condition = parsedCondition;
     if (tool.parameters.includes("distanceMeters"))
       parameters.distanceMeters = Number(form.distanceMeters);
     if (tool.parameters.includes("toleranceMeters"))
@@ -752,6 +763,7 @@ export function ProcessingToolbox({
                         </select>
                       </label>
                     )}
+                    {tool.parameters.includes("condition") && <AttributeConditionEditor value={condition} fields={fields} onChange={(condition) => changeForm({ condition })} />}
                     {tool.parameters.includes("predicate") && (
                       <label>
                         <span>{t("空间关系")}</span>

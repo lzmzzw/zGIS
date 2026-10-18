@@ -1,4 +1,19 @@
 import { getAnalysisTool } from "./analysisTools";
+import type { GeoFeature } from "./domain/types";
+
+/** Copy-preserving tools return workspace ids; restore file ids before re-importing a result. */
+export function restoreAnalysisSourceIds(operation: string, result: Record<string, unknown>, input: GeoFeature[]): Record<string, unknown> {
+  if (!["clean_geometries", "extract_by_attribute"].includes(operation) || !Array.isArray(result.features)) return result;
+  const sources = new Map(input.map(feature => [feature.id, feature]));
+  return { ...result, features: result.features.map(raw => {
+    const feature = { ...(raw as Record<string, unknown>) };
+    const source = sources.get(String(feature.id));
+    if (!source) throw new Error("分析结果包含未知来源要素");
+    if (source.sourceFeatureId === undefined) delete feature.id;
+    else feature.id = source.sourceFeatureId;
+    return feature;
+  }) };
+}
 
 export interface AnalysisDetail {
   label: string;
