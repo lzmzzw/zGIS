@@ -426,3 +426,7 @@
   background: var(--panel);
   font-weight: var(--font-weight-medium);
 }
+
+.processing-explanation summary { cursor: pointer; margin-top: 10px; }
+.processing-report .processing-detail-row { display: contents; }
+.processing-explanation dd { overflow-wrap: anywhere; }

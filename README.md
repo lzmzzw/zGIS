@@ -8,7 +8,7 @@ Windows / macOS ARM64 轻量地理数据查看与编辑器，同时提供纯静�
 
 ## Web 版
 
-Web 版提供本地 GeoJSON、CSV、SHP ZIP 图层显示、OpenStreetMap 街道底图、属性查看与 22 项客户端空间分析。文件不上传，结果可下载；不包含数据库、AI、MCP 或几何编辑。构建 `pnpm build:web` 输出 `dist-web/`，静态托管即可运行；完整使用、部署和验证见 [Web 说明](docs/web.md)。
+Web 版提供本地 GeoJSON、CSV、SHP ZIP 图层显示、OpenStreetMap 街道底图、属性查看、基础几何编辑与 22 项客户端空间分析。文件不上传，编辑及分析结果以副本下载；不包含数据库、AI 或 MCP。构建 `pnpm build:web` 输出 `dist-web/`，静态托管即可运行；完整使用、部署和验证见 [Web 说明](docs/web.md)。
 
 ## 桌面功能
 

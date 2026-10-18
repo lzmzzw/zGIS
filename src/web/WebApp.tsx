@@ -1,3 +1,4 @@
+import { explainAnalysisResult, analysisLayerNotes } from "../analysisResult";
 import { useLocale } from "../i18n";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -311,6 +312,9 @@ export default function WebApp() {
       if (!raw || typeof raw !== "object" || Array.isArray(raw))
         throw new Error("分析结果结构无效");
       const result = raw as Record<string, unknown>;
+      const explanation = explainAnalysisResult(result, {
+        ...request, inputCount: features.length, targetCount: target?.features.length,
+      });
       if (
         result.type === "FeatureCollection" &&
         Array.isArray(result.features)
@@ -324,6 +328,7 @@ export default function WebApp() {
             displayName: name,
             dirty: true,
             warnings: [
+              ...analysisLayerNotes(explanation),
               `${definition.label}结果；浏览器中的独立副本，请下载保存。`,
             ],
           },
@@ -331,16 +336,17 @@ export default function WebApp() {
         addLayers([layer]);
         setStatus(`${definition.label}完成：${output.length} 个结果要素`);
         return {
+          explanation,
           featureCount: output.length,
           layerId: layer.id,
           layerName: name,
           durationMs: performance.now() - start,
         };
       }
-      if (!["layer_summary", "topology_check"].includes(request.operation))
+      if (!definition.report)
         throw new Error("分析未返回矢量结果");
       setStatus(`${definition.label}完成`);
-      return { report: result, durationMs: performance.now() - start };
+      return { report: result, explanation, durationMs: performance.now() - start };
     } catch (reason) {
       setStatus(message(reason).includes("取消") ? "分析已取消" : "分析失败");
       throw reason;

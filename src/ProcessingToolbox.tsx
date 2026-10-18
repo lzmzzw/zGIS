@@ -1,3 +1,4 @@
+import type { AnalysisExplanation } from "./analysisResult";
 import { t, useLocale } from "./i18n";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Check, ChevronDown, LocateFixed, Play, Search, X } from "lucide-react";
@@ -7,6 +8,7 @@ import {
   analysisToolCategories,
   analysisTools,
   getAnalysisTool,
+  validAnalysisNumber,
   type AnalysisGeometryKind,
   type AnalysisTool,
 } from "./analysisTools";
@@ -21,6 +23,7 @@ export interface ProcessingRequest {
   outputName: string;
 }
 export interface ProcessingOutcome {
+  explanation?: AnalysisExplanation;
   featureCount?: number;
   layerId?: string;
   layerName?: string;
@@ -237,7 +240,7 @@ function AnalysisReport({
           </>
         )}
         <p className="processing-note">
-          {t("检查几何有效性、完全重复和面重叠；不自动修复。")}
+          {t("检查几何有效性、精确重复、XY 拓扑重复和面重叠；不自动修复。")}
         </p>
       </div>
     );
@@ -367,19 +370,18 @@ export function ProcessingToolbox({
       (tool.requiresTarget ? layerIssue(target, tool, true) : ""),
     [validationSource, target, tool],
   );
+  const numericKey = tool.parameters.includes("distanceMeters")
+    ? "distanceMeters"
+    : "toleranceMeters";
+  const numericSchema = tool.parameterSchema.properties[numericKey];
   const numericValue = tool.parameters.includes("distanceMeters")
     ? form.distanceMeters
     : form.toleranceMeters;
   const numericError =
     (tool.parameters.includes("distanceMeters") ||
       tool.parameters.includes("toleranceMeters")) &&
-    !(
-      numericValue.trim() &&
-      Number.isFinite(Number(numericValue)) &&
-      Number(numericValue) > 0 &&
-      Number(numericValue) <= 100000
-    )
-      ? "距离或容差须大于 0 且不超过 100000 米。"
+    !validAnalysisNumber(tool, numericKey, numericValue)
+      ? `距离或容差须大于 ${numericSchema?.exclusiveMinimum} 且不超过 ${numericSchema?.maximum} 米。`
       : "";
   const fieldError =
     tool.parameters.includes("groupBy") &&
@@ -672,8 +674,8 @@ export function ProcessingToolbox({
                           <input
                             aria-label={t("缓冲距离（米）")}
                             type="number"
-                            min="0"
-                            max="100000"
+                            min={numericSchema?.exclusiveMinimum}
+                            max={numericSchema?.maximum}
                             step="any"
                             value={form.distanceMeters}
                             onChange={(event) =>
@@ -690,8 +692,8 @@ export function ProcessingToolbox({
                         <span>{t("简化容差（米）")}</span>
                         <input
                           type="number"
-                          min="0"
-                          max="100000"
+                          min={numericSchema?.exclusiveMinimum}
+                          max={numericSchema?.maximum}
                           step="any"
                           value={form.toleranceMeters}
                           onChange={(event) =>
@@ -872,6 +874,38 @@ export function ProcessingToolbox({
                             "没有匹配要素。可调整空间关系或输入范围后重新分析。",
                           )}
                         </p>
+                      )}
+                      {result.outcome.explanation && (
+                        <details
+                          className="processing-report processing-explanation"
+                          open
+                        >
+                          <summary>{t("结果说明")}</summary>
+                          <dl>
+                            {result.outcome.explanation.details.map(
+                              (detail) => (
+                                <div
+                                  key={detail.label}
+                                  className="processing-detail-row"
+                                >
+                                  <dt>{t(detail.label)}</dt>
+                                  <dd>
+                                    {detail.translate
+                                      ? t(detail.value)
+                                      : detail.value}
+                                  </dd>
+                                </div>
+                              ),
+                            )}
+                          </dl>
+                          {result.outcome.explanation.warnings.map(
+                            (warning) => (
+                              <p className="processing-note" key={warning}>
+                                {t(warning)}
+                              </p>
+                            ),
+                          )}
+                        </details>
                       )}
                       {result.outcome.report && (
                         <AnalysisReport
