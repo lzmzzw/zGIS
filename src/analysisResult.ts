@@ -8,6 +8,7 @@ export interface AnalysisDetail {
 export interface AnalysisExplanation {
   details: AnalysisDetail[];
   warnings: string[];
+  removed?: { index: number; reason: string }[];
 }
 interface AnalysisContext {
   operation: string;
@@ -106,7 +107,15 @@ export function explainAnalysisResult(
     warnings.push(
       "检查仅覆盖列出的检查项；无效几何不参与成对检查，未检查面缝隙或共享边界一致性。",
     );
-  return { details, warnings };
+  const removed = Array.isArray(analysis.removed)
+    ? analysis.removed.slice(0, 100).flatMap((item) => {
+        const entry = object(item);
+        return count(entry.featureIndex) && typeof entry.reason === "string"
+          ? [{ index: entry.featureIndex, reason: entry.reason }]
+          : [];
+      })
+    : undefined;
+  return { details, warnings, ...(removed ? { removed } : {}) };
 }
 
 /** Canonical phrases remain translatable when the UI locale changes. */

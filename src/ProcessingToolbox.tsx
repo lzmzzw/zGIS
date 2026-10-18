@@ -114,7 +114,7 @@ function layerIssue(
   }
   for (const feature of layer.features) {
     if (!feature.geometry) {
-      if (tool.id === "topology_check" && !target) continue;
+      if (["topology_check", "clean_geometries"].includes(tool.id) && !target) continue;
       return `${label}包含无几何要素，请先补充几何或使用拓扑检查定位问题。`;
     }
     const kind = geometryKind(feature.geometry);
@@ -898,6 +898,11 @@ export function ProcessingToolbox({
                               ),
                             )}
                           </dl>
+                          {result.outcome.explanation.removed?.map((entry) => (
+                            <p key={entry.index} className="processing-note">
+                              {featureOrdinal(entry.index)}: {t(entry.reason)}
+                            </p>
+                          ))}
                           {result.outcome.explanation.warnings.map(
                             (warning) => (
                               <p className="processing-note" key={warning}>

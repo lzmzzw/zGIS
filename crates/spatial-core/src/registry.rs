@@ -207,7 +207,7 @@ pub static ANALYSES: &[AnalysisSpec] = &[
         description: "移除空/无效几何并报告总数及原因预览；生成独立结果，保留有效要素",
         target: TargetRequirement::None,
         parameters: &[],
-        gui: false,
+        gui: true,
         source_kinds: &["point", "line", "polygon"],
         target_kinds: &[],
         metric: false,

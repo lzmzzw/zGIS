@@ -1,5 +1,10 @@
 // Shared UI and analysis catalogue translations. Source phrases remain canonical.
 const messages: Record<string, string> = {
+  "清理": "Clean",
+  "无效": "Invalid",
+  "剔除空或无效几何": "Remove empty or invalid geometries",
+  "保留有效要素副本，列出被剔除的数量与原因。": "Keep a copy of valid features and report removal counts and reasons.",
+  "仅剔除当前已加载图层中的空或无效几何，不自动修复拓扑或删除重复要素。输出独立副本，原图层不变；超出算法支持范围时失败，不作为无效数据剔除。": "Remove empty or invalid geometries from the loaded layer without repairing topology or removing duplicates. Produce an independent copy; unsupported extents fail rather than being removed as invalid data.",
   "距离或容差须大于 {0} 且不超过 {1} 米。": "Distance or tolerance must be greater than {0} and no greater than {1} metres.",
   "结果说明": "Result details",
   "输入范围": "Input scope",

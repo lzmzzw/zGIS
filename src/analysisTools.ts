@@ -239,6 +239,14 @@ const presentation: Pick<
     keywords: ["layer summary", "statistics", "摘要", "统计", "字段", "范围"],
     help: "查看输入图层的几何与字段概况、经纬度范围。勾选仅使用选中要素时，摘要只统计本次选中的输入。",
   },
+  {
+    id: "clean_geometries",
+    label: "剔除空或无效几何",
+    category: "质量与统计",
+    description: "保留有效要素副本，列出被剔除的数量与原因。",
+    keywords: ["clean", "清理", "无效", "空几何"],
+    help: "仅剔除当前已加载图层中的空或无效几何，不自动修复拓扑或删除重复要素。输出独立副本，原图层不变；超出算法支持范围时失败，不作为无效数据剔除。",
+  },
 ];
 
 type AnalysisContract = Pick<

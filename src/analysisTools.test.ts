@@ -9,7 +9,7 @@ import catalog from "./generated/analysis-catalog.json";
 
 it("工具契约迁移保留 GUI 顺序、几何限制、参数与结果类型", () => {
   expect(
-    analysisTools.map(
+    analysisTools.filter(({ id }) => baseline.some((entry) => entry.id === id)).map(
       ({
         id,
         requiresTarget,
@@ -40,12 +40,13 @@ it("数值表单使用注册表的开下界与闭上界，拒绝空值和非有�
   expect(validAnalysisNumber(tool, "groupBy", "1")).toBe(false);
 });
 
-it("界面恰好展示注册表明确开放的工具，清理工具不自动曝光", () => {
+it("界面恰好展示注册表明确开放的工具，包括显式开放的清理入口", () => {
   expect(analysisTools.map(({ id }) => id).sort()).toEqual(
     catalog
       .filter(({ gui }) => gui)
       .map(({ id }) => id)
       .sort(),
   );
-  expect(analysisTools.some(({ id }) => id === "clean_geometries")).toBe(false);
+  expect(getAnalysisTool("clean_geometries")?.report).toBeUndefined();
+  expect(analysisTools.some(({ id }) => id === "clean_geometries")).toBe(true);
 });
