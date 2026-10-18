@@ -527,7 +527,7 @@ fn build_definitions() -> Vec<Value> {
         ),
         def(
             "read_result",
-            "分页读取分析缓存或质量问题（最多100条）；要素可选择properties及includeGeometry；按nextOffset推进，超大单条明确报错",
+            "分页读取分析缓存、质量问题或统计表格（最多100条）；要素可选择properties及includeGeometry；按nextOffset推进，超大单条明确报错",
             page_schema("resultId"),
             &["resultId"],
         ),
@@ -845,6 +845,11 @@ fn call_expected(m: &GisMcp, name: &str, args: &Value, generation: u64) -> Resul
                 let r = i.results.get(args["resultId"].as_str().unwrap()).ok_or("结果不存在或已过期")?;
                 (r.clone(), stale(&i, r))
             };
+            if let Some(rows) = r.summary["rows"].as_array() {
+                let mut summary=compact_summary(&r.summary);
+                summary.as_object_mut().unwrap().remove("rows");
+                return page(rows,args,json!({"summary":summary,"stale":is_stale}),"rows");
+            }
             if let Some(issues) = r.summary["issues"].as_array() {
                 let mut summary = compact_summary(&r.summary);
                 summary.as_object_mut().unwrap().remove("issues");
@@ -933,7 +938,7 @@ fn compact_summary(summary: &Value) -> Value {
     let Some(object) = summary.as_object() else { return summary.clone(); };
     // issues 只复制预览，避免先克隆整份报告再截取样本。
     let mut v: serde_json::Map<String, Value> = object.iter()
-        .filter(|(key, _)| key.as_str() != "issues")
+        .filter(|(key, _)| !matches!(key.as_str(),"issues"|"rows"))
         .map(|(key, value)| (key.clone(), value.clone())).collect();
     if let Some(issues) = summary["issues"].as_array() {
         let count = issues.len();
@@ -942,6 +947,20 @@ fn compact_summary(summary: &Value) -> Value {
         v.insert("issues".into(), json!(sample));
     } else if let Some(issues) = object.get("issues") {
         v.insert("issues".into(), issues.clone());
+    }
+    if let Some(rows)=summary["rows"].as_array() {
+        v.insert("rowCount".into(),json!(rows.len()));
+        v.insert("rowsPreviewLimit".into(),json!(100));
+        let used=super::bounded_json_size(&v,512*1024).unwrap_or(512*1024);
+        let mut remaining=(512*1024usize).saturating_sub(used+256);
+        let mut sample=Vec::new();
+        for row in rows.iter().take(100) {
+            let Ok(bytes)=super::bounded_json_size(row,remaining) else {break;};
+            remaining=remaining.saturating_sub(bytes+1);
+            sample.push(row.clone());
+        }
+        v.insert("rowsTruncated".into(),json!(sample.len()<rows.len()));
+        v.insert("rows".into(),json!(sample));
     }
     Value::Object(v)
 }
@@ -1119,7 +1138,7 @@ mod tests {
         let m=GisMcp::default();
         let original=json!({"id":"dirty","name":"dirty","features":[test_feature(0),{"type":"Feature","geometry":null,"properties":{"name":"empty"}}]});
         m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(original.clone()).unwrap());
-        assert_eq!(definitions().len(),32);
+        assert_eq!(definitions().len(),33);
         let cleaned=call(&m,"clean_geometries",&json!({"source":{"layerId":"dirty"}})).unwrap();
         assert_eq!(cleaned["featureCount"],1);
         assert_eq!(cleaned["summary"]["analysis"]["removedCount"],1);
@@ -1376,6 +1395,65 @@ mod tests {
         assert!(!m.status().enabled);
     }
     #[test]
+    fn statistics_reports_page_rows_and_reject_vector_publication_or_sources() {
+        let m=GisMcp::default();
+        let features:Vec<_>=(0..205).map(|n|json!({"type":"Feature","geometry":{"type":"Point","coordinates":[116,39,17]},"properties":{"g":n,"x":n}})).collect();
+        let layer=json!({"id":"stats","name":"stats","features":features});
+        m.inner.lock().unwrap().layers.push(LayerSnapshot::from_value(layer.clone()).unwrap());
+        let metrics=json!([{"name":"count","op":"count_all"},{"name":"sum","op":"sum","field":"x"}]);
+        let args=json!({"source":{"layerId":"stats"},"groupBy":"g","metrics":metrics});
+        let report=call(&m,"field_statistics",&args).unwrap();
+        assert_eq!(report["featureCount"],0);
+        assert_eq!(report["summary"]["type"],"table");
+        assert_eq!(report["summary"]["rowCount"],205);
+        assert_eq!(report["summary"]["rows"].as_array().unwrap().len(),100);
+        assert_eq!(report["summary"]["rowsTruncated"],true);
+        let mut rows=Vec::new();
+        let mut offset=json!(0);
+        loop {
+            let page=call(&m,"read_result",&json!({"resultId":report["resultId"],"offset":offset})).unwrap();
+            assert_eq!(page["resultKind"],"rows");assert_eq!(page["total"],205);
+            assert!(page.get("features").is_none());assert!(page["summary"].get("rows").is_none());
+            assert!(page["rows"].as_array().unwrap().len()<=100);
+            assert!(serde_json::to_vec(&page).unwrap().len()<=512*1024);
+            rows.extend(page["rows"].as_array().unwrap().iter().cloned());
+            offset=page["nextOffset"].clone();if offset.is_null() {break;}
+        }
+        assert_eq!(rows.len(),205);
+        assert_eq!(rows.iter().map(|r|r["values"]["sum"].as_f64().unwrap()).sum::<f64>(),20910.0);
+        assert!(call(&m,"publish_result",&json!({"resultId":report["resultId"],"name":"table"})).unwrap_err().contains("报告"));
+        assert!(call(&m,"layer_summary",&json!({"source":{"resultId":report["resultId"]}})).is_err());
+        assert!(m.inner.lock().unwrap().queue.is_empty());
+        let count=m.inner.lock().unwrap().results.len();
+        assert!(call(&m,"field_statistics",&json!({"source":{"layerId":"stats"},"metrics":[{"name":"x","op":"sum","field":"x","sql":"1"}]})).is_err());
+        assert_eq!(m.inner.lock().unwrap().results.len(),count);
+        assert_eq!(m.inner.lock().unwrap().layers[0].value(),layer);
+        let mut changed=layer;changed["features"][0]["properties"]["x"]=json!(999);
+        m.inner.lock().unwrap().layers[0]=LayerSnapshot::from_value(changed).unwrap();
+        assert_eq!(call(&m,"read_result",&json!({"resultId":report["resultId"]})).unwrap()["stale"],true);
+        m.inner.lock().unwrap().results.get_mut(report["resultId"].as_str().unwrap()).unwrap().created=Instant::now()-Duration::from_secs(1801);
+        assert!(call(&m,"read_result",&json!({"resultId":report["resultId"]})).is_err());
+    }
+    #[test]
+    fn table_previews_and_pages_respect_byte_budgets_and_cancelled_cache() {
+        let rows:Vec<_>=(0..205).map(|n|json!({"group":{"type":"string","value":"中".repeat(5000)},"values":{"n":n}})).collect();
+        let summary=json!({"type":"table","groupCount":205,"rows":rows});
+        let compact=compact_summary(&summary);
+        assert_eq!(compact["rowCount"],205);assert_eq!(compact["rowsTruncated"],true);
+        assert!(compact["rows"].as_array().unwrap().len()<100);
+        assert!(serde_json::to_vec(&compact).unwrap().len()<512*1024);
+        let mut meta=compact;meta.as_object_mut().unwrap().remove("rows");
+        let result=page(summary["rows"].as_array().unwrap(),&json!({"offset":0,"limit":100}),json!({"summary":meta}),"rows").unwrap();
+        assert!(result["returnedCount"].as_u64().unwrap()>0);
+        assert_eq!(result["nextOffset"],result["returnedCount"]);
+        assert!(serde_json::to_vec(&result).unwrap().len()<=512*1024);
+        let m=GisMcp::default();
+        let runtime=crate::analysis_runtime::AnalysisRuntime::new(1,Duration::from_secs(10));
+        let guard=runtime.start("stats-test","cancel").unwrap();
+        let result=guard.run(||{runtime.cancel("stats-test","cancel");cache(&m,vec![],summary,vec![],0,false)});
+        assert!(result.is_err());assert!(m.inner.lock().unwrap().results.is_empty());
+    }
+    #[test]
     fn attribute_extract_schema_cache_publication_and_freshness() {
         let m=GisMcp::default();
         let first=json!({"type":"Feature","id":"a","geometry":{"type":"Point","coordinates":[116,39,17]},"properties":{"area":150,"kind":"住宅"}});
@@ -1544,6 +1622,6 @@ mod analysis_contract_tests {
         let existing: Vec<_> = definitions.iter().filter(|tool| baseline.as_array().unwrap().iter().any(|old| old["name"]==tool["name"])).cloned().collect();
         assert_eq!(serde_json::json!(existing), baseline);
         let new: Vec<_> = definitions.iter().filter(|tool| !baseline.as_array().unwrap().iter().any(|old| old["name"]==tool["name"])).map(|tool| tool["name"].as_str().unwrap()).collect();
-        assert_eq!(new, ["extract_by_attribute"]);
+        assert_eq!(new, ["extract_by_attribute","field_statistics"]);
     }
 }

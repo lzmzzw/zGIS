@@ -1,4 +1,6 @@
 import type { AnalysisExplanation } from "./analysisResult";
+import AnalysisMetrics, { metricsError, normalizedMetrics, type AnalysisMetric } from "./AnalysisMetrics";
+import StatisticsReport from "./StatisticsReport";
 import AttributeConditionEditor, { conditionValue, newCondition, type ConditionDraft } from "./AttributeConditionEditor";
 import { locateAnalysisIssue, refreshAnalysisLocation, type AnalysisLocation, type AnalysisFocus } from "./analysisLocation";
 import { t, useLocale } from "./i18n";
@@ -46,6 +48,7 @@ export interface ProcessingToolboxProps {
   onRunningChange?: (running: boolean) => void;
 }
 interface ToolForm {
+  metrics?: AnalysisMetric[];
   condition?: ConditionDraft;
   sourceId: string;
   targetId: string;
@@ -181,6 +184,7 @@ function AnalysisReport({
   onLocate?: (issue: Record<string, unknown>) => void;
 }) {
   useLocale();
+  if (operation === "field_statistics") return <StatisticsReport report={report} />;
   if (operation === "topology_check") {
     const issues = Array.isArray(report.issues)
       ? report.issues
@@ -406,6 +410,8 @@ export function ProcessingToolbox({
       ? "分组字段已不存在，请重新选择。"
       : "";
   const condition = form.condition ?? newCondition(fields[0]);
+  const metrics = form.metrics ?? [{ name: "count", op: "count_all" }];
+  const statisticsError = tool.parameters.includes("metrics") ? metricsError(metrics, fields) : "";
   let parsedCondition: Record<string, unknown> | undefined;
   let conditionError = "";
   if (tool.parameters.includes("condition")) {
@@ -421,6 +427,7 @@ export function ProcessingToolbox({
         numericError ||
         fieldError ||
         conditionError ||
+        statisticsError ||
         (!tool.report && !form.outputName.trim()
           ? "请输入结果图层名称。"
           : "") ||
@@ -475,12 +482,14 @@ export function ProcessingToolbox({
   async function run(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!toolId || locked.current || unavailableReason) return;
+    onLocateIssue?.();
     locked.current = true;
     setRunning(true);
     onRunningChange?.(true);
     setError("");
     setResult(undefined);
     const parameters: Record<string, unknown> = {};
+    if (tool.parameters.includes("metrics")) parameters.metrics = normalizedMetrics(metrics);
     if (tool.parameters.includes("condition")) parameters.condition = parsedCondition;
     if (tool.parameters.includes("distanceMeters"))
       parameters.distanceMeters = Number(form.distanceMeters);
@@ -748,7 +757,7 @@ export function ProcessingToolbox({
                             })
                           }
                         >
-                          <option value="all">{t("不分组，融合全部面")}</option>
+                          <option value="all">{t(tool.id === "field_statistics" ? "不分组，统计全部输入" : "不分组，融合全部面")}</option>
                           {form.groupBy !== undefined &&
                             !fields.includes(form.groupBy) && (
                               <option value="field:-1">
@@ -763,6 +772,7 @@ export function ProcessingToolbox({
                         </select>
                       </label>
                     )}
+                    {tool.parameters.includes("metrics") && <AnalysisMetrics value={metrics} fields={fields} onChange={(metrics) => changeForm({ metrics })} />}
                     {tool.parameters.includes("condition") && <AttributeConditionEditor value={condition} fields={fields} onChange={(condition) => changeForm({ condition })} />}
                     {tool.parameters.includes("predicate") && (
                       <label>

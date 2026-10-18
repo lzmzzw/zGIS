@@ -3088,5 +3088,98 @@
       "line",
       "polygon"
     ]
+  },
+  {
+    "description": "按单字段分组统计，最多8指标和1000组；严格数值类型，返回只读表格；要求有效几何",
+    "gui": true,
+    "id": "field_statistics",
+    "metric": false,
+    "parameterSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "groupBy": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "metrics": {
+          "items": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "op": {
+                    "enum": [
+                      "count_all"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "op"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "field": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "op": {
+                    "enum": [
+                      "count_valid",
+                      "sum",
+                      "mean",
+                      "min",
+                      "max"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "op",
+                  "field"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "metrics"
+      ],
+      "type": "object"
+    },
+    "parameters": [
+      "groupBy",
+      "metrics"
+    ],
+    "report": true,
+    "requiresTarget": false,
+    "resultKind": "table",
+    "sourceKinds": [
+      "point",
+      "line",
+      "polygon"
+    ]
   }
 ]

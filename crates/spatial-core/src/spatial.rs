@@ -917,6 +917,11 @@ fn analyze_registered(
     if operation == Operation::SpatialQuery && args.get("bbox").is_some() && target.is_some() {
         return Err("spatial_query 的 bbox 与 target 必须二选一".into());
     }
+    if operation == Operation::FieldStatistics {
+        crate::input::validate_features(args,source,None)?;
+        decode(source,false)?;
+        return crate::statistics::field_statistics(args,source);
+    }
     if operation == Operation::ExtractByAttribute {
         crate::input::validate_features(args, source, None)?;
         decode(source, false)?;
@@ -1745,6 +1750,7 @@ mod tests {
         for tool in crate::registry::ANALYSES {
             let name = tool.id();
             let args = match name {
+                "field_statistics" => json!({"metrics":[{"name":"count","op":"count_all"}]}),
                 "extract_by_attribute" => json!({"condition":{"field":"contract","op":"eq","value":true}}),
                 "buffer" => json!({"distanceMeters":10}),
                 "simplify" => json!({"toleranceMeters":1}),

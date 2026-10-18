@@ -2,7 +2,7 @@ import generatedCatalog from "./generated/analysis-catalog.json" with { type: "j
 
 export type AnalysisGeometryKind = "point" | "line" | "polygon";
 export type AnalysisParameter =
-  "distanceMeters" | "toleranceMeters" | "groupBy" | "predicate" | "condition";
+  "distanceMeters" | "toleranceMeters" | "groupBy" | "predicate" | "condition" | "metrics";
 
 export interface AnalysisParameterSchema {
   properties: Record<
@@ -39,6 +39,11 @@ const presentation: Pick<
   AnalysisTool,
   "id" | "label" | "category" | "description" | "keywords" | "help"
 >[] = [
+  {
+    id: "field_statistics", label: "字段分组统计", category: "质量与统计",
+    description: "按字段分组统计数量与数值指标。", keywords: ["statistics", "aggregate", "分组统计"],
+    help: "返回只读表格，不生成地图层。最多1000组、8个指标；数字、文本、空值与缺失分组分开，数值指标不转换文本。没有有效数值时返回空值。",
+  },
   {
     id: "extract_by_attribute", label: "按属性条件提取", category: "质量与统计",
     description: "按字段条件提取独立要素副本。", keywords: ["attribute", "filter", "属性筛选"],

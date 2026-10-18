@@ -2,6 +2,10 @@ import { t } from "./i18n";
 
 export type ConditionDraft = { kind: "all" | "any"; children: ConditionDraft[] } | { kind: "rule"; field: string; op: string; type: "string" | "number" | "boolean"; text: string };
 export const newCondition = (field = ""): ConditionDraft => ({ kind: "rule", field, op: "eq", type: "string", text: "" });
+export function changeConditionMode(value: ConditionDraft, kind: ConditionDraft["kind"]): ConditionDraft {
+  if (kind === "rule") return value.kind === "rule" ? value : changeConditionMode(value.children[0], "rule");
+  return { kind, children: value.kind === "rule" ? [value] : value.children };
+}
 const operations = [["eq", "等于"], ["ne", "不等于"], ["gt", "大于"], ["gte", "大于等于"], ["lt", "小于"], ["lte", "小于等于"], ["contains", "包含文本"], ["in", "属于列表"], ["is_null", "为空值"], ["is_missing", "字段缺失"]];
 export function conditionValue(draft: ConditionDraft, fields: string[], depth = 1): Record<string, unknown> {
   if (depth > 4 || conditionLeaves(draft) > 32) throw new Error("条件最多四层、32项。");
@@ -21,7 +25,10 @@ export function conditionValue(draft: ConditionDraft, fields: string[], depth = 
   } else if (["gt", "gte", "lt", "lte"].includes(draft.op) || draft.type === "number") {
     value = Number(draft.text);
     if (!draft.text.trim() || !finite(value)) throw new Error("请输入有限数值，整数须在安全范围内。");
-  } else value = draft.type === "boolean" && draft.op !== "contains" ? draft.text === "true" : draft.text;
+  } else if (draft.type === "boolean" && draft.op !== "contains") {
+    if (!["true", "false"].includes(draft.text)) throw new Error("布尔值只能为true或false。");
+    value = draft.text === "true";
+  } else value = draft.text;
   return { ...base, value };
 }
 export const conditionLeaves = (draft: ConditionDraft): number => draft.kind === "rule" ? 1 : draft.children.reduce((sum, node) => sum + conditionLeaves(node), 0);
@@ -32,13 +39,13 @@ export default function AttributeConditionEditor({ value, fields, onChange, dept
     <legend>{t("属性条件")}</legend>
     <label><span>{t("条件方式")}</span><select aria-label={t("条件方式")} value={kind} onChange={e => {
       const next = e.target.value as ConditionDraft["kind"];
-      onChange(next === "rule" ? newCondition(fields[0]) : { kind: next, children: [newCondition(fields[0])] });
+      onChange(changeConditionMode(value, next));
     }}>
       <option value="rule">{t("单个条件")}</option><option value="all" disabled={depth >= 4}>{t("全部满足（AND）")}</option><option value="any" disabled={depth >= 4}>{t("任一满足（OR）")}</option>
     </select></label>
     {value.kind === "rule" ? <>
       <label><span>{t("条件字段")}</span><select aria-label={t("条件字段")} value={value.field} onChange={e => onChange({ ...value, field: e.target.value })}><option value="">{t("请选择字段")}</option>{fields.map(field => <option key={field} value={field}>{field}</option>)}</select></label>
-      <label><span>{t("比较方式")}</span><select aria-label={t("比较方式")} value={value.op} onChange={e => onChange({ ...value, op: e.target.value, ...(e.target.value === "contains" ? { type: "string" as const } : {}) })}>{operations.map(([op,label]) => <option key={op} value={op}>{t(label)}</option>)}</select></label>
+      <label><span>{t("比较方式")}</span><select aria-label={t("比较方式")} value={value.op} onChange={e => onChange({ ...value, op: e.target.value, ...(["eq", "ne"].includes(e.target.value) && value.type === "boolean" && !["true", "false"].includes(value.text) ? { text: "true" } : {}), ...(e.target.value === "contains" ? { type: "string" as const } : {}) })}>{operations.map(([op,label]) => <option key={op} value={op}>{t(label)}</option>)}</select></label>
       {["eq","ne"].includes(value.op) && <label><span>{t("值类型")}</span><select aria-label={t("值类型")} value={value.type} onChange={e => onChange({ ...value, type: e.target.value as "string" | "number" | "boolean", text: e.target.value === "boolean" ? "true" : "" })}><option value="string">{t("文本")}</option><option value="number">{t("数值")}</option><option value="boolean">{t("布尔值")}</option></select></label>}
       {!["is_null","is_missing"].includes(value.op) && <label><span>{t("比较值")}</span>{value.type === "boolean" && ["eq","ne"].includes(value.op) ? <select aria-label={t("比较值")} value={value.text} onChange={e => onChange({ ...value, text: e.target.value })}><option value="true">true</option><option value="false">false</option></select> : <input aria-label={t("比较值")} maxLength={10000} value={value.text} placeholder={value.op === "in" ? '["A", "B"]' : undefined} onChange={e => onChange({ ...value, text: e.target.value })} />}</label>}
     </> : <>

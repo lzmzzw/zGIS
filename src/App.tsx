@@ -457,6 +457,9 @@ export default function App() {
   );
   const [featureFitNonce, setFeatureFitNonce] = useState(0);
   const [analysisFocus, setAnalysisFocus] = useState<AnalysisFocus>();
+  useEffect(() => {
+    if (!toolboxOpen || editingLayerId) setAnalysisFocus(undefined);
+  }, [toolboxOpen, editingLayerId]);
   const [finishNonce, setFinishNonce] = useState(0);
   const [nodeCount, setNodeCount] = useState(0);
   const [fitNonce, setFitNonce] = useState(0);

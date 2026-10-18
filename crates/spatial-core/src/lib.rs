@@ -6,6 +6,7 @@ pub mod export;
 pub mod input;
 pub mod registry;
 mod spatial;
+mod statistics;
 pub fn analyze(
     name: &str,
     args: &serde_json::Value,

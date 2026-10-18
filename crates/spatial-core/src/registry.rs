@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 pub const DEFAULT_PREDICATE: &str = "intersects";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operation {
+    FieldStatistics,
     ExtractByAttribute,
     CleanGeometries,
     SpatialQuery,
@@ -31,6 +32,7 @@ pub enum Operation {
 impl Operation {
     pub fn id(self) -> &'static str {
         match self {
+            Self::FieldStatistics => "field_statistics",
             Self::ExtractByAttribute => "extract_by_attribute",
             Self::CleanGeometries => "clean_geometries",
             Self::SpatialQuery => "spatial_query",
@@ -66,6 +68,8 @@ pub enum TargetRequirement {
 }
 #[derive(Clone, Copy, Debug)]
 pub enum Parameter {
+    Metrics,
+    StatisticsGroupBy,
     Condition,
     Predicate,
     Bbox,
@@ -76,6 +80,8 @@ pub enum Parameter {
 impl Parameter {
     pub fn key(self) -> &'static str {
         match self {
+            Self::Metrics => "metrics",
+            Self::StatisticsGroupBy => "groupBy",
             Self::Condition => "condition",
             Self::Predicate => "predicate",
             Self::Bbox => "bbox",
@@ -87,11 +93,13 @@ impl Parameter {
     pub fn required(self) -> bool {
         matches!(
             self,
-            Self::DistanceMeters | Self::ToleranceMeters | Self::Condition
+            Self::DistanceMeters | Self::ToleranceMeters | Self::Condition | Self::Metrics
         )
     }
     pub fn schema(self) -> Value {
         match self {
+            Self::Metrics => crate::statistics::metrics_schema(),
+            Self::StatisticsGroupBy => json!({"type":"string","minLength":1,"maxLength":256}),
             Self::Condition => crate::attributes::condition_schema(),
             Self::Predicate => {
                 json!({"type":"string","enum":["intersects","within","contains","touches","disjoint"],"default":DEFAULT_PREDICATE})
@@ -106,12 +114,23 @@ impl Parameter {
         }
     }
     fn validate(self, value: &Value) -> Result<(), String> {
+        if matches!(self, Self::Metrics) {
+            return crate::statistics::parse_metrics(value).map(|_| ());
+        }
         if matches!(self, Self::Condition) {
             return crate::attributes::validate_condition(value);
         }
         let schema = self.schema();
         match self {
-            Self::Condition => unreachable!(),
+            Self::Condition | Self::Metrics => unreachable!(),
+            Self::StatisticsGroupBy => {
+                if value
+                    .as_str()
+                    .is_none_or(|s| s.is_empty() || s.chars().count() > 256)
+                {
+                    return Err("统计分组字段长度必须为1至256".into());
+                }
+            }
             Self::Predicate => {
                 value.as_str().ok_or("predicate 必须为字符串")?;
                 if !schema["enum"].as_array().unwrap().contains(value) {
@@ -153,6 +172,7 @@ impl Parameter {
 }
 #[derive(Clone, Copy, Debug)]
 pub enum ResultKind {
+    Table,
     Features,
     Report,
 }
@@ -479,6 +499,18 @@ pub static ANALYSES: &[AnalysisSpec] = &[
         metric: false,
         result_kind: ResultKind::Features,
     },
+    AnalysisSpec {
+        operation: Operation::FieldStatistics,
+        description:
+            "按单字段分组统计，最多8指标和1000组；严格数值类型，返回只读表格；要求有效几何",
+        target: TargetRequirement::None,
+        parameters: &[Parameter::StatisticsGroupBy, Parameter::Metrics],
+        gui: true,
+        source_kinds: &["point", "line", "polygon"],
+        target_kinds: &[],
+        metric: false,
+        result_kind: ResultKind::Table,
+    },
 ];
 pub fn find(id: &str) -> Option<&'static AnalysisSpec> {
     ANALYSES.iter().find(|s| s.id() == id)
@@ -488,9 +520,9 @@ pub fn metadata() -> Vec<Value> {
         let mut value=json!({"id":s.id(),"description":s.description,"gui":s.gui,
             "requiresTarget":s.target!=TargetRequirement::None,"sourceKinds":s.source_kinds,"metric":s.metric,
             "parameters":s.parameters.iter().filter(|p| !matches!(p,Parameter::Bbox)).map(|p|p.key()).collect::<Vec<_>>(),
-            "parameterSchema":s.parameter_schema(),"resultKind":match s.result_kind {ResultKind::Features=>"features",ResultKind::Report=>"report"}});
+            "parameterSchema":s.parameter_schema(),"resultKind":match s.result_kind {ResultKind::Features=>"features",ResultKind::Report=>"report",ResultKind::Table=>"table"}});
         if !s.target_kinds.is_empty() {value["targetKinds"]=json!(s.target_kinds);}
-        if matches!(s.result_kind,ResultKind::Report) {value["report"]=json!(true);}
+        if matches!(s.result_kind,ResultKind::Report | ResultKind::Table) {value["report"]=json!(true);}
         value
     }).collect()
 }

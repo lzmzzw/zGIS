@@ -52,6 +52,6 @@ pnpm test:web
 node scripts/release-assets.mjs web
 ```
 
-`test:web` 启动仅提供 `dist-web/` 的静态服务器，在 `/zgis/` 子目录下运行真实 Edge 回归，不使用 Tauri 模拟层。验证涵盖导入、显示交互、属性、22 项 WASM 工具、结果继续分析、下载以及 SHP 往返。自动化地图回归使用测试瓦片，避免向公共 OSM 服务批量发送请求，不代表公共底图服务的可用性验收。
+`test:web` 启动仅提供 `dist-web/` 的静态服务器，在 `/zgis/` 子目录下运行真实 Edge 回归，不使用 Tauri 模拟层。验证涵盖导入、显示交互、属性、25 项 WASM 工具、结果继续分析、下载以及 SHP 往返。自动化地图回归使用测试瓦片，避免向公共 OSM 服务批量发送请求，不代表公共底图服务的可用性验收。
 
 GitHub Release 同时提供桌面安装包与 `zGIS_<版本>_web.zip`，统一记录 SHA-256。Web ZIP 是可部署资源，不是在线站点地址；将其解压到静态托管根目录即可。证据位于任务独立目录 `output/web-0.4.0/`，不提交生成资源和测试截图。

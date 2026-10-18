@@ -433,3 +433,7 @@
 .attribute-condition { min-width: 0; border-left: 2px solid var(--border); padding: 8px; margin: 8px 0; }
 .attribute-condition > div { min-width: 0; }
 .attribute-condition input, .attribute-condition select { min-width: 0; max-width: 100%; }
+.analysis-metrics, .analysis-metric { min-width: 0; margin: 8px 0; }
+.analysis-metric { border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.statistics-counts { display: block; color: var(--muted); white-space: nowrap; font-size: 11px; }
+.statistics-pagination { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-top: 8px; }

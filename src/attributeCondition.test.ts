@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { conditionValue, newCondition } from "./AttributeConditionEditor";
+import { conditionValue, newCondition, changeConditionMode } from "./AttributeConditionEditor";
 import { restoreAnalysisSourceIds } from "./analysisResult";
 import type { GeoFeature } from "./domain/types";
 
@@ -9,6 +9,8 @@ it("条件编辑器区分标量类型、空值、IN与AND/OR", () => {
   expect(() => conditionValue({ ...rule, text: "9007199254740993" }, ["v"])).toThrow();
   expect(() => conditionValue({ ...rule, op: "in", text: "[null]" }, ["v"])).toThrow();
   expect(() => conditionValue(rule, [])).toThrow();
+  expect(changeConditionMode({ kind: "all", children: [rule, rule] }, "any")).toEqual({ kind: "any", children: [rule, rule] });
+  expect(() => conditionValue({ ...rule, op: "eq", type: "boolean", text: "5" }, ["v"])).toThrow();
 });
 it("保真工具恢复原数字和文本id，无id不凭空添加且不改变源或其他工具", () => {
   const input: GeoFeature[] = [42, "code", undefined].map((sourceFeatureId, index) => ({ id: `internal-${index}`, sourceFeatureId, geometry: null, properties: {} }));

@@ -305,6 +305,15 @@ pub(crate) fn validate_condition(value: &Value) -> Result<(), String> {
     Condition::parse(value, 1, &mut 0).map(|_| ())
 }
 
+pub(crate) fn number_key(value: &Value) -> Result<String, String> {
+    let n = decimal(value)?;
+    Ok(format!("{}:{}:{}", n.negative, n.magnitude, n.digits))
+}
+
+pub(crate) fn compare_numbers(a: &Value, b: &Value) -> Result<Ordering, String> {
+    Ok(decimal(a)?.compare(&decimal(b)?))
+}
+
 pub(crate) fn matching_indices(value: &Value, source: &[Value]) -> Result<Vec<usize>, String> {
     let condition = Condition::parse(value, 1, &mut 0)?;
     let mut fields = std::collections::BTreeSet::new();

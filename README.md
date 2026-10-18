@@ -8,7 +8,7 @@ Windows / macOS ARM64 轻量地理数据查看与编辑器，同时提供纯静�
 
 ## Web 版
 
-Web 版提供本地 GeoJSON、CSV、SHP ZIP 图层显示、OpenStreetMap 街道底图、属性查看、基础几何编辑与 22 项客户端空间分析。文件不上传，编辑及分析结果以副本下载；不包含数据库、AI 或 MCP。构建 `pnpm build:web` 输出 `dist-web/`，静态托管即可运行；完整使用、部署和验证见 [Web 说明](docs/web.md)。
+Web 版提供本地 GeoJSON、CSV、SHP ZIP 图层显示、OpenStreetMap 街道底图、属性查看、基础几何编辑与 25 项客户端矢量分析与统计。文件不上传，编辑及分析结果以副本下载；不包含数据库、AI 或 MCP。构建 `pnpm build:web` 输出 `dist-web/`，静态托管即可运行；完整使用、部署和验证见 [Web 说明](docs/web.md)。
 
 ## 桌面功能
 
@@ -19,7 +19,7 @@ Web 版提供本地 GeoJSON、CSV、SHP ZIP 图层显示、OpenStreetMap 街道�
 - PostGIS 连接、元数据发现、geometry / WKT 文本读取、有主键图层事务编辑、冲突检测和新表导入。
 - 默认 OpenStreetMap；自定义 HTTP(S) XYZ 底图服务、逐服务显示管理与无底图模式。
 - 自动保存工作区与编辑草稿、保存后退出编辑、应用关闭询问和异常退出恢复、文件外部修改冲突保护。
-- 应用内空间分析工具箱，22 项矢量叠加、空间关系、几何转换和质量统计工具；分类树搜索与独立结果图层。操作与计算边界见 [工具箱说明](docs/processing-toolbox.md)。同一分析引擎也通过本机 MCP 提供给嵌入式 Codex CLI Agent，接入见 [空间分析说明](docs/spatial-mcp.md)。
+- 应用内空间分析工具箱，25 项矢量叠加、空间关系、几何转换和质量统计工具；分类树搜索与独立结果图层。操作与计算边界见 [工具箱说明](docs/processing-toolbox.md)。同一分析引擎也通过本机 MCP 提供给嵌入式 Codex CLI Agent，接入见 [空间分析说明](docs/spatial-mcp.md)。
 
 ## 运行与安装
 
@@ -59,6 +59,8 @@ PostGIS 与 MySQL 的表从管理页添加到地图，geometry 或文本 WKT 为
 
 ## 当前边界
 
+分类着色与字段标注通过图层样式设置，支持有界唯一值分类、文本避让及工作区恢复，不修改源数据或扩展 MCP 写操作；规则见[图层显示](docs/layer-display.md)。
+
 启动时自动校验并加载恢复副本，文件图层保留来源格式、路径、指纹、来源 CRS、CSV 几何列和 ZIP 成员；数据库图层保留原数据源配置 ID、表结构、读取范围和记录基线，启动后按原源自动重连并刷新原表，仍标记为数据库图层。连接失败时保留数据库身份和本地编辑并提示重连，不会自动改存文件；表结构或原记录变化会阻止覆盖提交。本地与数据库同时修改同一记录时逐条展示两个版本，由用户选择保留版本，选择期间远端再次变化则要求重新处理。无效恢复文件报错并保留原文件。图层内容、样式、显隐、顺序和嵌套分组（含空组）自动保存，浏览状态正常退出先刷新完整工作区，不弹窗。只要图层处于编辑模式就询问退出；「返回编辑」继续操作，「退出并保留工作区」保存工作副本、编辑模式与尚未完成的绘制/属性/JSON/WKT 草稿，下次启动继续编辑。来源未被外部修改时，恢复图层的保存编辑直接覆盖原文件；来源缺失或指纹冲突时改用另存。固定绘制节点与已应用修改会持续持久化，强行结束进程后也按最近成功保存的恢复记录继续；尚未松开的拖动按最后一次完成的操作恢复。快照或底图配置保存失败阻止退出。源文件保存、另存及数据库提交仍需明确操作。
 
 - 不支持 GDB；WKT Z 和 GeoJSON XYZ 自动识别并保留高程；地图移动已有顶点保留其高程，已有二维图层新增要素保持 XY，空新建或含高程图层新增要素默认 Z=0；4326、4490、3857 转换仅变换 XY，高程原值保留，不进行垂直基准换算。M/ZM、GeometryCollection 和特殊几何拒绝导入或写入。GeoJSON 可明确选择二维副本，不修改原文件。空间分析支持 XYZ 输入输出，按 XY 计算、保留原顶点高程，未知新增点 Z=0，详见[空间分析](docs/processing-toolbox.md)。XY CSV 和 SHP 导出仅支持二维；含高程数据使用 WKT 或 GeoJSON 保存。PostGIS 新表全 XYZ 使用 GeometryZ，混合二维与 XYZ 须分图层导出。
@@ -93,7 +95,7 @@ macOS ARM64 支持 macOS 14 及以上。采用左侧系统原生红黄绿窗口�
 
 后端单测可执行 `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`；Windows 需先载入 `scripts/msvc-environment.ps1`。Windows 打包脚本显式载入 MSVC，防止 Git 的 link.exe 抢占。Cargo.lock 和 pnpm-lock.yaml 都提交，构建、截图与测试数据在 output/target，不提交。
 
-覆盖安装统一执行 `pwsh -File scripts/install.ps1 -Smoke`，先正常关闭现有 zGIS 会话。脚本通过临时、非提权的当前用户计划任务在 Codex MSIX 包外安装；任务无触发器，完成后删除。使用文件句柄解析真实安装路径、比较 release 内容（仅归一化 NSIS bundle 标记）、核对桌面/开始菜单快捷方式及启动进程，并在 `output/install` 保存报告。不能以安装器退出码或 Codex 包内 `%LOCALAPPDATA%` 文件核对认定安装成功，包内路径会被重定向到 Codex LocalCache。`-Smoke` 验证默认 MCP 启动、固定令牌与认证助手、文件操作及跨进程恢复，不发起模型推理；追加 `-Launch` 可在恢复用户配置后通过包外进程启动安装版；完整验收可从普通包外 PowerShell 执行 `pwsh -File scripts/installed-smoke.ps1`。脚本暂存并最终还原原恢复文件，使用独立 WebView2 目录，仅操作生成的测试文件；验证原生打开、保存、导出、取消、外部修改保护，以及真实退出后跨进程工作区及底图恢复。`node scripts/codex-mcp-smoke.mjs` 在 zGIS 运行时验证 Codex 从持久配置取得固定令牌并发现 31 个工具，不创建聊天或发起推理。完整 MCP/Agent 测试还需要 PATH 中有已登录的 Codex CLI，验证鉴权、链式分析、外部文件直读和 `/mcp` 工具发现，不发起模型推理。可用 `-Executable` 指定新构建的 release EXE。WebView2 本地 CDP 仅测试时通过环境启用，不写入产品配置，常规启动不开调试端口。独立 WebView2 目录本身不隔离 Rust 恢复文件，不直接对用户运行中的实例执行底层 smoke。
+覆盖安装统一执行 `pwsh -File scripts/install.ps1 -Smoke`，先正常关闭现有 zGIS 会话。脚本通过临时、非提权的当前用户计划任务在 Codex MSIX 包外安装；任务无触发器，完成后删除。使用文件句柄解析真实安装路径、比较 release 内容（仅归一化 NSIS bundle 标记）、核对桌面/开始菜单快捷方式及启动进程，并在 `output/install` 保存报告。不能以安装器退出码或 Codex 包内 `%LOCALAPPDATA%` 文件核对认定安装成功，包内路径会被重定向到 Codex LocalCache。`-Smoke` 验证默认 MCP 启动、固定令牌与认证助手、文件操作及跨进程恢复，不发起模型推理；追加 `-Launch` 可在恢复用户配置后通过包外进程启动安装版；完整验收可从普通包外 PowerShell 执行 `pwsh -File scripts/installed-smoke.ps1`。脚本暂存并最终还原原恢复文件，使用独立 WebView2 目录，仅操作生成的测试文件；验证原生打开、保存、导出、取消、外部修改保护，以及真实退出后跨进程工作区及底图恢复。`node scripts/codex-mcp-smoke.mjs` 在 zGIS 运行时验证 Codex 从持久配置取得固定令牌并发现 33 个工具，不创建聊天或发起推理。完整 MCP/Agent 测试还需要 PATH 中有已登录的 Codex CLI，验证鉴权、链式分析、外部文件直读和 `/mcp` 工具发现，不发起模型推理。可用 `-Executable` 指定新构建的 release EXE。WebView2 本地 CDP 仅测试时通过环境启用，不写入产品配置，常规启动不开调试端口。独立 WebView2 目录本身不隔离 Rust 恢复文件，不直接对用户运行中的实例执行底层 smoke。
 
 接口见 [src-tauri/IPC.md](src-tauri/IPC.md)。最初设计见 [zGIS技术方案](../../../Deliverables/zGIS/zGIS技术方案.md)，实现边界以本 README 为准。数据库的 AI 直接操作仍遵守工作台 DBX 入口，应用数据层不提供旁路工具。
 

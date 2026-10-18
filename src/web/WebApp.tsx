@@ -117,6 +117,9 @@ export default function WebApp() {
   const [gestureActive, setGestureActive] = useState(false);
   const [basemap, setBasemap] = useState("osm");
   const [toolboxOpen, setToolboxOpen] = useState(false);
+  useEffect(() => {
+    if (!toolboxOpen || editingLayerId) setAnalysisFocus(undefined);
+  }, [toolboxOpen, editingLayerId]);
   const [pendingFiles, setPendingFiles] = useState<InputFile[]>([]);
   const [exportId, setExportId] = useState<string>();
   const [removeId, setRemoveId] = useState<string>();

@@ -1,6 +1,6 @@
 # MCP 与 Codex Agent
 
-用户可直接通过应用内 [空间分析工具箱](processing-toolbox.md) 运行 22 项矢量分析，不需要启动 Agent 或 MCP。工具箱和 MCP 共用 Rust 引擎，来源保持不变，输出为独立结果。
+用户可直接通过应用内 [空间分析工具箱](processing-toolbox.md) 运行 25 项矢量分析与统计，不需要启动 Agent 或 MCP。工具箱和 MCP 共用 Rust 引擎，来源保持不变，输出为独立结果。
 
 ## 使用入口
 
@@ -76,13 +76,15 @@ Agent 对 zGIS 内部图层的操作统一使用 zGIS MCP，具体操作以工�
 
 发布前检查源图层版本，源已修改则拒绝；同一结果重复发布不会重复创建图层。结果独立于源图层，用户使用现有保存/导出入口处理，不自动写文件或数据库。
 
-当前共 31 个 MCP 工具，其中 23 项为分析。`simplify` 的 `toleranceMeters` 须 >0 且 ≤100000；`dissolve` 可传非空 `groupBy` 字段，按标量类型和值分组。相交的目标属性采用 `target_` 前缀，字段冲突继续加下划线；新字段避免覆盖原属性。输出要素、顶点及字节预算在生成过程中检查，超限不返回部分结果。具体语义见工具箱说明与实际 schema。
+当前共 33 个 MCP 工具，其中 25 项为分析。`simplify` 的 `toleranceMeters` 须 >0 且 ≤100000；`dissolve` 可传非空 `groupBy` 字段，按标量类型和值分组。相交的目标属性采用 `target_` 前缀，字段冲突继续加下划线；新字段避免覆盖原属性。输出要素、顶点及字节预算在生成过程中检查，超限不返回部分结果。具体语义见工具箱说明与实际 schema。
 
 空间查询的 `bbox` 与 `target` 必须二选一，同时传入会明确报错；不再隐式按 OR 合并。`topology_check` 的 valid 仅代表所列 checks 范围内无问题；精确重复为 `duplicate_geometry`（含 Z），环起点/方向不同但 XY 相等为 `topological_duplicate`。空/无效几何单独报告，不参与成对关系计算。
 
-`clean_geometries` 目前通过 MCP 提供，不新增工具箱菜单。它只移除空/无效几何，不做吸附或拓扑修复；保留有效要素的 ID 与属性，源图层不变。摘要 analysis 返回 inputCount、retainedCount、removedCount、removed（前 100 项 index/reason）及 removedTruncated；预览截断不影响完整矢量输出。维度不支持、跨日期线/大跨度等能力限制仍拒绝整次调用，不当作无效几何删除。
+`clean_geometries` 同时通过 MCP 与桌面/Web 工具箱提供。它只移除空/无效几何，不做吸附或拓扑修复；保留有效要素的 ID 与属性，源图层不变。摘要 analysis 返回 inputCount、retainedCount、removedCount、removed（前 100 项 index/reason）及 removedTruncated；预览截断不影响完整矢量输出。维度不支持、跨日期线/大跨度等能力限制仍拒绝整次调用，不当作无效几何删除。
 
 ### 分页与缓存生命周期
+
+`field_statistics` 接受可选 `groupBy` 和必填 `metrics`（1–8 项 `{name,op,field?}`），`count_all` 不带 field，其余指标必填。返回 `type:table`、分组/输入数量和有界行预览；完整报告通过 `read_result` 的 `resultKind:rows` 分页读取，每行含 typed group、values 与 valid/null/missing counts。报告不能用于矢量来源或 `publish_result`；版本变化、过期和缓存预算规则不变。数值近似与类型规则见工具箱说明。
 
 `read_features` 和 `read_result` 返回 `resultKind`、`returnedCount`、`nextOffset`、`hasMore`、`truncated`。按返回的 `nextOffset` 继续，不按请求 limit 推算；末页游标为 null。拓扑报告使用 `issues`，矢量结果使用 `features`。矢量分页可传 `properties:["字段名"]` 只读取指定属性（空数组表示不读属性），以及 `includeGeometry:false` 省略几何及 bbox；投影不修改缓存或源图层。超过响应预算的首条记录明确返回 `RESULT_ITEM_TOO_LARGE`，调整字段/几何选择后重试，不返回无法推进的空成功页。加载/分析预览使用 `sampleTruncated` 提示样本不完整。
 
