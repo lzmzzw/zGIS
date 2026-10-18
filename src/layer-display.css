@@ -1,0 +1,44 @@
+.layer-display-controls {
+  min-width: 0;
+  margin: 14px 0 0;
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.layer-display-controls legend {
+  padding: 0 8px 0 0;
+  font-weight: var(--font-weight-medium);
+}
+.layer-display-controls label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  margin: 8px 0;
+}
+.layer-display-controls select {
+  min-width: 0;
+  max-width: 60%;
+}
+.layer-display-controls p {
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+  line-height: 1.6;
+}
+.layer-category-list {
+  max-height: 240px;
+  overflow: auto;
+  padding-right: 4px;
+}
+.layer-category-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.layer-category-list input {
+  flex-shrink: 0;
+}
+.layer-category-list small {
+  color: var(--muted);
+}

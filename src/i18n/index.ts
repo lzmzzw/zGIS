@@ -1,3 +1,4 @@
+import display from "./display";
 import { useSyncExternalStore } from "react";
 import app from "./app";
 import shared from "./shared";
@@ -7,7 +8,7 @@ import { analysisTools } from "../analysisTools";
 
 export type Locale = "zh-CN" | "en";
 export const languageStorageKey = "zgis.locale";
-export const messages: Record<string, string> = { ...errors, ...shared, ...app, ...web };
+export const messages: Record<string, string> = { ...errors, ...shared, ...app, ...web, ...display };
 const listeners = new Set<() => void>();
 function readLocale(): Locale {
   try { return localStorage.getItem(languageStorageKey) === "en" ? "en" : "zh-CN"; }

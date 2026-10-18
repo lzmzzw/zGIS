@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import MapView, { type Tool } from "../MapView";
 import { ImportPanel } from "../FilePanels";
+import { CategorizedStyleControls } from "../LayerDisplayControls";
 import ProcessingToolbox, {
   type ProcessingRequest,
   type ProcessingOutcome,
@@ -543,6 +544,13 @@ export default function WebApp() {
                   <Trash2 size={15} />
                 </button>
               </div>
+              <details className="web-layer-display">
+                <summary>{t("图层样式")}</summary>
+                <fieldset disabled={busy}>
+                  <CategorizedStyleControls layer={layer} value={layer.categorizedStyle}
+                    onChange={(categorizedStyle) => patchLayer(layer.id, { categorizedStyle })} />
+                </fieldset>
+              </details>
               {!!layer.warnings?.length && (
                 <details>
                   <summary>{t(`图层提示（${layer.warnings.length}）`)}</summary>

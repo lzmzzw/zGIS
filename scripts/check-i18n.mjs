@@ -21,7 +21,7 @@ function walk(node, visit, ancestors = []) {
 }
 const dictionary = new Map();
 const errors = [];
-for (const file of ["app", "shared", "web", "errors"]) {
+for (const file of ["app", "shared", "web", "errors", "display"]) {
   walk(parse(fs.readFileSync(`src/i18n/${file}.ts`, "utf8"), { sourceType: "module", plugins: ["typescript"] }), (node) => {
     if (node.type === "TemplateLiteral" && node.quasis.length === 1 && node.quasis[0].value.raw.includes("|")) {
       for (const row of node.quasis[0].value.raw.trim().split(/\r?\n/)) {

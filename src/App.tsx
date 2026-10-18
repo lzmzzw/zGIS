@@ -88,6 +88,7 @@ import {
 import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
 import RightSidebar from "./RightSidebar";
+import { CategorizedStyleControls } from "./LayerDisplayControls";
 import ProcessingToolbox, {
   type ProcessingRequest,
   type ProcessingOutcome,
@@ -424,6 +425,7 @@ export default function App() {
     color: string;
     opacity: number;
     strokeWidth: number;
+    categorizedStyle?: DocumentLayer["categorizedStyle"];
   } | null>(null);
   const [tableEditing, setTableEditing] = useState(false);
   const [closingLayerId, setClosingLayerId] = useState<string>();
@@ -1056,7 +1058,8 @@ export default function App() {
         layerStyleDraft !== null &&
         (layerStyleDraft.color !== active?.color ||
           layerStyleDraft.opacity !== (active?.opacity ?? 1) ||
-          layerStyleDraft.strokeWidth !== (active?.strokeWidth ?? 2))) ||
+          layerStyleDraft.strokeWidth !== (active?.strokeWidth ?? 2) ||
+          JSON.stringify(layerStyleDraft.categorizedStyle) !== JSON.stringify(active?.categorizedStyle))) ||
       (editable &&
         !featurePreview &&
         (modal === "json" || modal === "wkt" || modal === "field"))
@@ -3784,6 +3787,7 @@ export default function App() {
                   color: layer.color,
                   opacity: layer.opacity ?? 1,
                   strokeWidth: layer.strokeWidth ?? 2,
+                  categorizedStyle: layer.categorizedStyle,
                 });
                 openModal("style");
               }}
@@ -5311,6 +5315,7 @@ export default function App() {
                 />
               </label>
             </div>
+            <CategorizedStyleControls layer={active} value={layerStyleDraft.categorizedStyle} onChange={(categorizedStyle) => setLayerStyleDraft((draft) => draft ? { ...draft, categorizedStyle } : null)} />
             <div className="modal-actions">
               <button onClick={() => openModal(null)}>{t("取消")}</button>
               <button
@@ -5324,6 +5329,7 @@ export default function App() {
                             color: layerStyleDraft.color,
                             opacity: layerStyleDraft.opacity,
                             strokeWidth: layerStyleDraft.strokeWidth,
+                            categorizedStyle: layerStyleDraft.categorizedStyle,
                           }
                         : l,
                     ),

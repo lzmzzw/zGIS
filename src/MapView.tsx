@@ -1,3 +1,4 @@
+import { createLayerDisplayStyle, geometryDisplayStyle as style } from "./mapDisplayStyle";
 import { t, useLocale } from "./i18n";
 import { useEffect, useRef } from "react";
 import Map from "ol/Map";
@@ -89,20 +90,6 @@ function fitExtent(map: Map | null, extent: number[] | null | undefined) {
       maxZoom: 16,
       duration: 200,
     });
-}
-function style(color: string, selected = false, accent = "#3e73d8", width = 2) {
-  return new Style({
-    stroke: new Stroke({
-      color: selected ? accent : color,
-      width: selected ? Math.max(2, width) : width,
-    }),
-    fill: new Fill({ color: (selected ? accent : color) + "24" }),
-    image: new Circle({
-      radius: selected ? 8 : 5,
-      fill: new Fill({ color: selected ? accent : color }),
-      stroke: new Stroke({ color: selected ? accent : color, width: 1 }),
-    }),
-  });
 }
 export default function MapView(props: Props) {
   const { locale } = useLocale();
@@ -312,10 +299,10 @@ export default function MapView(props: Props) {
       layer.setVisible(item.visible);
       layer.setOpacity(item.opacity ?? 1);
       layer.setZIndex(props.layers.length - index + 10);
-      const styleKey = `${item.color}:${item.strokeWidth ?? 2}`;
-      if (layer.get("styleKey") !== styleKey) {
+      const styleKey = JSON.stringify([item.color, item.strokeWidth ?? 2, item.categorizedStyle]);
+      if (layer.get("styleKey") !== styleKey || (item.categorizedStyle && layer.get("dataRef") !== item.features)) {
         layer.setStyle(
-          style(item.color, false, undefined, item.strokeWidth ?? 2),
+          createLayerDisplayStyle(item),
         );
         layer.set("styleKey", styleKey);
       }

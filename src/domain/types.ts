@@ -21,6 +21,13 @@ export interface SchemaChange {
   name: string;
   newName?: string;
 }
+export interface CategorizedStyle {
+  field: string;
+  categories: { value: string | number | boolean; color: string }[];
+  otherColor: string;
+  nullColor: string;
+  missingColor: string;
+}
 export interface DocumentLayer {
   schemaChanges?: SchemaChange[];
   id: string;
@@ -34,6 +41,7 @@ export interface DocumentLayer {
   color: string;
   opacity?: number;
   strokeWidth?: number;
+  categorizedStyle?: CategorizedStyle;
   restored?: boolean;
   restoredFrom?: string;
   sourceKind: "geojson" | "csv" | "shp" | "postgis" | "mysql";

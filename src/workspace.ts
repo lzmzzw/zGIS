@@ -1,3 +1,4 @@
+import { normalizeCategorizedStyle } from "./layerDisplay";
 import { reconcileTree, type LayerTreeNode } from "./layerTree";
 import {
   exportGeoJSON,
@@ -409,6 +410,7 @@ function snapshotLayerData(layers: DocumentLayer[]) {
       color: layer.color,
       opacity: layer.opacity,
       strokeWidth: layer.strokeWidth,
+      categorizedStyle: normalizeCategorizedStyle(layer.categorizedStyle),
       sourceKind: engine ?? layer.sourceKind,
       originalCrs: layer.originalCrs,
       csvConfig: engine ? undefined : layer.csvConfig,
@@ -574,6 +576,7 @@ export function restoreLayers(raw: string): DocumentLayer[] {
         value.strokeWidth <= 8
           ? value.strokeWidth
           : 2,
+      categorizedStyle: normalizeCategorizedStyle(value.categorizedStyle),
       dirty: value.dirty ?? true,
       sourcePath:
         !engine && typeof value.sourcePath === "string"
