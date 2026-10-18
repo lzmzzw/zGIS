@@ -2,7 +2,9 @@ $ErrorActionPreference = 'Stop'
 $cargoBin = Join-Path $env:USERPROFILE '.cargo/bin'
 $env:PATH = "$cargoBin;$env:PATH"
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-$installation = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+$installation = if (Test-Path -LiteralPath $vswhere) {
+  & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+} else { $null }
 if ($installation) { $vcvars = Join-Path $installation 'VC/Auxiliary/Build/vcvars64.bat' }
 else {
   $buildTools = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat'
