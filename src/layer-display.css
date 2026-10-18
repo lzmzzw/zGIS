@@ -54,10 +54,13 @@
 }
 .layer-legend {
   margin: 4px 0 6px 24px;
+  padding: 0;
+  border: 0;
   min-width: 0;
   font-size: var(--font-size-sm);
 }
 .layer-legend summary {
+  margin: 0;
   cursor: pointer;
   color: var(--muted);
   overflow-wrap: anywhere;

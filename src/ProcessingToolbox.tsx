@@ -36,6 +36,7 @@ export interface ProcessingOutcome {
   durationMs: number;
 }
 export interface ProcessingToolboxProps {
+  requestedTool?: { id: string; nonce: number };
   layers: DocumentLayer[];
   activeLayerId?: string;
   selectedFeatureId?: string;
@@ -318,6 +319,7 @@ function AnalysisReport({
 }
 
 export function ProcessingToolbox({
+  requestedTool,
   layers,
   activeLayerId,
   selectedFeatureId,
@@ -337,6 +339,16 @@ export function ProcessingToolbox({
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<AnalysisResult>();
+  useEffect(() => {
+    if (!requestedTool) return;
+    const next = getAnalysisTool(requestedTool.id);
+    if (!next) return;
+    setToolId(next.id);
+    setQuery("");
+    setExpandedGroups(current => current.includes(next.category) ? current : [...current, next.category]);
+    setError("");
+    setResult(undefined);
+  }, [requestedTool]);
   useEffect(() => {
     const snapshot = result?.outcome.location;
     if (snapshot && !snapshot.stale && !refreshAnalysisLocation(snapshot, layers)) {

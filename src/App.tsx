@@ -88,7 +88,9 @@ import {
 import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
 import RightSidebar from "./RightSidebar";
-import { CategorizedStyleControls, LabelStyleControls } from "./LayerDisplayControls";
+import { LayerInspector, type LayerDisplayPatch } from "./LayerInspector";
+import CommandPalette from "./CommandPalette";
+import { createUiCommands } from "./uiCommands";
 import { captureAnalysisLocation, type AnalysisFocus } from "./analysisLocation";
 import ProcessingToolbox, {
   type ProcessingRequest,
@@ -283,6 +285,10 @@ export default function App() {
 
   const [agentOpen, setAgentOpen] = useState(false);
   const [toolboxOpen, setToolboxOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [requestedTool, setRequestedTool] = useState<{ id: string; nonce: number }>();
+  const [inspector, setInspector] = useState<{ layerId: string; tab: "profile" | "style"; field?: string; nonce: number }>();
+  const [stylePreview, setStylePreview] = useState<LayerDisplayPatch>();
   const [toolboxMounted, setToolboxMounted] = useState(false);
   const [toolboxRunning, setToolboxRunning] = useState(false);
   const toolboxTrigger = useRef<HTMLButtonElement>(null);
@@ -348,7 +354,7 @@ export default function App() {
   });
   const [workspaceWidth, setWorkspaceWidth] = useState(window.innerWidth);
   const workspaceElement = useRef<HTMLElement>(null);
-  const rightSidebarOpen = toolboxOpen || (agentOpen && desktop);
+  const rightSidebarOpen = toolboxOpen || Boolean(inspector) || (agentOpen && desktop);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       // Prefer the shared preference, then migrate an existing dock width.
@@ -421,14 +427,6 @@ export default function App() {
       ),
     );
   }, [layers]);
-  const [layerStyleDraft, setLayerStyleDraft] = useState<{
-    layerId: string;
-    color: string;
-    opacity: number;
-    strokeWidth: number;
-    categorizedStyle?: DocumentLayer["categorizedStyle"];
-    labels?: DocumentLayer["labels"];
-  } | null>(null);
   const [tableEditing, setTableEditing] = useState(false);
   const [closingLayerId, setClosingLayerId] = useState<string>();
   const [featurePreview, setFeaturePreview] = useState(false);
@@ -524,7 +522,6 @@ export default function App() {
     | "wkt"
     | "field"
     | "layer"
-    | "style"
     | "delete"
     | "new-layer"
     | null
@@ -712,7 +709,7 @@ export default function App() {
       !recoveryReady ||
       recoveryBlocked.current ||
       !pendingAnalysis.current.length ||
-      (!forExit && (cellDraft || modal || editingLayerId))
+      (!forExit && (cellDraft || modal || editingLayerId || stylePreview))
     )
       return;
     const publications = [
@@ -1060,13 +1057,7 @@ export default function App() {
     if (
       Boolean(editingLayerId) ||
       cellDraft !== null ||
-      (modal === "style" &&
-        layerStyleDraft !== null &&
-        (layerStyleDraft.color !== active?.color ||
-          layerStyleDraft.opacity !== (active?.opacity ?? 1) ||
-          layerStyleDraft.strokeWidth !== (active?.strokeWidth ?? 2) ||
-          JSON.stringify(layerStyleDraft.categorizedStyle) !== JSON.stringify(active?.categorizedStyle) ||
-          JSON.stringify(layerStyleDraft.labels) !== JSON.stringify(active?.labels))) ||
+      Boolean(stylePreview) ||
       (editable &&
         !featurePreview &&
         (modal === "json" || modal === "wkt" || modal === "field"))
@@ -1417,6 +1408,8 @@ export default function App() {
   function toggleToolbox() {
     if (busyRef.current) return;
     setToolboxMounted(true);
+    setInspector(undefined);
+    setStylePreview(undefined);
     setAgentOpen(false);
     setToolboxOpen((open) => !open);
   }
@@ -3178,6 +3171,35 @@ export default function App() {
   const contextBlocked = busy || Boolean(cellDraft);
   const sketching =
     tool === "Point" || tool === "LineString" || tool === "Polygon";
+  const inspectorLayer = layers.find(layer => layer.id === inspector?.layerId);
+  const displayMapLayers = useMemo(() => stylePreview && inspectorLayer
+    ? mapLayers.map(layer => layer.id === inspectorLayer.id ? { ...layer, ...stylePreview } : layer)
+    : mapLayers, [mapLayers, stylePreview, inspectorLayer]);
+  function openInspector(id: string, tab: "profile" | "style", field?: string) {
+    if (busy || cellDraft || gestureActive || !activateLayer(id)) return;
+    setStylePreview(undefined); setToolboxOpen(false); setAgentOpen(false);
+    setInspector(old => ({ layerId: id, tab, field, nonce: (old?.nonce ?? 0) + 1 }));
+  }
+  const uiCommands = createUiCommands({ layer: active,
+    blockedReason: busy || modal || gestureActive || cellDraft ? "请先完成当前操作" : undefined,
+    analysisBlockedReason: !desktop ? "空间分析需要桌面版，请在 zGIS 应用中运行" : editingLayerId ? "请先结束编辑" : undefined,
+    profile: () => { if(active) openInspector(active.id, "profile"); },
+    style: () => { if(active) openInspector(active.id, "style"); },
+    fit: () => setFitNonce(n => n + 1),
+    analysis: id => { setAnalysisFocus(undefined); setInspector(undefined); setStylePreview(undefined); setAgentOpen(false); setToolboxMounted(true); setToolboxOpen(true); setRequestedTool(old => ({id, nonce:(old?.nonce??0)+1})); }
+  });
+  useEffect(() => {
+    if (inspector && (!inspectorLayer || inspector.layerId !== activeId)) { setInspector(undefined); setStylePreview(undefined); }
+  }, [inspector, inspectorLayer, activeId]);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (primaryModifier(event) && event.key.toLowerCase() === "k" && !document.querySelector("dialog[open]") && !busy && !modal && !gestureActive && !cellDraft) {
+        event.preventDefault(); setCommandOpen(true);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [busy, modal, gestureActive, cellDraft]);
   const renderMapTool = (item: (typeof tools)[number]) => (
     <IconButton
       key={item.value}
@@ -3278,6 +3300,7 @@ export default function App() {
     contextAction("copy-text", "复制", () => copyText(context.text));
   } else if (context?.kind === "field") {
     contextAction("copy-name", "复制字段名", () => copyText(context.field));
+    contextAction("profile-field", "字段概览", () => openInspector(context.layerId, "profile", context.field), contextBlocked);
     if (tableEditing) {
       contextItems.push({ id: "field-separator", separator: true });
       contextAction(
@@ -3517,6 +3540,7 @@ export default function App() {
             onClose={() => setContext(undefined)}
           />
         )}
+        {commandOpen && <CommandPalette commands={uiCommands} onClose={() => setCommandOpen(false)} />}
         <header
           className="app-header"
           onMouseDown={(event) => {
@@ -3614,6 +3638,7 @@ export default function App() {
             )}
           </div>
           <div className="header-actions">
+            <button className="quiet command-search-trigger" aria-label={t("搜索操作")} disabled={busy || Boolean(modal) || gestureActive || Boolean(cellDraft)} onClick={() => setCommandOpen(true)}>{t("搜索操作")}<kbd>{isMacOS ? "⌘ K" : "Ctrl K"}</kbd></button>
             {desktop && modal !== "settings" && (
               <>
                 <IconButton
@@ -3621,6 +3646,8 @@ export default function App() {
                   active={agentOpen}
                   disabled={busy}
                   onClick={() => {
+                    setInspector(undefined);
+                    setStylePreview(undefined);
                     setToolboxOpen(false);
                     setAgentOpen((v) => !v);
                   }}
@@ -3784,21 +3811,8 @@ export default function App() {
                 if (!activateLayer(id)) return;
                 openModal("layer");
               }}
-              onStyle={(id) => {
-                if (cellDraft || busy) return;
-                const layer = layers.find((l) => l.id === id);
-                if (!layer) return;
-                if (!activateLayer(id)) return;
-                setLayerStyleDraft({
-                  layerId: id,
-                  color: layer.color,
-                  opacity: layer.opacity ?? 1,
-                  strokeWidth: layer.strokeWidth ?? 2,
-                  categorizedStyle: layer.categorizedStyle,
-                  labels: layer.labels,
-                });
-                openModal("style");
-              }}
+              onStyle={(id) => openInspector(id, "style")}
+              onProfile={(id) => openInspector(id, "profile")}
               onAliasLayer={(id, value) => {
                 const displayName = value.trim();
                 if (
@@ -4286,7 +4300,7 @@ export default function App() {
                 featureFitNonce={featureFitNonce}
                 analysisFocus={analysisFocus}
                 onNodeCount={setNodeCount}
-                layers={mapLayers}
+                layers={displayMapLayers}
                 activeId={activeId}
                 selectedId={selectedId}
                 tool={tool}
@@ -4683,6 +4697,7 @@ export default function App() {
                             }}
                           >
                             <HeaderMenu label={field}>
+                              <button disabled={Boolean(busy || cellDraft || gestureActive)} onClick={() => active && openInspector(active.id, "profile", field)}>{t("字段概览")}</button>
                               <span className="field-info">
                                 {t(fieldSummary(field))}
                               </span>
@@ -4862,17 +4877,24 @@ export default function App() {
               )}
             </section>
           </section>
-          {(toolboxMounted || (agentOpen && desktop)) && (
+          {(toolboxMounted || inspectorLayer || (agentOpen && desktop)) && (
             <RightSidebar
               hidden={!rightSidebarOpen}
-              label={toolboxOpen ? t("工具") : "Agent"}
+              label={inspectorLayer ? t("图层检查器") : toolboxOpen ? t("工具") : "Agent"}
               width={shownSidebarWidth}
               maxWidth={sidebarMaxWidth}
               onWidthChange={setSidebarWidth}
             >
+              {inspectorLayer && inspector && <LayerInspector key={inspector.nonce}
+                layer={inspectorLayer} initialTab={inspector.tab} initialField={inspector.field}
+                disabled={busy || Boolean(cellDraft) || gestureActive}
+                onPreview={setStylePreview}
+                onApply={patch => { setLayers(old => old.map(layer => layer.id === inspector.layerId ? { ...layer, ...patch } : layer)); setStylePreview(undefined); setStatus("图层样式已更新"); }}
+                onClose={() => { setInspector(undefined); setStylePreview(undefined); }} />}
               {toolboxMounted && (
                 <div className="processing-toolbox-host" hidden={!toolboxOpen}>
                   <ProcessingToolbox
+                    requestedTool={requestedTool}
                     layers={layers}
                     activeLayerId={activeId}
                     selectedFeatureId={selectedId}
@@ -5274,89 +5296,6 @@ export default function App() {
             </div>
             <div className="modal-actions">
               <button onClick={() => openModal(null)}>{t("关闭")}</button>
-            </div>
-          </Modal>
-        )}
-        {modal === "style" && active && layerStyleDraft && (
-          <Modal
-            title={t(`图层样式：${active.displayName ?? active.name}`)}
-            onClose={() => openModal(null)}
-          >
-            <div className="layer-details">
-              <h4>{t("样式")}</h4>
-              <label>
-                <span>{t("颜色")}</span>
-                <input
-                  type="color"
-                  value={layerStyleDraft.color}
-                  aria-label={t(`${active.displayName ?? active.name}颜色`)}
-                  onChange={(e) =>
-                    setLayerStyleDraft((d) =>
-                      d ? { ...d, color: e.target.value } : null,
-                    )
-                  }
-                />
-              </label>
-              <label>
-                <span>{t("不透明度")}</span>
-                <output>{Math.round(layerStyleDraft.opacity * 100)}%</output>
-                <input
-                  type="range"
-                  aria-label={t("不透明度")}
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={layerStyleDraft.opacity}
-                  onChange={(e) =>
-                    setLayerStyleDraft((d) =>
-                      d ? { ...d, opacity: Number(e.target.value) } : null,
-                    )
-                  }
-                />
-              </label>
-              <label>
-                <span>{t("线宽")}</span>
-                <output>{layerStyleDraft.strokeWidth} px</output>
-                <input
-                  type="range"
-                  aria-label={t("线宽")}
-                  min="1"
-                  max="8"
-                  step="1"
-                  value={layerStyleDraft.strokeWidth}
-                  onChange={(e) =>
-                    setLayerStyleDraft((d) =>
-                      d ? { ...d, strokeWidth: Number(e.target.value) } : null,
-                    )
-                  }
-                />
-              </label>
-            </div>
-            <CategorizedStyleControls layer={active} value={layerStyleDraft.categorizedStyle} onChange={(categorizedStyle) => setLayerStyleDraft((draft) => draft ? { ...draft, categorizedStyle } : null)} />
-            <LabelStyleControls layer={active} value={layerStyleDraft.labels} onChange={(labels) => setLayerStyleDraft((draft) => draft ? { ...draft, labels } : null)} />
-            <div className="modal-actions">
-              <button onClick={() => openModal(null)}>{t("取消")}</button>
-              <button
-                disabled={busy}
-                onClick={() => {
-                  setLayers((old) =>
-                    old.map((l) =>
-                      l.id === layerStyleDraft.layerId
-                        ? {
-                            ...l,
-                            color: layerStyleDraft.color,
-                            opacity: layerStyleDraft.opacity,
-                            strokeWidth: layerStyleDraft.strokeWidth,
-                            categorizedStyle: layerStyleDraft.categorizedStyle,
-                            labels: layerStyleDraft.labels,
-                          }
-                        : l,
-                    ),
-                  );
-                  setStatus("图层样式已更新");
-                  openModal(null);
-                }}
-              >{t("应用样式")}</button>
             </div>
           </Modal>
         )}

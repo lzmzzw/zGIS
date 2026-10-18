@@ -15,6 +15,7 @@ import ContextMenu, {
   type ContextMenuItem,
 } from "./ContextMenu";
 import "./layer-tree.css";
+import LayerLegend from "./LayerLegend";
 
 interface Props {
   tree: LayerTreeNode[];
@@ -29,6 +30,7 @@ interface Props {
   onRemoveLayer?(id: string): void;
   removalBusy?: boolean;
   onStyle(id: string): void;
+  onProfile?(id: string): void;
   onRenameLayer(id: string, name: string): void;
   onAliasLayer(id: string, name: string): void;
   onNewFile(groupId?: string): void;
@@ -455,6 +457,7 @@ export default function LayerTree(props: Props) {
               </span>
             )}
           </div>
+          {!group && layer && <div style={{ paddingLeft: 20 + level * 16 }}><LayerLegend layer={layer} /></div>}
           {group && !node.collapsed && (
             <div role="group">
               {renderNodes(
@@ -569,6 +572,9 @@ export default function LayerTree(props: Props) {
       );
     }
   } else {
+    addItem("profile-layer", "字段概览", () => props.onProfile?.(node.id), !props.onProfile);
+    addItem("style-layer", "图层样式", () => props.onStyle(node.id));
+    separator("layer-display");
     addItem("alias-layer", "设置别名", () => {
       setName(menuLayer?.displayName ?? menuLayer?.name ?? "");
       setDialog({ kind: "alias-layer", id: node.id });

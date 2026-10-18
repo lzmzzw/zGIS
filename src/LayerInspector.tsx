@@ -168,7 +168,13 @@ export function LayerInspector({
     }
   };
   return (
-    <aside className="layer-inspector" aria-label={t("图层检查器")}>
+    <aside className="layer-inspector" aria-label={t("图层检查器")} onKeyDown={event => {
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }
+    }}>
       <header className="layer-inspector-header">
         <div>
           <strong title={layer.displayName ?? layer.name}>

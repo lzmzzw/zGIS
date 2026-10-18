@@ -1,5 +1,14 @@
 // Shared UI and analysis catalogue translations. Source phrases remain canonical.
 const messages: Record<string, string> = {
+  "请先选择图层": "Select a layer first",
+  "图层没有要素": "The layer has no features",
+  "请先结束编辑": "Finish editing first",
+  "搜索操作": "Search commands",
+  "搜索操作、分析工具…": "Search commands and analysis tools…",
+  "关闭操作搜索": "Close command search",
+  "匹配操作": "Matching commands",
+  "没有匹配操作": "No matching commands",
+  "↑ ↓ 选择 · Enter 打开 · Esc 关闭": "Up/Down to select · Enter to open · Esc to close",
   聚合输出字段: "Aggregate output fields",
   "聚合使用带补偿求和的浮点近似，不用于要求精确小数的财务结算。": "Aggregates use floating-point approximations with compensated summation, not financial settlement requiring exact decimals.",
   "聚合输出字段：{0}": "Aggregate output fields: {0}",

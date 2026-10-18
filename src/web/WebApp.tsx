@@ -21,7 +21,10 @@ import {
 } from "lucide-react";
 import MapView, { type Tool } from "../MapView";
 import { ImportPanel } from "../FilePanels";
-import { CategorizedStyleControls, LabelStyleControls } from "../LayerDisplayControls";
+import { LayerInspector, type LayerDisplayPatch } from "../LayerInspector";
+import LayerLegend from "../LayerLegend";
+import CommandPalette from "../CommandPalette";
+import { createUiCommands } from "../uiCommands";
 import { captureAnalysisLocation, type AnalysisFocus } from "../analysisLocation";
 import ProcessingToolbox, {
   type ProcessingRequest,
@@ -117,6 +120,10 @@ export default function WebApp() {
   const [gestureActive, setGestureActive] = useState(false);
   const [basemap, setBasemap] = useState("osm");
   const [toolboxOpen, setToolboxOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [requestedTool, setRequestedTool] = useState<{id:string;nonce:number}>();
+  const [inspector, setInspector] = useState<{layerId:string;tab:"profile"|"style";field?:string;nonce:number}>();
+  const [stylePreview, setStylePreview] = useState<LayerDisplayPatch>();
   useEffect(() => {
     if (!toolboxOpen || editingLayerId) setAnalysisFocus(undefined);
   }, [toolboxOpen, editingLayerId]);
@@ -145,6 +152,20 @@ export default function WebApp() {
   const exporting = layers.find((layer) => layer.id === exportId);
   const removing = layers.find((layer) => layer.id === removeId);
   const dirty = layers.some((layer) => layer.dirty);
+  const inspectorLayer = layers.find(layer => layer.id === inspector?.layerId);
+  const displayLayers = useMemo(() => stylePreview && inspectorLayer ? layers.map(layer => layer.id === inspectorLayer.id ? {...layer,...stylePreview}:layer) : layers,[layers,stylePreview,inspectorLayer]);
+  function openInspector(id:string,tab:"profile"|"style",field?:string) {
+    if(busy || gestureActive || editingLayerId && editingLayerId !== id) return;
+    setActiveId(id); setStylePreview(undefined); setToolboxOpen(false);
+    setInspector(old=>({layerId:id,tab,field,nonce:(old?.nonce??0)+1}));
+  }
+  const uiCommands=createUiCommands({layer:active,blockedReason:busy || pendingFiles.length || exportId || removeId || gestureActive ? "请先完成当前操作":undefined,
+    analysisBlockedReason:editingLayerId?"请先结束编辑":undefined,
+    profile:()=>{if(active)openInspector(active.id,"profile");}, style:()=>{if(active)openInspector(active.id,"style");}, fit:()=>{if(active)locate(active.id);},
+    analysis:id=>{setAnalysisFocus(undefined);setInspector(undefined);setStylePreview(undefined);setToolboxOpen(true);setRequestedTool(old=>({id,nonce:(old?.nonce??0)+1}));}
+  });
+  useEffect(()=>{if(inspector&&(!inspectorLayer || inspector.layerId !== activeId)){setInspector(undefined);setStylePreview(undefined);}},[inspector,inspectorLayer,activeId]);
+  useEffect(()=>{const handler=(event:KeyboardEvent)=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="k"&&!document.querySelector("dialog[open]")&&!busy&&!gestureActive){event.preventDefault();setCommandOpen(true);}};document.addEventListener("keydown",handler);return()=>document.removeEventListener("keydown",handler);},[busy,gestureActive]);
   const cancellable = busy && (pendingFiles.length > 0 || job.current !== null);
   const filtered = useMemo(
     () => searchFeatures(active?.features ?? [], search),
@@ -441,10 +462,11 @@ export default function WebApp() {
         <button
           disabled={busy}
           aria-pressed={toolboxOpen}
-          onClick={() => setToolboxOpen((open) => !open)}
+          onClick={() => { setInspector(undefined); setStylePreview(undefined); setToolboxOpen((open) => !open); }}
         >
           {t("空间分析")}
         </button>
+        <button className="command-search-trigger" disabled={busy || !!pendingFiles.length || !!exportId || !!removeId || gestureActive} onClick={() => setCommandOpen(true)}>{t("搜索操作")}<kbd>Ctrl K</kbd></button>
         <label className="web-language">
           {t("语言")}
           <select
@@ -460,7 +482,7 @@ export default function WebApp() {
           {t("文件本地处理 · 结果下载保存")}
         </span>
       </header>
-      <div className={`web-workspace ${toolboxOpen ? "with-toolbox" : ""}`}>
+      <div className={`web-workspace ${toolboxOpen || inspectorLayer ? "with-toolbox" : ""}`}>
         <aside className="web-layers" aria-label={t("图层列表")}>
           <header>
             <strong>{t("图层")}</strong>
@@ -549,15 +571,8 @@ export default function WebApp() {
                   <Trash2 size={15} />
                 </button>
               </div>
-              <details className="web-layer-display">
-                <summary>{t("图层样式")}</summary>
-                <fieldset disabled={busy}>
-                  <CategorizedStyleControls layer={layer} value={layer.categorizedStyle}
-                    onChange={(categorizedStyle) => patchLayer(layer.id, { categorizedStyle })} />
-                  <LabelStyleControls layer={layer} value={layer.labels}
-                    onChange={(labels) => patchLayer(layer.id, { labels })} />
-                </fieldset>
-              </details>
+              <LayerLegend layer={layer} />
+              <div className="web-layer-inspect-actions"><button disabled={busy} onClick={() => openInspector(layer.id, "profile")}>{t("字段概览")}</button><button disabled={busy} onClick={() => openInspector(layer.id, "style")}>{t("图层样式")}</button></div>
               {!!layer.warnings?.length && (
                 <details>
                   <summary>{t(`图层提示（${layer.warnings.length}）`)}</summary>
@@ -583,7 +598,7 @@ export default function WebApp() {
               analysisFocus={analysisFocus}
               onNodeCount={setNodeCount}
               onGestureState={setGestureActive}
-              layers={layers}
+              layers={displayLayers}
               activeId={activeId}
               selectedId={selectedId}
               tool={tool}
@@ -729,7 +744,7 @@ export default function WebApp() {
                     <th>{t("要素")}</th>
                     <th>{t("几何")}</th>
                     {fields.map((field) => (
-                      <th key={field}>{field}</th>
+                      <th key={field}><button title={t("字段概览")} disabled={Boolean(busy || gestureActive)} onClick={() => active && openInspector(active.id, "profile", field)}>{field}</button></th>
                     ))}
                   </tr>
                 </thead>
@@ -806,9 +821,14 @@ export default function WebApp() {
             </footer>
           </section>
         </main>
+        {inspectorLayer && inspector && <div className="web-toolbox"><LayerInspector key={inspector.nonce}
+          layer={inspectorLayer} initialTab={inspector.tab} initialField={inspector.field} disabled={busy || gestureActive}
+          onPreview={setStylePreview} onApply={patch => { patchLayer(inspector.layerId, patch); setStylePreview(undefined); setStatus("图层样式已更新"); }}
+          onClose={() => { setInspector(undefined); setStylePreview(undefined); }} /></div>}
         {toolboxOpen && (
           <div className="web-toolbox">
             <ProcessingToolbox
+              requestedTool={requestedTool}
               layers={layers}
               activeLayerId={activeId}
               selectedFeatureId={selectedId}
@@ -827,6 +847,7 @@ export default function WebApp() {
           </div>
         )}
       </div>
+      {commandOpen && <CommandPalette commands={uiCommands} onClose={() => setCommandOpen(false)} />}
       <footer className="web-status" role="status">
         <span>{t(status)}</span>
         {cancellable && (

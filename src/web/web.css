@@ -89,6 +89,7 @@
   align-items: center;
   gap: 5px;
 }
+.web-layer-inspect-actions { display:flex;gap:6px;flex-wrap:wrap;margin:8px 0; }
 .web-layer-actions input[type="color"] {
   padding: 2px;
   width: 30px;

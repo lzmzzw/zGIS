@@ -52,6 +52,18 @@ try {
     });
   });
   await page.reload();
+  const commandTrigger = page.getByRole("button", { name: /搜索操作/ });
+  await commandTrigger.click();
+  const commandDialog = page.getByRole("dialog", { name: "搜索操作", exact: true });
+  const commandInput = commandDialog.getByRole("textbox", { name: "搜索操作", exact: true });
+  await expect(commandInput).toBeFocused();
+  await commandInput.fill("字段概览");
+  await expect(commandDialog.locator(".command-palette-results button").first()).toHaveAttribute("aria-disabled", "true");
+  await commandInput.press("Enter");
+  await expect(commandDialog).toBeVisible();
+  await commandInput.press("Escape");
+  await expect(commandDialog).toBeHidden();
+  await expect(commandTrigger).toBeFocused();
   const ipcChecks = await page.evaluate(async () => {
     const invoke = window.__TAURI_INTERNALS__.invoke;
     await invoke("gis_workspace_sync", { layers: [], activeLayerId: null });
@@ -129,7 +141,7 @@ try {
         ],
       ],
     },
-    properties: { name: `square-${x}`, group: "甲" },
+    properties: { name: `square-${x}`, group: "甲", value: x },
   });
   await page.locator("input[type=file]").setInputFiles([
     {
@@ -328,9 +340,9 @@ try {
   assert.deepEqual(extracted.features[0].geometry, square(116).geometry);
   assert.equal(extracted.features[0].properties.group, "甲");
 
-  // 真实桌面样式弹窗；颜色/标注只进入恢复配置，不修改原始业务属性。
+  // 真实桌面右侧检查器；颜色/标注只进入恢复配置，不修改原始业务属性。
   await page.getByRole("button", { name: "native-a.geojson样式", exact: true }).click();
-  const styleDialog = page.getByRole("dialog", { name: "图层样式：native-a.geojson", exact: true });
+  const styleDialog = page.locator(".layer-inspector");
   await styleDialog.getByLabel("着色方式", { exact: true }).selectOption("unique");
   await styleDialog.getByLabel("分类字段", { exact: true }).selectOption("group");
   await styleDialog.getByLabel("类别 1 颜色", { exact: true }).fill("#c95842");
@@ -341,18 +353,42 @@ try {
   await page.screenshot({ path: resolve(output, "layer-display-dialog-native.png") });
   await styleDialog.getByRole("button", { name: "应用样式", exact: true }).click();
   await expect.poll(async () => (await snapshot()).layers.find(layer => layer.name === "native-a.geojson")?.labels?.fontSize).toBe(18);
-  const display = (await snapshot()).layers.find(layer => layer.name === "native-a.geojson");
+  let display = (await snapshot()).layers.find(layer => layer.name === "native-a.geojson");
   assert.equal(display.categorizedStyle.field, "group");
   assert.equal(display.categorizedStyle.categories[0].color, "#c95842");
   assert.equal(display.labels.field, "name");
   assert.equal(display.labels.haloWidth, 4);
   await page.screenshot({ path: resolve(output, "layer-display-native.png") });
+  await styleDialog.getByRole("button", { name: "关闭检查器", exact: true }).click();
+
+  await page.getByRole("button", { name: "native-a.geojson样式", exact: true }).click();
+  await styleDialog.getByRole("tab", { name: "字段概览", exact: true }).click();
+  await styleDialog.getByLabel("概览字段", { exact: true }).selectOption("value");
+  await styleDialog.getByRole("button", { name: "按此字段分级着色", exact: true }).click();
+  await expect(styleDialog.getByLabel("分级数量", { exact: true })).toHaveValue("1");
+  assert.equal((await snapshot()).layers.find(layer => layer.name === "native-a.geojson").graduatedStyle, undefined);
+  await styleDialog.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("button", { name: "native-a.geojson样式", exact: true }).click();
+  await expect(styleDialog.getByLabel("着色方式", { exact: true })).toHaveValue("unique");
+  await styleDialog.getByLabel("着色方式", { exact: true }).selectOption("graduated");
+  await styleDialog.getByLabel("分级方法", { exact: true }).selectOption("manual");
+  await styleDialog.getByLabel("内部分割点", { exact: true }).fill("116");
+  await styleDialog.getByRole("button", { name: "应用断点", exact: true }).click();
+  await styleDialog.getByRole("button", { name: "应用样式", exact: true }).click();
+  await expect.poll(async () => (await snapshot()).layers.find(layer => layer.name === "native-a.geojson")?.graduatedStyle?.breaks).toEqual([116]);
+  display = (await snapshot()).layers.find(layer => layer.name === "native-a.geojson");
+  assert.equal(display.categorizedStyle, undefined);
+  assert.equal(display.graduatedStyle.field, "value");
+  assert.equal(display.labels.fontSize, 18);
+  await page.screenshot({ path: resolve(output, "graduated-inspector-native.png") });
+  await styleDialog.getByRole("button", { name: "关闭检查器", exact: true }).click();
 
   await page.locator("input[type=file]").setInputFiles({
     name: "native-duplicates.geojson", mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [square(116), square(116)] })),
   });
   await page.getByRole("button", { name: "导入", exact: true }).click();
+  await page.getByRole("button", { name: "工具", exact: true }).click();
   await selectTool("拓扑检查");
   await toolbox.getByLabel("输入图层", { exact: true }).selectOption({ label: "native-duplicates.geojson" });
   await toolbox.getByRole("button", { name: "运行分析", exact: true }).click();
@@ -370,9 +406,11 @@ try {
   await expect(page.locator(".layer-text")).toHaveCount(9);
   const restoredDisplay = (await snapshot()).layers.find(layer => layer.name === "native-a.geojson");
   assert.deepEqual(restoredDisplay.categorizedStyle, display.categorizedStyle);
+  assert.deepEqual(restoredDisplay.graduatedStyle, display.graduatedStyle);
   assert.deepEqual(restoredDisplay.labels, display.labels);
   await page.getByRole("button", { name: "native-a.geojson样式", exact: true }).click();
-  await expect(page.getByLabel("分类字段", { exact: true })).toHaveValue("group");
+  await expect(page.getByLabel("分级字段", { exact: true })).toHaveValue("value");
+  await expect(page.getByLabel("内部分割点", { exact: true })).toHaveValue("116");
   await expect(page.getByLabel("显示标注", { exact: true })).toBeChecked();
   await expect(page.getByLabel("标注字号", { exact: true })).toHaveValue("18");
   await page.getByRole("button", { name: "取消", exact: true }).click();
@@ -407,7 +445,9 @@ try {
           "native IPC cleaning count, strict typed extraction, XYZ and grouped statistics",
           "optional spatial aggregation, globally collision-safe fields, MultiPoint counted once, unmatched null and legacy default",
           "native toolbox cleaning and attribute extraction preserve source geometry",
-          "real desktop categorized style and label dialog with persisted configuration after reload",
+          "real desktop categorized style and label inspector with persisted configuration after reload",
+          "field profile to graduated style, constant class collapse, preview cancellation and saved manual break recovery",
+          "empty-workspace command search disabled reason, Enter guard and Escape focus restoration",
           "topology issue locate selects a source row",
           "normal snapshot exit",
           "XYZ overlay preserves source vertex Z and fills unknown Z with zero",
