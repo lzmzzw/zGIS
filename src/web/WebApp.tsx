@@ -22,6 +22,7 @@ import {
 import MapView, { type Tool } from "../MapView";
 import { ImportPanel } from "../FilePanels";
 import { CategorizedStyleControls } from "../LayerDisplayControls";
+import { captureAnalysisLocation, type AnalysisFocus } from "../analysisLocation";
 import ProcessingToolbox, {
   type ProcessingRequest,
   type ProcessingOutcome,
@@ -106,6 +107,7 @@ export default function WebApp() {
   const [selectedId, setSelectedId] = useState<string>();
   const [fitNonce, setFitNonce] = useState(0);
   const [featureFitNonce, setFeatureFitNonce] = useState(0);
+  const [analysisFocus, setAnalysisFocus] = useState<AnalysisFocus>();
   const [tool, setTool] = useState<Tool>("select");
   const [editingLayerId, setEditingLayerId] = useState<string>();
   const [snapping, setSnapping] = useState(true);
@@ -347,7 +349,7 @@ export default function WebApp() {
       if (!definition.report)
         throw new Error("分析未返回矢量结果");
       setStatus(`${definition.label}完成`);
-      return { report: result, explanation, durationMs: performance.now() - start };
+      return { report: result, explanation, location: request.operation === "topology_check" ? captureAnalysisLocation(source, features) : undefined, durationMs: performance.now() - start };
     } catch (reason) {
       setStatus(message(reason).includes("取消") ? "分析已取消" : "分析失败");
       throw reason;
@@ -573,6 +575,7 @@ export default function WebApp() {
               finishNonce={finishNonce}
               cancelNonce={cancelNonce}
               featureFitNonce={featureFitNonce}
+              analysisFocus={analysisFocus}
               onNodeCount={setNodeCount}
               onGestureState={setGestureActive}
               layers={layers}
@@ -582,7 +585,7 @@ export default function WebApp() {
               basemap={basemap}
               basemapVisible={basemap !== "none"}
               fitNonce={fitNonce}
-              onSelect={setSelectedId}
+              onSelect={(id) => { setAnalysisFocus(undefined); setSelectedId(id); }}
               onEdit={editFeature}
               onPosition={setPosition}
             />
@@ -811,6 +814,10 @@ export default function WebApp() {
               onRun={analyze}
               onClose={() => setToolboxOpen(false)}
               onLocateResult={locate}
+              onLocateIssue={(focus) => {
+                setAnalysisFocus(focus);
+                if (focus) { setActiveId(focus.layerId); setSelectedId(focus.featureIds[0]); }
+              }}
             />
           </div>
         )}

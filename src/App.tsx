@@ -89,6 +89,7 @@ import SettingsPage, { type SettingsCategory } from "./SettingsPage";
 import AgentPanel from "./AgentPanel";
 import RightSidebar from "./RightSidebar";
 import { CategorizedStyleControls } from "./LayerDisplayControls";
+import { captureAnalysisLocation, type AnalysisFocus } from "./analysisLocation";
 import ProcessingToolbox, {
   type ProcessingRequest,
   type ProcessingOutcome,
@@ -454,6 +455,7 @@ export default function App() {
     null,
   );
   const [featureFitNonce, setFeatureFitNonce] = useState(0);
+  const [analysisFocus, setAnalysisFocus] = useState<AnalysisFocus>();
   const [finishNonce, setFinishNonce] = useState(0);
   const [nodeCount, setNodeCount] = useState(0);
   const [fitNonce, setFitNonce] = useState(0);
@@ -1390,7 +1392,7 @@ export default function App() {
       if (!definition.report)
         throw new Error("分析未返回矢量结果");
       setStatus(`${definition.label}完成`);
-      return { report: result, explanation, durationMs: performance.now() - start };
+      return { report: result, explanation, location: request.operation === "topology_check" ? captureAnalysisLocation(source, input) : undefined, durationMs: performance.now() - start };
     } catch (reason) {
       setStatus(
         errorText(reason).includes("取消") ||
@@ -4276,6 +4278,7 @@ export default function App() {
                 onDrawDraft={setDrawDraft}
                 onGestureState={setGestureActive}
                 featureFitNonce={featureFitNonce}
+                analysisFocus={analysisFocus}
                 onNodeCount={setNodeCount}
                 layers={mapLayers}
                 activeId={activeId}
@@ -4285,7 +4288,7 @@ export default function App() {
                 basemap={basemap}
                 basemapVisible={configReady && basemapVisible}
                 fitNonce={fitNonce}
-                onSelect={(id) => selectFeature(id, true)}
+                onSelect={(id) => { setAnalysisFocus(undefined); selectFeature(id, true); }}
                 onEdit={onGeometry}
                 onPosition={setPosition}
                 onBounds={setBounds}
@@ -4879,6 +4882,14 @@ export default function App() {
                           : undefined
                     }
                     onRun={runToolboxAnalysis}
+                    onLocateIssue={(focus) => {
+                      setAnalysisFocus(focus);
+                      if (focus) {
+                        activateLayer(focus.layerId);
+                        setSelectedId(focus.featureIds[0]);
+                        setTableOpen(true);
+                      }
+                    }}
                     onRunningChange={setToolboxRunning}
                     onClose={() => {
                       if (busyRef.current) return;

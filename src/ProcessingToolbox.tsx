@@ -1,4 +1,5 @@
 import type { AnalysisExplanation } from "./analysisResult";
+import { locateAnalysisIssue, refreshAnalysisLocation, type AnalysisLocation, type AnalysisFocus } from "./analysisLocation";
 import { t, useLocale } from "./i18n";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Check, ChevronDown, LocateFixed, Play, Search, X } from "lucide-react";
@@ -23,6 +24,7 @@ export interface ProcessingRequest {
   outputName: string;
 }
 export interface ProcessingOutcome {
+  location?: AnalysisLocation;
   explanation?: AnalysisExplanation;
   featureCount?: number;
   layerId?: string;
@@ -39,6 +41,7 @@ export interface ProcessingToolboxProps {
   onRun: (request: ProcessingRequest) => Promise<ProcessingOutcome>;
   onClose: () => void;
   onLocateResult: (layerId: string) => void;
+  onLocateIssue?: (focus?: AnalysisFocus) => void;
   onRunningChange?: (running: boolean) => void;
 }
 interface ToolForm {
@@ -169,9 +172,11 @@ function featureOrdinal(value: unknown): string {
 function AnalysisReport({
   operation,
   report,
+  onLocate,
 }: {
   operation: string;
   report: Record<string, unknown>;
+  onLocate?: (issue: Record<string, unknown>) => void;
 }) {
   useLocale();
   if (operation === "topology_check") {
@@ -218,6 +223,7 @@ function AnalysisReport({
                         )}
                       </td>
                       <td>
+                        {onLocate && <button type="button" onClick={() => onLocate(issue)}>{t("定位问题")}</button>}
                         {Array.isArray(issue.featureIndices)
                           ? issue.featureIndices.map(featureOrdinal).join("、")
                           : featureOrdinal(issue.featureIndex)}
@@ -313,6 +319,7 @@ export function ProcessingToolbox({
   onRun,
   onClose,
   onLocateResult,
+  onLocateIssue,
   onRunningChange,
 }: ProcessingToolboxProps) {
   useLocale();
@@ -323,6 +330,13 @@ export function ProcessingToolbox({
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<AnalysisResult>();
+  useEffect(() => {
+    const snapshot = result?.outcome.location;
+    if (snapshot && !snapshot.stale && !refreshAnalysisLocation(snapshot, layers)) {
+      setError("输入数据已变化，请重新运行检查后定位。");
+      onLocateIssue?.();
+    }
+  }, [layers, result, onLocateIssue]);
   const locked = useRef(false);
   const alive = useRef(true);
   const tool = getAnalysisTool(toolId) ?? analysisTools[0];
@@ -430,6 +444,7 @@ export function ProcessingToolbox({
   }
   function chooseTool(id: string) {
     if (locked.current) return;
+    onLocateIssue?.();
     const next = getAnalysisTool(id);
     if (!next) return;
     if (id === toolId) {
@@ -916,6 +931,11 @@ export function ProcessingToolbox({
                         <AnalysisReport
                           operation={result.request.operation}
                           report={result.outcome.report}
+                          onLocate={result.outcome.location ? (issue) => {
+                            const focus = locateAnalysisIssue(result.outcome.location!, layers, issue);
+                            if (!focus) { setError("输入数据已变化，请重新运行检查后定位。"); onLocateIssue?.(); }
+                            else { setError(""); onLocateIssue?.(focus); }
+                          } : undefined}
                         />
                       )}
                     </section>

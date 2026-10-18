@@ -25,11 +25,15 @@ test("清理工具通过真实导入剔除空几何并保留原图层", async ({
   await expect(result).toContainText("移除要素");
   await expect(result).toContainText("第 2 个");
   await expect(box.getByLabel("输入图层", { exact: true }).locator('option:not([value=""])')).toHaveCount(2);
+  await box.getByLabel("搜索分析工具").fill("拓扑检查");
+  await box.getByRole("button", { name: "拓扑检查", exact: true }).click();
+  await box.getByLabel("输入图层", { exact: true }).selectOption({ label: "quality.geojson" });
+  await box.getByRole("button", { name: "运行分析", exact: true }).click();
+  await box.getByRole("button", { name: "定位问题", exact: true }).first().click();
+  await expect(page.locator('tr[aria-selected="true"]')).toContainText("empty");
   await box.getByLabel("搜索分析工具").fill("图层摘要");
   await box.getByRole("button", { name: "图层摘要", exact: true }).click();
   await box.getByLabel("输入图层", { exact: true }).selectOption({ label: "cleaned" });
   await box.getByRole("button", { name: "运行分析", exact: true }).click();
   await expect(box.getByLabel("分析结果", { exact: true })).toContainText("点 1");
 });
-
-

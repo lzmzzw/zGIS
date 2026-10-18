@@ -1,4 +1,5 @@
 import { createLayerDisplayStyle, geometryDisplayStyle as style } from "./mapDisplayStyle";
+import type { AnalysisFocus } from "./analysisLocation";
 import { t, useLocale } from "./i18n";
 import { useEffect, useRef } from "react";
 import Map from "ol/Map";
@@ -27,7 +28,7 @@ import type { EventsKey } from "ol/events";
 import type { GeometryFunction } from "ol/interaction/Draw";
 import { Fill, Stroke, Circle, Style } from "ol/style";
 import { fromLonLat, toLonLat, transformExtent } from "ol/proj";
-import { isEmpty as isEmptyExtent } from "ol/extent";
+import { isEmpty as isEmptyExtent, createEmpty, extend } from "ol/extent";
 import { defaults as defaultControls } from "ol/control";
 import type Feature from "ol/Feature";
 import type Geometry from "ol/geom/Geometry";
@@ -46,6 +47,7 @@ export type { DrawDraft } from "./mapEditing";
 export type Tool =
   "pan" | "select" | "modify" | "move" | "Point" | "LineString" | "Polygon";
 interface Props {
+  analysisFocus?: AnalysisFocus;
   services: BasemapService[];
   disabled?: boolean;
   editable?: boolean;
@@ -337,6 +339,26 @@ export default function MapView(props: Props) {
     const geometry = feature?.getGeometry();
     if (geometry) fitExtent(mapRef.current, geometry.getExtent());
   }, [props.featureFitNonce]);
+  useEffect(() => {
+    const focus = props.analysisFocus;
+    if (!focus || focus.layerId !== props.activeId) { syncSelection(props.selectedId); return; }
+    const source = vectorRefs.current.get(focus.layerId)?.getSource();
+    const features = focus.featureIds.flatMap(id => {
+      const feature = source?.getFeatureById(id);
+      return feature ? [feature] : [];
+    });
+    const overlay = selectionRef.current?.getSource();
+    overlay?.clear();
+    overlay?.addFeatures(features);
+    if (focus.fit) {
+      const extent = createEmpty();
+      for (const feature of features) {
+        const box = feature.getGeometry()?.getExtent();
+        if (box?.every(Number.isFinite)) extend(extent, box);
+      }
+      fitExtent(mapRef.current, extent);
+    }
+  }, [props.analysisFocus, props.activeId, props.layers]);
   useEffect(() => {
     if (props.finishNonce) finishDrawingRef.current?.();
   }, [props.finishNonce]);

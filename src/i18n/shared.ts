@@ -1,5 +1,16 @@
 // Shared UI and analysis catalogue translations. Source phrases remain canonical.
 const messages: Record<string, string> = {
+  "定位问题": "Locate issue",
+  "输入数据已变化，请重新运行检查后定位。": "Input data has changed. Run the check again before locating an issue.",
+  "区分大小写；不转换类型；root深度1，最多4层、32个叶子、IN100项。null/missing不参与普通比较。": "Case-sensitive with no type conversion. Root depth is 1; at most 4 levels, 32 leaves and 100 IN values. Null/missing do not match ordinary comparisons.",
+  "按结构化属性条件提取完整要素副本；严格类型、区分大小写，保留身份和XYZ；要求有效几何": "Extract complete feature copies with structured, typed, case-sensitive conditions; retain identity and XYZ and require valid geometry",
+  "属性条件格式无效": "Invalid attribute condition",
+  "属性比较仅支持有限数值": "Attribute comparisons require finite numbers",
+  "属性字段类型不适用于此比较": "The attribute type is incompatible with this comparison",
+  "属性条件最多四层": "Attribute conditions support at most four levels",
+  "属性条件最多32项": "Attribute conditions support at most 32 leaves",
+  "IN条件需要1至100个值": "IN requires 1 to 100 values",
+  "属性条件字段在图层中不存在": "The condition field does not exist in the layer",
   "清理": "Clean",
   "无效": "Invalid",
   "剔除空或无效几何": "Remove empty or invalid geometries",
