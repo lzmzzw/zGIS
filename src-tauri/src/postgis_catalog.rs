@@ -121,12 +121,20 @@ pub struct Preview {
 
 // 目录依据 PostgreSQL 元数据和 SELECT 权限，避免将普通表误判为可加载的空间图层。
 async fn catalog(client: &Client) -> Result<Catalog, String> {
-    let schema_rows = client.query("SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' AND has_schema_privilege(oid,'USAGE') ORDER BY nspname LIMIT 10001", &[]).await.map_err(|_| "读取 Schema 失败")?;
-    if schema_rows.len() > 10000 {
-        return Err("Schema 数量超过浏览上限".into());
-    }
-    let schemas = schema_rows.into_iter().map(|r| r.get(0)).collect();
-    let rows = client.query("SELECT n.nspname,c.relname,a.attname,pg_catalog.format_type(a.atttypid,a.atttypmod),NOT a.attnotnull,(a.attidentity <> '' OR a.attgenerated <> ''),a.atthasdef,t.typname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped LEFT JOIN pg_catalog.pg_type t ON t.oid=a.atttypid WHERE c.relkind IN ('r','p','v','m','f') AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND has_schema_privilege(n.oid,'USAGE') AND has_table_privilege(c.oid,'SELECT') ORDER BY n.nspname,c.relname,a.attnum LIMIT 100001", &[]).await.map_err(|_| "读取表目录失败")?;
+    catalog_for_table(client, None).await
+}
+async fn catalog_for_table(client: &Client, target: Option<(&str, &str)>) -> Result<Catalog, String> {
+    let (schema, table) = target.unwrap_or(("", ""));
+    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = if target.is_some() { vec![&schema, &table] } else { vec![] };
+    let schemas = if target.is_none() {
+        let schema_rows = client.query("SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' AND has_schema_privilege(oid,'USAGE') ORDER BY nspname LIMIT 10001", &[]).await.map_err(|_| "读取 Schema 失败")?;
+        if schema_rows.len() > 10000 {
+            return Err("Schema 数量超过浏览上限".into());
+        }
+        schema_rows.into_iter().map(|r| r.get(0)).collect()
+    } else { vec![] };
+    let sql = super::scoped_metadata_sql("SELECT n.nspname,c.relname,a.attname,pg_catalog.format_type(a.atttypid,a.atttypmod),NOT a.attnotnull,(a.attidentity <> '' OR a.attgenerated <> ''),a.atthasdef,t.typname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped LEFT JOIN pg_catalog.pg_type t ON t.oid=a.atttypid WHERE c.relkind IN ('r','p','v','m','f') AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND has_schema_privilege(n.oid,'USAGE') AND has_table_privilege(c.oid,'SELECT')", "n.nspname", "c.relname", target.is_some(), " ORDER BY n.nspname,c.relname,a.attnum");
+    let rows = client.query(&sql, &params).await.map_err(|_| "读取表目录失败")?;
     if rows.len() > 100000 {
         return Err("目录过大，请使用权限限制需要浏览的表".into());
     }
@@ -160,7 +168,8 @@ async fn catalog(client: &Client) -> Result<Catalog, String> {
             });
         }
     }
-    let keys = client.query("SELECT n.nspname,c.relname,a.attname FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid=i.indrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(attnum,pos) ON true JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attnum=k.attnum WHERE i.indisprimary AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' ORDER BY n.nspname,c.relname,k.pos LIMIT 100001", &[]).await.map_err(|_| "读取主键失败")?;
+    let sql = super::scoped_metadata_sql("SELECT n.nspname,c.relname,a.attname FROM pg_catalog.pg_index i JOIN pg_catalog.pg_class c ON c.oid=i.indrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(attnum,pos) ON true JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attnum=k.attnum WHERE i.indisprimary AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'", "n.nspname", "c.relname", target.is_some(), " ORDER BY n.nspname,c.relname,k.pos");
+    let keys = client.query(&sql, &params).await.map_err(|_| "读取主键失败")?;
     if keys.len() > 100000 {
         return Err("主键目录超过浏览上限".into());
     }
@@ -172,11 +181,12 @@ async fn catalog(client: &Client) -> Result<Catalog, String> {
     let extension = client.query_opt("SELECT n.nspname FROM pg_catalog.pg_extension e JOIN pg_catalog.pg_namespace n ON n.oid=e.extnamespace WHERE e.extname='postgis'", &[]).await.map_err(|_| "读取 PostGIS 元数据失败")?;
     if let Some(row) = extension {
         let namespace: String = row.get(0);
-        let sql = format!("SELECT f_table_schema,f_table_name,f_geometry_column,srid,type FROM {}.geometry_columns LIMIT 100001", ident(&namespace)?);
+        let sql = super::scoped_metadata_sql(&format!("SELECT f_table_schema,f_table_name,f_geometry_column,srid,type FROM {}.geometry_columns WHERE true", ident(&namespace)?), "f_table_schema", "f_table_name", target.is_some(), "");
         let geometries = client
-            .query(&sql, &[])
+            .query(&sql, &params)
             .await
             .map_err(|_| "读取 PostGIS 几何字段失败")?;
+        if geometries.len() > 100000 { return Err("目录过大，请使用权限限制需要浏览的表".into()); }
         for row in geometries {
             if let Some(table) = tables.get_mut(&(row.get(0), row.get(1))) {
                 let name: String = row.get(2);
@@ -302,7 +312,7 @@ pub async fn preview_database_table(
     let mut connection = state.databases.acquire(&connection_id).await?;
     let client = connection.as_mut().ok_or("连接已失效")?;
     tokio::time::timeout(Duration::from_secs(15), async {
-        let selected = catalog(client)
+        let selected = catalog_for_table(client, Some((&schema, &table)))
             .await?
             .tables
             .into_iter()

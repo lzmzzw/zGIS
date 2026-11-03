@@ -269,7 +269,7 @@ export function LoadPanel({
   const valid =
     Number.isInteger(limit) &&
     limit >= 1 &&
-    limit <= (engine === "mysql" ? 10000 : 100000) &&
+    limit <= 100000 &&
     (layer.geometryKind === "geometry" ||
       (Boolean(column || layer.geometryColumn) &&
         Number.isInteger(srid) &&
@@ -344,7 +344,7 @@ export function LoadPanel({
               aria-label={t("最多读取记录")}
               type="number"
               min={1}
-              max={engine === "mysql" ? 10000 : 100000}
+              max={100000}
               value={limit}
               disabled={busy}
               onChange={(event) => onLimit(Number(event.target.value))}

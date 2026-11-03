@@ -1,8 +1,9 @@
+import { MAX_DESKTOP_FILE_BYTES } from "./fileLimits";
+import { collectText, type TextContent } from "./textContent";
 import { normalizeCategorizedStyle, normalizeGraduatedStyle, normalizeLayerLabels } from "./layerDisplay";
 import { reconcileTree, type LayerTreeNode } from "./layerTree";
 import {
-  exportGeoJSON,
-  importGeoJSON,
+  normalizeWorkingFeature,
   makeLayer,
   type DocumentLayer,
   type GeoFeature,
@@ -49,6 +50,13 @@ const tools = new Set(["pan", "select", "modify", "move", ...geometryTypes]);
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 let recoveryRevision = 0;
+// 只保留当前选中的一个候选；恢复消费后立刻释放大 JSON 与解析树的缓存引用。
+let selectedRecovery: { raw: string; data: unknown } | undefined;
+function consumeRecoveryData(raw: string): unknown {
+  const cached = selectedRecovery;
+  selectedRecovery = undefined;
+  return cached?.raw === raw ? cached.data : JSON.parse(raw);
+}
 
 // WebView2 may replay an older localStorage write after a forced process exit.
 // Both copies carry the same revision; prefer the newest, native on ties.
@@ -56,25 +64,27 @@ export function selectRecoverySnapshot(
   native: string | null,
   local: string | null,
 ): string | null {
-  const revision = (raw: string | null): number => {
+  const candidate = (raw: string | null): { raw: string | null; data?: unknown; revision: number; valid: boolean } => {
     try {
-      const value: unknown = raw ? JSON.parse(raw) : null;
-      return isRecord(value) &&
+      const value: unknown = raw ? selectedRecovery?.raw === raw ? selectedRecovery.data : JSON.parse(raw) : null;
+      const revision = isRecord(value) &&
         Number.isSafeInteger(value.recoveryRevision) &&
         Number(value.recoveryRevision) > 0
         ? Number(value.recoveryRevision)
         : 0;
+      return { raw, data: value, revision, valid: true };
     } catch {
-      return 0;
+      return { raw, revision: 0, valid: false };
     }
   };
-  const nativeRevision = revision(native);
-  const localRevision = revision(local);
-  recoveryRevision = Math.max(recoveryRevision, nativeRevision, localRevision);
-  if (!local) return native;
-  if (!native) return local;
-  if (!nativeRevision && !localRevision) return local;
-  return localRevision > nativeRevision ? local : native;
+  const nativeCandidate = candidate(native);
+  const localCandidate = native === local ? nativeCandidate : candidate(local);
+  recoveryRevision = Math.max(recoveryRevision, nativeCandidate.revision, localCandidate.revision);
+  const chosen = !local ? nativeCandidate : !native ? localCandidate
+    : !nativeCandidate.revision && !localCandidate.revision ? localCandidate
+    : localCandidate.revision > nativeCandidate.revision ? localCandidate : nativeCandidate;
+  selectedRecovery = chosen.raw && chosen.valid ? { raw: chosen.raw, data: chosen.data } : undefined;
+  return chosen.raw;
 }
 const validId = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0 && value.length <= 1024;
@@ -134,9 +144,8 @@ function safeFeatures(values: unknown, requireIds = false): GeoFeature[] {
       throw new Error("恢复要素属性结构无效");
   }
   // 沿用导入器的坐标、几何与属性校验，独立保留内部 ID，丢弃数据库身份。
-  const imported = importGeoJSON(exportGeoJSON(values as GeoFeature[]));
-  const result = imported.map((feature, index) => ({
-    ...feature,
+  const result = values.map((value, index) => ({
+    ...normalizeWorkingFeature(value as GeoFeature),
     ...(validId(values[index].id) ? { id: values[index].id } : {}),
   }));
   if (requireIds) validatedFeatures.set(values, result);
@@ -449,40 +458,45 @@ function snapshotLayerData(layers: DocumentLayer[]) {
   });
 }
 
-const featureJsonCache = new WeakMap<GeoFeature[], string>();
-const layerJsonCache = new WeakMap<DocumentLayer, string>();
-function featureJson(features: GeoFeature[]): string {
-  let value = featureJsonCache.get(features);
-  if (value === undefined) {
-    value = JSON.stringify(
-      features.map(({ id, geometry, properties, sourceFeatureId }) => ({
-        id,
-        geometry,
-        properties,
-        sourceFeatureId,
-      })),
-    );
-    featureJsonCache.set(features, value);
+// 只缓存字节计量；活动图层和历史不再额外持有完整 JSON 字符串。
+const featureUtf8Cache = new WeakMap<GeoFeature[], number>();
+type SnapshotPart = { text: string } | { features: GeoFeature[]; database?: boolean };
+function recoveryFeature({ id, geometry, properties, sourceFeatureId }: GeoFeature) {
+  return { id, geometry, properties, sourceFeatureId };
+}
+function* partText(parts: Iterable<SnapshotPart>): Generator<string> {
+  for (const part of parts) {
+    if ("text" in part) { yield part.text; continue; }
+    yield "[";
+    for (let index = 0; index < part.features.length; index++) {
+      if (index) yield ",";
+      const feature = part.features[index];
+      yield JSON.stringify(part.database ? feature : recoveryFeature(feature));
+    }
+    yield "]";
   }
-  return value;
+}
+function layerSnapshotParts(layers: DocumentLayer[]): SnapshotPart[] {
+  const parts: SnapshotPart[] = [{ text: "[" }];
+  for (const [index, layer] of layers.entries()) {
+    // 复用既有白名单与数据库身份验证，基线也逐要素输出。
+    const { features: _, dbBaseline, ...metadata } = snapshotLayerData([{ ...layer, features: [] }])[0];
+    if (index) parts.push({ text: "," });
+    parts.push({ text: JSON.stringify(metadata).slice(0, -1) });
+    if (dbBaseline !== undefined) parts.push({ text: ',"dbBaseline":' }, { features: dbBaseline, database: true });
+    parts.push({ text: ',"features":' }, { features: layer.features }, { text: "}" });
+  }
+  parts.push({ text: "]" });
+  return parts;
 }
 export function snapshotLayers(layers: DocumentLayer[]): string {
-  return `[${layers
-    .map((layer) => {
-      let value = layerJsonCache.get(layer);
-      if (value === undefined) {
-        const metadata = snapshotLayerData([{ ...layer, features: [] }])[0];
-        const { features: _, ...rest } = metadata;
-        value = `${JSON.stringify(rest).slice(0, -1)},"features":${featureJson(layer.features)}}`;
-        layerJsonCache.set(layer, value);
-      }
-      return value;
-    })
-    .join(",")}]`;
+  return [...partText(layerSnapshotParts(layers))].join("");
 }
 
 export function restoreLayers(raw: string): DocumentLayer[] {
-  const data: unknown = JSON.parse(raw);
+  return restoreLayerData(consumeRecoveryData(raw));
+}
+function restoreLayerData(data: unknown): DocumentLayer[] {
   if (!Array.isArray(data)) throw new Error("恢复文件必须是图层列表");
   return data.map((value) => {
     if (
@@ -637,12 +651,69 @@ export function restoreLayers(raw: string): DocumentLayer[] {
 
 export type ExitAction = "save" | "keep" | "submit" | "discard";
 
+// 不编码字符串，仅以未转义文本长度计算下界；可在分配大历史 JSON 前确认其必然超限。
+function minimumJsonLength(value: unknown, limit: number, ancestors = new WeakSet<object>(), depth = 0): number {
+  if (typeof value === "string") return value.length + 2;
+  if (value === null || typeof value === "boolean") return 4;
+  if (typeof value === "number") return 1;
+  if (!value || typeof value !== "object") return 0;
+  if (depth >= 256 || ancestors.has(value)) return limit + 1;
+  ancestors.add(value);
+  let size = 2;
+  try {
+    if (Array.isArray(value)) {
+      size += Math.max(0, value.length - 1);
+      for (const item of value) {
+        size += item === undefined || typeof item === "function" || typeof item === "symbol" ? 4 : minimumJsonLength(item, limit - size, ancestors, depth + 1);
+        if (size > limit) break;
+      }
+    } else {
+      let count = 0;
+      for (const key of Object.keys(value)) {
+        const item = (value as Record<string, unknown>)[key];
+        if (item === undefined || typeof item === "function" || typeof item === "symbol") continue;
+        size += key.length + 3 + Number(count++ > 0) + minimumJsonLength(item, limit - size, ancestors, depth + 1);
+        if (size > limit) break;
+      }
+    }
+    return size;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function utf8LengthWithin(text: string, limit: number): number {
+  let bytes = 0;
+  for (let index = 0; index < text.length; index++) {
+    const code = text.charCodeAt(index);
+    if (code <= 0x7f) bytes++;
+    else if (code <= 0x7ff) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length && text.charCodeAt(index + 1) >= 0xdc00 && text.charCodeAt(index + 1) <= 0xdfff) {
+      bytes += 4;
+      index++;
+    } else bytes += 3;
+    if (bytes > limit) break;
+  }
+  return bytes;
+}
+
 // Versioned recovery contains only safe document snapshots and their visual tree.
 export function snapshotWorkspace(
   layers: DocumentLayer[],
   tree: LayerTreeNode[],
   session?: WorkspaceEditSession,
+  historyByteBudget = MAX_DESKTOP_FILE_BYTES - 5 * 1024 * 1024,
 ): string {
+  return collectText(snapshotWorkspaceContent(layers, tree, session, historyByteBudget));
+}
+
+/** 固定修订号及安全元数据，正文按要素重放；每批传输完成才生成后续正文。 */
+export function snapshotWorkspaceContent(
+  layers: DocumentLayer[],
+  tree: LayerTreeNode[],
+  session?: WorkspaceEditSession,
+  historyByteBudget = MAX_DESKTOP_FILE_BYTES - 5 * 1024 * 1024,
+): TextContent {
   const safeTree = reconcileTree(
     tree,
     layers.map((layer) => layer.id),
@@ -666,43 +737,72 @@ export function snapshotWorkspace(
         }
       : {}),
   };
-  const encode = () => {
-    const { session: current, ...header } = data;
-    let body = `${JSON.stringify(header).slice(0, -1)},"layers":${snapshotLayers(layers)}`;
-    if (current) {
-      const { history, ...draft } = current;
-      let sessionJson = JSON.stringify(draft).slice(0, -1);
-      if (history) {
-        const { undo, redo, baseline, ...fields } = history;
-        const entries = [
-          `"undo":[${undo.map(featureJson).join(",")}]`,
-          `"redo":[${redo.map(featureJson).join(",")}]`,
-        ];
-        for (const [key, value] of Object.entries(fields))
-          if (value !== undefined)
-            entries.push(`${JSON.stringify(key)}:${JSON.stringify(value)}`);
-        if (baseline)
-          entries.push(
-            `"baseline":${JSON.stringify({ ...baseline, features: undefined }).slice(0, -1)},"features":${featureJson(baseline.features)}}`,
-          );
-        sessionJson += `,"history":{${entries.join(",")}}`;
+  const { session: current, ...header } = data;
+  const prefix: SnapshotPart[] = [{ text: JSON.stringify(header).slice(0, -1) }, { text: ',"layers":' }, ...layerSnapshotParts(layers)];
+  const suffix = current ? "}}" : "}";
+  const { history, ...draft } = current ?? {};
+  if (current) prefix.push({ text: ',"session":' }, { text: JSON.stringify(draft).slice(0, -1) });
+  const budget = Number.isSafeInteger(historyByteBudget) && historyByteBudget >= 0
+    ? Math.min(historyByteBudget, MAX_DESKTOP_FILE_BYTES - 5 * 1024 * 1024)
+    : MAX_DESKTOP_FILE_BYTES - 5 * 1024 * 1024;
+  const additions: SnapshotPart[] = [];
+  if (history) {
+    additions.push({ text: ',"history":{' });
+    for (const [index, frames] of [history.undo, history.redo].entries()) {
+      additions.push({ text: index ? ',"redo":[' : '"undo":[' });
+      for (const [frameIndex, features] of frames.entries()) {
+        if (frameIndex) additions.push({ text: "," });
+        additions.push({ features });
       }
-      body += `,"session":${sessionJson}}`;
+      additions.push({ text: "]" });
     }
-    return `${body}}`;
-  };
-  let content = encode();
-  // Keep room below the native 100 MB limit for the live document and draft.
-  if (
-    data.session?.history &&
-    // UTF-8 每个 UTF-16 码元最多占 3 字节，普通快照无需分配额外编码缓冲区。
-    content.length > (95 * 1024 * 1024) / 3 &&
-    new TextEncoder().encode(content).length > 95 * 1024 * 1024
-  ) {
-    data.session.history = undefined;
-    content = encode();
+    const { undo: _, redo: __, baseline, ...fields } = history;
+    for (const [key, value] of Object.entries(fields))
+      if (value !== undefined) additions.push({ text: `,${JSON.stringify(key)}:${JSON.stringify(value)}` });
+    if (baseline) additions.push({ text: `,"baseline":${JSON.stringify({ ...baseline, features: undefined }).slice(0, -1)},"features":` }, { features: baseline.features }, { text: "}" });
+    additions.push({ text: "}" });
   }
-  return content;
+  const historyFits = (baseBytes: number): boolean => {
+    let remaining = budget - baseBytes;
+    if (!history || remaining < 0) return false;
+    for (const part of additions) {
+      let size: number;
+      if ("text" in part) size = utf8LengthWithin(part.text, remaining);
+      else {
+        const cached = featureUtf8Cache.get(part.features);
+        if (cached !== undefined) size = cached;
+        else {
+          // 下界足以拒绝时，不为大历史分配单条 JSON 字符串。
+          let minimum = 2 + Math.max(0, part.features.length - 1);
+          for (const feature of part.features) {
+            minimum += minimumJsonLength(recoveryFeature(feature), remaining - minimum);
+            if (minimum > remaining) return false;
+          }
+          size = 0;
+          for (const text of partText([part])) {
+            size += utf8LengthWithin(text, remaining - size);
+            if (size > remaining) return false;
+          }
+          featureUtf8Cache.set(part.features, size);
+        }
+      }
+      remaining -= size;
+      if (remaining < 0) return false;
+    }
+    return true;
+  };
+  return {
+    *chunks() {
+      let bytes = suffix.length;
+      for (const text of partText(prefix)) {
+        // 超历史预算后不再逐字符计数，当前文档仍完整保留。
+        if (bytes <= budget) bytes += utf8LengthWithin(text, budget - bytes);
+        yield text;
+      }
+      if (historyFits(bytes)) yield* partText(additions);
+      yield suffix;
+    },
+  };
 }
 
 export function restoreWorkspace(raw: string): {
@@ -710,9 +810,9 @@ export function restoreWorkspace(raw: string): {
   tree: LayerTreeNode[];
   session?: WorkspaceEditSession;
 } {
-  const data: unknown = JSON.parse(raw);
+  const data = consumeRecoveryData(raw);
   if (Array.isArray(data)) {
-    const layers = restoreLayers(raw);
+    const layers = restoreLayerData(data);
     return {
       layers,
       tree: layers.map((layer) => ({ kind: "layer", id: layer.id })),
@@ -785,7 +885,7 @@ export function restoreWorkspace(raw: string): {
     });
   const tree = validate(data.tree);
   if (references.size !== ids.size) throw new Error("恢复树图层引用不完整");
-  const layers = restoreLayers(JSON.stringify(data.layers));
+  const layers = restoreLayerData(data.layers);
   const remap = new Map(
     data.layers.map((layer, index) => [layer.id, layers[index].id]),
   );

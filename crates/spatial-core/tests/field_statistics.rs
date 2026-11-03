@@ -194,7 +194,7 @@ fn grouping_metric_and_feature_budgets_fail_without_partial_reports() {
     invalid["geometry"] = Value::Null;
     assert!(run(&[invalid], json!({"metrics":metrics()})).is_err());
     assert!(run(
-        &vec![source[0].clone(); 10001],
+        &vec![source[0].clone(); 100001],
         json!({"metrics":metrics()})
     )
     .is_err());

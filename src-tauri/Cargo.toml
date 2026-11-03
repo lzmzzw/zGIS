@@ -40,6 +40,7 @@ csv = "1"
 dbase = { version = "0.6", features = ["encoding_rs"] }
 axum = "0.8"
 portable-pty = "0.9"
+tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_Security_Cryptography", "Win32_Security_Credentials", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
@@ -53,5 +54,4 @@ objc2 = "0.6"
 libc = "0.2"
 
 [dev-dependencies]
-tempfile = "3"
 aes-gcm = "0.10"

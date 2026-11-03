@@ -310,6 +310,9 @@ export function ImportPanel({
                     {loading ? t("校验中") : issue ? t("未通过") : t("通过")}
                   </dd>
                 </dl>
+                <p className="form-note">
+                  {t(preview?.sampleLimited ? "预览仅包含前 8 MiB 内的完整记录；导入时校验全部记录" : "预览仅校验前 5 行；导入时校验全部记录")}
+                </p>
               </>
             ) : null}
           </aside>

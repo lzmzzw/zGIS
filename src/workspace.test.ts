@@ -5,8 +5,8 @@ import {
   type WorkspaceEditSession,
 } from "./workspace";
 import { moveTreeNode, type LayerTreeNode } from "./layerTree";
-import { expect, it } from "vitest";
-import { makeLayer, type GeoFeature } from "./domain";
+import { expect, it, vi } from "vitest";
+import { makeLayer, normalizeWorkingFeature, type GeoFeature } from "./domain";
 import { restoreLayers, snapshotLayers } from "./workspace";
 import { boundedRecoveryHistory } from "./workspace";
 
@@ -19,6 +19,136 @@ it("旧副本缺少 dirty 时保留未保存状态，显式非法 dirty 仍拒�
   expect(() =>
     restoreLayers(JSON.stringify([{ ...legacy, dirty: "false" }])),
   ).toThrow("恢复图层结构无效");
+});
+
+it("大工作区选择与恢复共用一次解析，不为整层内容重新编码或重复解析", () => {
+  const payload = "x".repeat(12 * 1024 * 1024);
+  const raw = JSON.stringify({
+    version: 3, recoveryRevision: 100_000, tree: [{ kind: "layer", id: "large" }],
+    layers: [{ id: "large", name: "large", features: [{ id: "row", geometry: { type: "Point", coordinates: [116, 39, 12] }, properties: { payload, code: "9007199254740993" }, dbKey: { forbidden: true }, baseline: { forbidden: true } }] }],
+  });
+  const parse = vi.spyOn(JSON, "parse");
+  const stringify = vi.spyOn(JSON, "stringify");
+  try {
+    expect(selectRecoverySnapshot(raw, null) === raw).toBe(true);
+    expect(selectRecoverySnapshot(raw, raw) === raw).toBe(true);
+    const restored = restoreWorkspace(raw);
+    expect(parse.mock.calls.filter(([input]) => input === raw)).toHaveLength(1);
+    expect(stringify).not.toHaveBeenCalled();
+    expect(restored.layers[0].features[0].properties.payload === payload).toBe(true);
+    expect(restored.layers[0].features[0].properties.code).toBe("9007199254740993");
+    expect(restored.layers[0].features[0].id).toBe("row");
+    expect(restored.layers[0].features[0].geometry).toEqual({ type: "Point", coordinates: [116, 39, 12] });
+    expect(restored.layers[0].features[0].dbKey).toBeUndefined();
+    expect(restored.layers[0].features[0].baseline).toBeUndefined();
+    // 消费后不缓存公开对象，下一次恢复仍从独立的原始数据构造工作副本。
+    restored.layers[0].features[0].properties.payload = "changed";
+    expect(restoreWorkspace(raw).layers[0].features[0].properties.payload === payload).toBe(true);
+    expect(parse.mock.calls.filter(([input]) => input === raw)).toHaveLength(2);
+  } finally {
+    parse.mockRestore();
+    stringify.mockRestore();
+  }
+});
+
+it("比较两个副本后直接恢复被选中的解析对象，嵌套字段不会影响修订号", () => {
+  const snapshot = (revision: number) => JSON.stringify({
+    version: 3, recoveryRevision: revision, tree: [{ kind: "layer", id: "l" }],
+    layers: [{ id: "l", name: "l", features: [{ id: "f", geometry: null, properties: { nested: { recoveryRevision: 999_999 }, text: '"recoveryRevision":999999' } }] }],
+  });
+  const native = snapshot(100_001), local = snapshot(100_002);
+  const parse = vi.spyOn(JSON, "parse");
+  try {
+    selectRecoverySnapshot(native, null);
+    const chosen = selectRecoverySnapshot(native, local)!;
+    expect(chosen).toBe(local);
+    expect(restoreWorkspace(chosen).layers[0].features[0].id).toBe("f");
+    expect(parse.mock.calls.filter(([input]) => input === native)).toHaveLength(1);
+    expect(parse.mock.calls.filter(([input]) => input === local)).toHaveLength(1);
+  } finally {
+    parse.mockRestore();
+  }
+});
+
+it("工作要素纯验证保留精度并移除数据库身份，不修改冻结的公开属性分支", () => {
+  const nested = Object.freeze({ unsafe: 9007199254740992, finite: 1.25, missing: undefined });
+  const properties = Object.freeze({ large: "x".repeat(1024), nested, list: Object.freeze([NaN, undefined, -0]) });
+  const geometry = Object.freeze({ type: "Point" as const, coordinates: Object.freeze([116, 39, 12]) }) as unknown as GeoFeature["geometry"];
+  const feature = Object.freeze({ id: "internal", geometry, properties, sourceFeatureId: "source-1", dbKey: { id: 1 }, baseline: { id: 1 } });
+  const normalized = normalizeWorkingFeature(feature);
+  expect(normalized.geometry).toBe(geometry);
+  expect(normalized.properties).not.toBe(properties);
+  expect(normalized.properties.nested).toEqual({ unsafe: "9007199254740992", finite: 1.25 });
+  expect(normalized.properties.list).toEqual([null, null, 0]);
+  expect(normalized.sourceFeatureId).toBe("source-1");
+  expect(normalized.dbKey).toBeUndefined();
+  expect(normalized.baseline).toBeUndefined();
+  expect(nested.unsafe).toBe(9007199254740992);
+  expect(Object.hasOwn(nested, "missing")).toBe(true);
+  expect(properties.list[0]).toBeNaN();
+  expect(Object.is(properties.list[2], -0)).toBe(true);
+});
+
+it("已解析属性保留既有 JSON 序列化语义，罕见包装值不扩散为运行期对象", () => {
+  const list: unknown[] & { extra?: string } = [1, 2];
+  list.extra = "runtime-only";
+  const feature = normalizeWorkingFeature({ id: "f", geometry: null, properties: { list, date: new Date("2026-11-03T00:00:00Z"), wrapped: new Number(3), omitted: undefined } });
+  expect(feature.properties).toEqual({ list: [1, 2], date: "2026-11-03T00:00:00.000Z", wrapped: 3 });
+  expect(Object.hasOwn(feature.properties.list as object, "extra")).toBe(false);
+  expect(list.extra).toBe("runtime-only");
+  const cyclic: Record<string, unknown> = {};
+  cyclic.self = cyclic;
+  expect(() => normalizeWorkingFeature({ id: "f", geometry: null, properties: cyclic })).toThrow();
+});
+
+it("大属性历史在编码前裁剪，不物化整帧字符串，当前修改和未完成草稿优先", () => {
+  const payload = "x".repeat(2 * 1024 * 1024);
+  const previous: GeoFeature[] = [{ id: "large-row", geometry: null, properties: { payload, name: "before" } }];
+  const layer = makeLayer("large", [{ ...previous[0], properties: { payload, name: "latest" } }], "geojson", { dirty: true });
+  const tree: LayerTreeNode[] = [{ kind: "layer", id: layer.id }];
+  const session: WorkspaceEditSession = {
+    layerId: layer.id, selectedId: "large-row", tool: "select", snapping: false,
+    panelDraft: { kind: "json", featureId: "large-row", text: "unfinished {" },
+    history: { undo: [previous, previous], redo: [previous], baseline: { features: previous, dirty: false } },
+  };
+  const stringify = vi.spyOn(JSON, "stringify");
+  const featureEncodes = () => stringify.mock.calls.filter(([input]) => input?.properties?.payload === payload && input.properties.name === "before");
+  try {
+    const raw = snapshotWorkspace([layer], tree, session, 3 * 1024 * 1024);
+    const restored = restoreWorkspace(raw);
+    expect(restored.layers[0].features[0].properties.name).toBe("latest");
+    expect(restored.layers[0].features[0].properties.payload === payload).toBe(true);
+    expect(restored.layers[0].dirty).toBe(true);
+    expect(restored.session?.panelDraft?.text).toBe("unfinished {");
+    expect(restored.session?.history).toBeUndefined();
+    // 仅编码当前要素；超限的旧帧尚未形成 JSON 字符串。
+    expect(featureEncodes()).toHaveLength(0);
+    stringify.mockClear();
+    const withHistory = restoreWorkspace(snapshotWorkspace([layer], tree, session, 12 * 1024 * 1024));
+    expect(withHistory.session?.history?.undo).toHaveLength(2);
+    expect(withHistory.session?.history?.redo).toHaveLength(1);
+    expect(withHistory.session?.history?.baseline?.features[0].properties.name).toBe("before");
+    // 输出可重放，字节计数可复用，但不长期缓存整帧 JSON。
+    expect(featureEncodes().length).toBeGreaterThan(0);
+    expect(stringify.mock.calls.some(([input]) => Array.isArray(input) && input[0]?.properties?.payload === payload)).toBe(false);
+  } finally {
+    stringify.mockRestore();
+  }
+});
+
+it("历史预算按 UTF-8 计量，裁剪不会误删当前多字节属性或草稿", () => {
+  const payload = "界🙂".repeat(1024);
+  const features: GeoFeature[] = [{ id: "f", geometry: null, properties: { payload } }];
+  const layer = makeLayer("unicode", features, "geojson");
+  const tree: LayerTreeNode[] = [{ kind: "layer", id: layer.id }];
+  const session: WorkspaceEditSession = { layerId: layer.id, tool: "select", snapping: false, history: { undo: [features], redo: [], baseline: { features, dirty: false } } };
+  const base = snapshotWorkspace([layer], tree, { ...session, history: undefined });
+  const budget = new TextEncoder().encode(base).length + 1024;
+  const raw = snapshotWorkspace([layer], tree, session, budget);
+  const restored = restoreWorkspace(raw);
+  expect(restored.layers[0].features[0].properties.payload === payload).toBe(true);
+  expect(restored.session?.history).toBeUndefined();
+  expect(new TextEncoder().encode(raw).length).toBeLessThan(budget);
 });
 
 it("恢复采用较新副本，避免强退后旧浏览器日志覆盖原生保存", () => {

@@ -33,7 +33,7 @@ export async function contextMenuSmoke(page) {
     await expect(page.getByRole("menuitem", { name, exact: true })).toBeEnabled();
   for (const name of ["添加文件图层", "新建分组", "新建子分组"])
     await expect(page.getByRole("menuitem", { name, exact: true })).toHaveCount(0);
-  await expect(page.getByRole("menuitem")).toHaveText(["设置别名", "重命名", "移除"]);
+  await expect(page.getByRole("menuitem")).toHaveText(["字段概览", "图层样式", "设置别名", "重命名", "移除"]);
   assert.equal(await menu.evaluate((element) => element.scrollWidth <= element.clientWidth), true);
   await page.keyboard.press("Escape");
   await expect(layer).toBeFocused();
@@ -54,7 +54,7 @@ export async function contextMenuSmoke(page) {
   await fieldSummary.focus();
   await page.keyboard.press("Shift+F10");
   await expect(page.getByRole("menu", { name: "字段操作", exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名", "添加字段", "重命名字段", "删除字段"]);
+  await expect(page.getByRole("menuitem")).toHaveText(["复制字段名", "字段概览", "添加字段", "重命名字段", "删除字段"]);
   for (const name of ["复制字段名", "添加字段"])
     await expect(page.getByRole("menuitem", { name, exact: true })).toBeEnabled();
   await page.keyboard.press("Escape");

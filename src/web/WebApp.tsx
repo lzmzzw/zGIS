@@ -39,7 +39,7 @@ import {
   type ImportOptions,
   type InputFile,
 } from "../domain";
-import { searchFeatures } from "../attributeSearch";
+import { useAttributeSearch } from "../useAttributeSearch";
 import { cancelParsing, parseInWorker } from "../workers";
 import { runAnalysis, cancelAnalysis, exportShapefile } from "./analysis";
 import { downloadFile, readBrowserFiles, textExport } from "./files";
@@ -167,21 +167,13 @@ export default function WebApp() {
   useEffect(()=>{if(inspector&&(!inspectorLayer || inspector.layerId !== activeId)){setInspector(undefined);setStylePreview(undefined);}},[inspector,inspectorLayer,activeId]);
   useEffect(()=>{const handler=(event:KeyboardEvent)=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="k"&&!document.querySelector("dialog[open]")&&!busy&&!gestureActive){event.preventDefault();setCommandOpen(true);}};document.addEventListener("keydown",handler);return()=>document.removeEventListener("keydown",handler);},[busy,gestureActive]);
   const cancellable = busy && (pendingFiles.length > 0 || job.current !== null);
-  const filtered = useMemo(
-    () => searchFeatures(active?.features ?? [], search),
-    [active?.features, search],
-  );
-  const fields = useMemo(
-    () => [
-      ...new Set([
-        ...(active?.fieldNames ?? []),
-        ...(active?.features.flatMap((feature) =>
-          Object.keys(feature.properties),
-        ) ?? []),
-      ]),
-    ],
-    [active],
-  );
+  const { filtered, searching } = useAttributeSearch(active?.features, search);
+  const fields = useMemo(() => {
+    const names = new Set(active?.fieldNames ?? []);
+    for (const feature of active?.features ?? [])
+      for (const name of Object.keys(feature.properties)) names.add(name);
+    return [...names];
+  }, [active?.features, active?.fieldNames]);
   const pages = Math.max(1, Math.ceil(filtered.length / 100));
   useEffect(() => {
     setPage(0);
@@ -720,6 +712,7 @@ export default function WebApp() {
                   aria-label={t("搜索属性")}
                   placeholder={t("搜索属性")}
                   value={search}
+                  aria-busy={searching}
                   onChange={(event) => setSearch(event.target.value)}
                 />
               </label>
@@ -796,7 +789,7 @@ export default function WebApp() {
               </table>
               {!filtered.length && (
                 <p className="web-empty">
-                  {active ? t("没有匹配要素。") : t("选择图层查看属性。")}
+                  {searching ? t("正在搜索…") : active ? t("没有匹配要素。") : t("选择图层查看属性。")}
                 </p>
               )}
             </div>

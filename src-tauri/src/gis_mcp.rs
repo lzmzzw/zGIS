@@ -219,15 +219,29 @@ pub async fn gis_workspace_sync(
     active_layer_id: Option<String>,
     incremental: Option<bool>,
     removed_layer_ids: Option<Vec<String>>,
+    rejected: Option<String>,
     state: tauri::State<'_, GisMcp>,
 ) -> Result<(), String> {
     let m = state.inner().clone();
     let order = m.sync_lock.clone().lock_owned().await;
     tauri::async_runtime::spawn_blocking(move || {
         let _order = order;
+        if let Some(reason) = rejected {
+            return reject_workspace_sync(&m, &reason);
+        }
         sync_workspace(&m, layers, active_layer_id, incremental.unwrap_or(false), removed_layer_ids.unwrap_or_default())
     })
         .await.map_err(|_| "工作区同步失败".to_owned())?
+}
+fn reject_workspace_sync(m: &GisMcp, reason: &str) -> Result<(), String> {
+    let message = match reason {
+        "size" => "同步图层总大小超过100MB",
+        "count" => "工作区超过100图层或100000要素",
+        _ => "工作区同步失败",
+    }.to_owned();
+    // 提前拒绝仍需失效旧快照，不能让后续 MCP 分析误用旧版本。
+    m.inner.lock().unwrap().sync_error = Some(message.clone());
+    Err(message)
 }
 fn sync_workspace(m: &GisMcp, layers: Vec<Value>, active: Option<String>, incremental: bool, removed: Vec<String>) -> Result<(), String> {
     let result: Result<(), String> = (|| {
@@ -256,7 +270,7 @@ fn sync_workspace(m: &GisMcp, layers: Vec<Value>, active: Option<String>, increm
             else { next.push(layer); }
         }
         if next.len() > 100 || next.iter().map(|l| l.features.len()).sum::<usize>() > 100_000 { return Err("工作区超过100图层或100000要素".into()); }
-        if next.iter().map(|l| l.bytes).sum::<usize>().saturating_add(next.len()+2) > 100*1024*1024 { return Err("同步图层总大小超过100MB".into()); }
+        if next.iter().map(|l| l.bytes).sum::<usize>().saturating_add(next.len().saturating_sub(1)+2) > 100*1024*1024 { return Err("同步图层总大小超过100MB".into()); }
         let old = std::mem::replace(&mut i.layers, next);
         i.active = active;
         i.sync_error = None;
@@ -1029,6 +1043,17 @@ fn page(f: &[Value], args: &Value, mut extra: Value, kind: &str) -> Result<Value
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn early_budget_rejection_blocks_old_workspace_until_a_successful_sync() {
+        let m = GisMcp::default();
+        let layer = json!({"id":"a","name":"a","features":[test_feature(0)]});
+        sync_workspace(&m, vec![layer.clone()], Some("a".into()), false, vec![]).unwrap();
+        assert!(reject_workspace_sync(&m, "size").is_err());
+        assert!(call(&m, "layer_summary", &json!({"source":{"layerId":"a"}})).unwrap_err().contains("同步失败"));
+        assert_eq!(m.inner.lock().unwrap().sync_error.as_deref(), Some("同步图层总大小超过100MB"));
+        sync_workspace(&m, vec![layer], Some("a".into()), false, vec![]).unwrap();
+        assert!(call(&m, "layer_summary", &json!({"source":{"layerId":"a"}})).is_ok());
+    }
     #[test]
     fn delta_sync_reuses_unchanged_layers_and_blocks_stale_workspace_on_failure() {
         let m=GisMcp::default();

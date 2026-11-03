@@ -1,6 +1,26 @@
+import { smallText, type TextContent, type TextInput } from "./textContent";
+// 本地日志只覆盖小快照；大字符串不发送到 DOMStorage 的跨进程通道。
+export const MAX_LOCAL_RECOVERY_CHARS = 2 * 1024 * 1024;
+const journalCache = new WeakMap<TextContent, string | undefined>();
+export function recoveryJournalText(content: TextInput): string | undefined {
+  if (typeof content === "string") return smallText(content, MAX_LOCAL_RECOVERY_CHARS);
+  if (!journalCache.has(content)) journalCache.set(content, smallText(content, MAX_LOCAL_RECOVERY_CHARS));
+  return journalCache.get(content);
+}
+export function writeRecoveryJournal(content: TextInput, storage?: Pick<Storage, "setItem">): boolean {
+  const value = recoveryJournalText(content);
+  if (value === undefined) return false;
+  try {
+    (storage ?? localStorage).setItem("zgis.editRecovery", value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Only unsent autosaves may coalesce. Explicit save/exit barriers retain order.
-export function createRecoveryWriter(write: (content: string) => Promise<unknown>) {
-  type Entry = { content: string; barrier: boolean; resolve: ((content: string) => void)[]; reject: ((error: unknown) => void)[] };
+export function createRecoveryWriter<T = string>(write: (content: T) => Promise<unknown>) {
+  type Entry = { content: T; barrier: boolean; resolve: ((content: T) => void)[]; reject: ((error: unknown) => void)[] };
   const queue: Entry[] = [];
   let running = false;
   async function drain() {
@@ -14,7 +34,7 @@ export function createRecoveryWriter(write: (content: string) => Promise<unknown
       }
     } finally { running = false; }
   }
-  return (content: string, barrier = false): Promise<string> => new Promise((resolve, reject) => {
+  return (content: T, barrier = false): Promise<T> => new Promise((resolve, reject) => {
     const last = queue.at(-1);
     if (!barrier && last && !last.barrier) {
       last.content = content;

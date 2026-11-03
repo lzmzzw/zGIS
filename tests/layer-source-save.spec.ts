@@ -120,8 +120,8 @@ test("工作区 CSV 首次保存选择格式路径，绑定后继续保存直接
     overwrite: false,
     preserveExtension: "csv",
   });
-  expect(String(first.args.content)).toContain("first saved");
-  expect(String(first.args.content)).toMatch(/POINT\s*\(12913060/);
+  expect(String(first.resolvedContent)).toContain("first saved");
+  expect(String(first.resolvedContent)).toMatch(/POINT\s*\(12913060/);
   await changeName(page, "second saved");
   await toolbar(page)
     .getByRole("button", { name: "保存编辑", exact: true })
@@ -139,8 +139,8 @@ test("工作区 CSV 首次保存选择格式路径，绑定后继续保存直接
     overwrite: true,
     suggestedName: "saved-points.csv",
   });
-  expect(String(second.args.content)).toContain("second saved");
-  expect(String(second.args.content)).toMatch(/POINT\s*\(12913060/);
+  expect(String(second.resolvedContent)).toContain("second saved");
+  expect(String(second.resolvedContent)).toMatch(/POINT\s*\(12913060/);
 });
 
 test("工作区首次保存为 SHP 文件组，绑定后直接回写文件组", async ({ page }) => {
@@ -296,10 +296,10 @@ test("恢复的 CSV 文件保存保留来源坐标系与 XY 列名", async ({ pa
     overwrite: true,
     suggestedName: "projected.csv",
   });
-  expect(String(call.args.content).split("\n")[0]).toContain(
+  expect(String(call.resolvedContent).split("\n")[0]).toContain(
     "easting,northing",
   );
-  expect(String(call.args.content)).toContain("12913060");
+  expect(String(call.resolvedContent)).toContain("12913060");
   await expect
     .poll(async () => (await savedLayer(page)).originalCrs)
     .toBe("EPSG:3857");
@@ -369,7 +369,7 @@ for (const mode of ["wkt", "xy"] as const) {
     expect(calls).toHaveLength(2);
     for (const [index, call] of calls.entries()) {
       const parsed = Papa.parse<Record<string, string>>(
-        String(call.args.content),
+        String(call.resolvedContent),
         { header: true },
       ).data[0];
       expect(parsed).toMatchObject({

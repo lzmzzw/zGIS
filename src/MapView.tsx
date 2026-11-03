@@ -1,7 +1,7 @@
 import { createLayerDisplayStyle, geometryDisplayStyle as style } from "./mapDisplayStyle";
 import type { AnalysisFocus } from "./analysisLocation";
 import { t, useLocale } from "./i18n";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Map from "ol/Map";
 import MapBrowserEvent from "ol/MapBrowserEvent";
 import View from "ol/View";
@@ -33,7 +33,7 @@ import { defaults as defaultControls } from "ol/control";
 import type Feature from "ol/Feature";
 import type Geometry from "ol/geom/Geometry";
 import type { DocumentLayer, GeoFeature } from "./domain/types";
-import { syncMapFeatures } from "./mapLayerSync";
+import { scheduleMapFeatures, syncMapFeatures } from "./mapLayerSync";
 import { validateXyzUrl, type BasemapService } from "./basemaps";
 import {
   canFinishDraft,
@@ -113,6 +113,10 @@ export default function MapView(props: Props) {
   const geometryRefs = useRef(
     new WeakMap<Feature<Geometry>, GeoFeature["geometry"]>(),
   );
+  const syncJobs = useRef(new globalThis.Map<string, { features: GeoFeature[]; cancel: () => void }>());
+  const fitAfterSync = useRef(new Set<string>());
+  const featureFitAfterSync = useRef<{ layerId: string; featureId: string } | undefined>(undefined);
+  const [syncing, setSyncing] = useState(false);
   const current = useRef(props);
   current.current = props;
   const syncSelection = (id: string | undefined) => {
@@ -132,6 +136,26 @@ export default function MapView(props: Props) {
       if (feature) source.addFeature(feature);
     }
     selectionRef.current?.changed();
+  };
+  const syncAnalysisFocus = () => {
+    const { analysisFocus: focus, activeId, selectedId } = current.current;
+    if (!focus || focus.layerId !== activeId) { syncSelection(selectedId); return; }
+    const source = vectorRefs.current.get(focus.layerId)?.getSource();
+    const features = focus.featureIds.flatMap(id => {
+      const feature = source?.getFeatureById(id);
+      return feature ? [feature] : [];
+    });
+    const overlay = selectionRef.current?.getSource();
+    overlay?.clear();
+    overlay?.addFeatures(features);
+    if (focus.fit) {
+      const extent = createEmpty();
+      for (const feature of features) {
+        const box = feature.getGeometry()?.getExtent();
+        if (box?.every(Number.isFinite)) extend(extent, box);
+      }
+      fitExtent(mapRef.current, extent);
+    }
   };
   useEffect(() => {
     const base = new TileLayer();
@@ -245,6 +269,9 @@ export default function MapView(props: Props) {
     });
     resize.observe(element.current!);
     return () => {
+      for (const job of syncJobs.current.values()) job.cancel();
+      syncJobs.current.clear();
+      fitAfterSync.current.clear();
       resize.disconnect();
       cancelAnimationFrame(positionFrame);
       map.getViewport().removeEventListener("pointerdown", pointerDown, true);
@@ -298,6 +325,9 @@ export default function MapView(props: Props) {
     const layerIds = new Set(props.layers.map((item) => item.id));
     for (const [id, layer] of vectorRefs.current)
       if (!layerIds.has(id)) {
+        syncJobs.current.get(id)?.cancel();
+        syncJobs.current.delete(id);
+        fitAfterSync.current.delete(id);
         map.removeLayer(layer);
         vectorRefs.current.delete(id);
       }
@@ -308,7 +338,7 @@ export default function MapView(props: Props) {
         map.addLayer(layer);
         vectorRefs.current.set(item.id, layer);
       }
-      layer.setVisible(item.visible);
+      layer.setVisible(item.visible && !(syncJobs.current.has(item.id) && !layer.get("dataRef")));
       layer.setOpacity(item.opacity ?? 1);
       layer.setDeclutter(item.labels ? "zgis-labels" : false);
       layer.setZIndex(props.layers.length - index + 10);
@@ -320,22 +350,49 @@ export default function MapView(props: Props) {
         layer.set("styleKey", styleKey);
       }
       const source = layer.getSource()!;
-      if (layer.get("dataRef") !== item.features) {
-        syncMapFeatures(
-          source,
-          item.features,
-          geometryRefs.current,
-          gestureRef.current,
-        );
-        layer.set("dataRef", item.features);
+      const pending = syncJobs.current.get(item.id);
+      if ((pending && pending.features !== item.features) || (!pending && layer.get("dataRef") !== item.features)) {
+        pending?.cancel();
+        syncJobs.current.delete(item.id);
+        if (item.features.length <= 2000) {
+          syncMapFeatures(source, item.features, geometryRefs.current, gestureRef.current);
+          layer.set("dataRef", item.features);
+        } else {
+          const target = layer;
+          if (!target.get("dataRef")) target.setVisible(false);
+          const cancel = scheduleMapFeatures(source, item.features, geometryRefs.current, () => {
+            target.set("dataRef", item.features);
+            target.setVisible(current.current.layers.find(layer => layer.id === item.id)?.visible ?? false);
+            syncJobs.current.delete(item.id);
+            setSyncing(syncJobs.current.size > 0);
+            syncSelection(current.current.selectedId);
+            if (fitAfterSync.current.delete(item.id) && current.current.activeId === item.id)
+              fitExtent(mapRef.current, source.getExtent());
+            const pendingFeature = featureFitAfterSync.current;
+            if (pendingFeature?.layerId === item.id) {
+              featureFitAfterSync.current = undefined;
+              if (current.current.activeId === item.id && current.current.selectedId === pendingFeature.featureId) {
+                const geometry = source.getFeatureById(pendingFeature.featureId)?.getGeometry();
+                if (geometry) fitExtent(mapRef.current, geometry.getExtent());
+              }
+            }
+            syncAnalysisFocus();
+          }, () => gestureRef.current);
+          syncJobs.current.set(item.id, { features: item.features, cancel });
+        }
       }
     });
+    setSyncing(syncJobs.current.size > 0);
     syncSelection(current.current.selectedId);
   }, [props.layers]);
   useEffect(() => {
     syncSelection(current.current.selectedId);
   }, [props.selectedId, props.activeId, props.theme]);
   useEffect(() => {
+    if (props.activeId && syncJobs.current.has(props.activeId)) {
+      fitAfterSync.current.add(props.activeId);
+      return;
+    }
     const source = vectorRefs.current.get(props.activeId ?? "")?.getSource();
     const extent = source?.getExtent();
     if (source && !source.isEmpty() && extent)
@@ -343,6 +400,10 @@ export default function MapView(props: Props) {
   }, [props.fitNonce]);
   useEffect(() => {
     if (!props.featureFitNonce) return;
+    if (props.activeId && props.selectedId && syncJobs.current.has(props.activeId)) {
+      featureFitAfterSync.current = { layerId: props.activeId, featureId: props.selectedId };
+      return;
+    }
     const feature = vectorRefs.current
       .get(props.activeId ?? "")
       ?.getSource()
@@ -350,26 +411,7 @@ export default function MapView(props: Props) {
     const geometry = feature?.getGeometry();
     if (geometry) fitExtent(mapRef.current, geometry.getExtent());
   }, [props.featureFitNonce]);
-  useEffect(() => {
-    const focus = props.analysisFocus;
-    if (!focus || focus.layerId !== props.activeId) { syncSelection(props.selectedId); return; }
-    const source = vectorRefs.current.get(focus.layerId)?.getSource();
-    const features = focus.featureIds.flatMap(id => {
-      const feature = source?.getFeatureById(id);
-      return feature ? [feature] : [];
-    });
-    const overlay = selectionRef.current?.getSource();
-    overlay?.clear();
-    overlay?.addFeatures(features);
-    if (focus.fit) {
-      const extent = createEmpty();
-      for (const feature of features) {
-        const box = feature.getGeometry()?.getExtent();
-        if (box?.every(Number.isFinite)) extend(extent, box);
-      }
-      fitExtent(mapRef.current, extent);
-    }
-  }, [props.analysisFocus, props.activeId, props.layers]);
+  useEffect(() => { syncAnalysisFocus(); }, [props.analysisFocus, props.activeId, props.layers]);
   useEffect(() => {
     if (props.finishNonce) finishDrawingRef.current?.();
   }, [props.finishNonce]);
@@ -709,6 +751,7 @@ export default function MapView(props: Props) {
       className={`map-surface ${props.tool === "pan" ? "pan-mode" : ""} ${props.editable ? "editing-mode" : ""} ${props.tool === "move" ? "move-mode" : ""} ${props.tool === "modify" ? "vertex-mode" : ""}`}
       ref={element}
       aria-label={t("地理数据地图")}
+      aria-busy={syncing}
       tabIndex={0}
       onContextMenu={(event) => {
         if ((event.target as Element).closest(".ol-control")) return;

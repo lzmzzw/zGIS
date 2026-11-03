@@ -299,7 +299,7 @@ for (const kind of ["Point", "LineString", "Polygon"] as const) {
         .at(-1)!,
     );
     expect(
-      JSON.parse(String(saved.args.content)).features.map(
+      JSON.parse(String(saved.resolvedContent)).features.map(
         (feature: GeoFeature) => feature.geometry,
       ),
     ).toEqual(final.map((feature) => feature.geometry));

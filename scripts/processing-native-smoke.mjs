@@ -251,9 +251,10 @@ try {
     ) < 0.1,
   );
   const snapshot = () =>
-    page.evaluate(async () =>
-      JSON.parse(await window.__TAURI_INTERNALS__.invoke("load_recovery")),
-    );
+    page.evaluate(async () => {
+      const raw = await window.__TAURI_INTERNALS__.invoke("load_recovery");
+      return JSON.parse(raw instanceof ArrayBuffer ? new TextDecoder().decode(raw) : raw);
+    });
   async function analyze(tool, name) {
     await selectTool(tool);
     await toolbox.getByLabel("结果图层名称").fill(name);

@@ -188,8 +188,17 @@ fn geometry_type(kind: &str) -> bool {
     ]
     .contains(&kind)
 }
+fn catalog_query(base: &str, target: bool, order: &str) -> String {
+    let filter = if target { " AND TABLE_SCHEMA=? AND TABLE_NAME=?" } else { "" };
+    format!("{base}{filter}{order} LIMIT 100001")
+}
 async fn catalog<Q: Queryable>(conn: &mut Q) -> Result<Catalog, String> {
-    let rows:Vec<Row>=conn.query("SELECT TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,EXTRA,COLUMN_DEFAULT IS NOT NULL,DATA_TYPE,COLUMN_KEY FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() ORDER BY TABLE_NAME,ORDINAL_POSITION LIMIT 100001").await.map_err(|_|"读取 Mysql 表目录失败")?;
+    catalog_for_table(conn, None).await
+}
+async fn catalog_for_table<Q: Queryable>(conn: &mut Q, target: Option<(&str, &str)>) -> Result<Catalog, String> {
+    let params = target.map(|(schema, table)| vec![mysql_async::Value::from(schema), mysql_async::Value::from(table)]).unwrap_or_default();
+    let sql = catalog_query("SELECT TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,EXTRA,COLUMN_DEFAULT IS NOT NULL,DATA_TYPE,COLUMN_KEY FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()", target.is_some(), " ORDER BY TABLE_NAME,ORDINAL_POSITION");
+    let rows: Vec<Row> = conn.exec(sql, params.clone()).await.map_err(|_| "读取 Mysql 表目录失败")?;
     if rows.len() > 100000 {
         return Err("表目录过大，请限制可访问的表".into());
     }
@@ -230,7 +239,8 @@ async fn catalog<Q: Queryable>(conn: &mut Q) -> Result<Catalog, String> {
         });
     }
     // MySQL 8 提供声明的 SRID；5.7 无此目录，保留未知 SRID，加载时逐条核验。
-    let geometries:Result<Vec<Row>,_>=conn.query("SELECT TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME,SRS_ID FROM information_schema.ST_GEOMETRY_COLUMNS WHERE TABLE_SCHEMA=DATABASE() LIMIT 100001").await;
+    let sql = catalog_query("SELECT TABLE_SCHEMA,TABLE_NAME,COLUMN_NAME,SRS_ID FROM information_schema.ST_GEOMETRY_COLUMNS WHERE TABLE_SCHEMA=DATABASE()", target.is_some(), "");
+    let geometries: Result<Vec<Row>, _> = conn.exec(sql, params).await;
     if let Ok(rows) = geometries {
         for row in rows {
             if let Some(t) = tables.get_mut(&(text(&row, 0)?, text(&row, 1)?)) {
@@ -291,6 +301,21 @@ fn preview_sql(table: &DatabaseTable, limit: u32) -> Result<String, String> {
     ))
 }
 const MAX_ATTRIBUTE_BYTES: usize = 64 * 1024;
+const MAX_LOAD_ROWS: u32 = 100_000;
+
+fn validate_load_limit(limit: u32) -> Result<(), String> {
+    if limit == 0 || limit > MAX_LOAD_ROWS {
+        return Err("加载条数必须为1至100000".into());
+    }
+    Ok(())
+}
+
+fn load_result(features: Vec<Value>, truncated: bool, writable: bool) -> Value {
+    let mut result = json!({"srid":4326,"truncated":truncated,"writable":writable});
+    // Value::Array 接管已有数组，避免 json! 对完整图层做第二次深拷贝。
+    result["features"] = Value::Array(features);
+    result
+}
 
 // 地图工作副本必须保留完整属性；预览用的摘要和截断不能用于导出数据。
 fn load_expressions(table: &DatabaseTable) -> Result<Vec<String>, String> {
@@ -341,7 +366,7 @@ async fn selected_table(
     schema: &str,
     table: &str,
 ) -> Result<DatabaseTable, String> {
-    catalog(conn)
+    catalog_for_table(conn, Some((schema, table)))
         .await?
         .tables
         .into_iter()
@@ -1446,9 +1471,7 @@ pub async fn query_mysql_geometry(
     srid: Option<i32>,
     bbox: Option<Vec<f64>>,
 ) -> Result<Value, String> {
-    if limit == 0 || limit > 10000 {
-        return Err("加载条数必须为1至10000".into());
-    }
+    validate_load_limit(limit)?;
     let bbox = super::validate_bbox(bbox)?;
     let mut connection = state.clients.acquire(&connection_id).await?;
     let conn = connection.as_mut().ok_or("连接已失效")?;
@@ -1469,7 +1492,9 @@ pub async fn query_mysql_geometry(
         }else{String::new()};
         let sql=format!("SELECT CASE WHEN OCTET_LENGTH({geom})>1048576 THEN NULL ELSE ST_AsGeoJSON({geom},15,0) END,ST_SRID({geom}),{} FROM {}.{}{filter}{order} LIMIT {}",expressions.join(","),ident(&schema)?,ident(&table)?,limit+1);
         let mut records=conn.exec_iter(sql,params).await.map_err(|_|"空间读取失败，请检查字段数据、Mysql版本与权限")?;
-        let mut features=vec![];let mut total=0usize;let mut truncated=false;
+        let mut features=vec![];
+        let mut total=super::bounded_json_size(&load_result(vec![],false,writable),100*1024*1024)?;
+        let mut truncated=false;
         while let Some(row)=records.next().await.map_err(|_|"空间数据读取失败")? {
             if features.len()>=limit as usize {truncated=true;break;}
             let actual=row.get_opt::<Option<i32>,_>(1).ok_or("SRID字段缺失")?.map_err(|_|"SRID转换失败")?;
@@ -1489,13 +1514,11 @@ pub async fn query_mysql_geometry(
             if writable {validate_key(&selected,&key)?;}
             let id=if key.is_empty() {features.len().to_string()}else{serde_json::to_string(&key).map_err(|_|"主键序列化失败")?};
             let feature=json!({"id":id,"geometry":geometry,"properties":properties,"dbKey":key,"baseline":baseline});
-            total+=serde_json::to_vec(&feature).map_err(|_|"空间数据序列化失败")?.len();
-            if total>16*1024*1024 {return Err("空间数据超过16 MiB，请减少加载条数".into());}features.push(feature);
+            super::append_database_feature(&mut features,feature,&mut total)?;
+            if features.len()%256==0 {tokio::task::yield_now().await;}
         }
         records.drop_result().await.map_err(|_|"空间数据读取失败")?;
-        let result=json!({"features":features,"srid":4326,"truncated":truncated,"writable":writable});
-        if serde_json::to_vec(&result).map_err(|_|"空间数据序列化失败")?.len()>16*1024*1024 {return Err("空间数据超过16 MiB，请减少加载条数".into());}
-        Ok(result)
+        Ok(load_result(features,truncated,writable))
     }).await;
     match result {
         Ok(result) => result,
@@ -1510,6 +1533,38 @@ pub async fn query_mysql_geometry(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn targeted_catalog_reads_only_requested_table_with_bound_parameters() {
+        let sql = catalog_query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()", true, " ORDER BY ORDINAL_POSITION");
+        assert!(sql.contains("AND TABLE_SCHEMA=? AND TABLE_NAME=? ORDER BY ORDINAL_POSITION"));
+        assert!(sql.ends_with("LIMIT 100001"));
+        let global = catalog_query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()", false, "");
+        assert!(!global.contains('?'));
+        assert!(global.contains("TABLE_SCHEMA=DATABASE()"));
+    }
+    #[test]
+    fn larger_mysql_loads_keep_complete_baselines_and_move_feature_storage() {
+        assert!(validate_load_limit(100_000).is_ok());
+        assert!(validate_load_limit(0).is_err());
+        assert!(validate_load_limit(100_001).is_err());
+        let mut features = Vec::new();
+        let mut bytes = super::super::bounded_json_size(&load_result(vec![], false, true), 100 * 1024 * 1024).unwrap();
+        let baseline = json!({"id":"9007199254740993", "text":"中\\\"\n".repeat(256)});
+        for id in 0..10_001 {
+            let feature = json!({"id":id.to_string(),"geometry":null,"properties":{"text":baseline["text"]},"baseline":baseline,"dbKey":{"id":id.to_string()}});
+            super::super::append_database_feature(&mut features, feature, &mut bytes).unwrap();
+        }
+        assert!(bytes > 16 * 1024 * 1024);
+        let storage = features.as_ptr();
+        let result = load_result(features, true, true);
+        assert_eq!(result["features"].as_array().unwrap().as_ptr(), storage);
+        assert_eq!(result["features"].as_array().unwrap().len(), 10_001);
+        assert_eq!(result["features"][0]["baseline"], baseline);
+        assert_eq!(result["truncated"], true);
+        assert_eq!(result["writable"], true);
+        // true 比预算中的 false 少一个字节，预算保守且包含整个返回 envelope。
+        assert_eq!(bytes, super::super::bounded_json_size(&result, usize::MAX).unwrap() + 1);
+    }
     fn sample() -> DatabaseTable {
         DatabaseTable {
             schema: "gis` ;DROP TABLE x".into(),

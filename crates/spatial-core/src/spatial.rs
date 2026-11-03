@@ -11,7 +11,7 @@ use geo::{
 use rstar::{PointDistance, RTree, RTreeObject, AABB};
 use serde_json::{json, Value};
 
-const MAX_FEATURES: usize = 10_000;
+use crate::input::MAX_ANALYSIS_FEATURES as MAX_FEATURES;
 const MAX_VERTICES: usize = 1_000_000;
 const MAX_PAIRS: usize = 1_000_000;
 const MAX_METRIC_WORK_VERTICES: usize = 10_000_000;
@@ -73,6 +73,23 @@ impl SpatialIndex {
     ) -> Result<Vec<usize>, String> {
         self.query(bounds, Some(after), budget)
     }
+    // 存在性查询不需要稳定目标顺序；命中后立即停止，避免构造和排序完整候选集。
+    fn any_candidate(
+        &self,
+        bounds: Option<geo::Rect<f64>>,
+        budget: &mut PairBudget,
+        mut matches: impl FnMut(usize) -> Result<bool, String>,
+    ) -> Result<bool, String> {
+        if let Some(r) = bounds {
+            for entry in self.0.locate_in_envelope_intersecting(&Self::envelope(r)) {
+                budget.consume()?;
+                if matches(entry.id)? {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
     fn query(
         &self,
         bounds: Option<geo::Rect<f64>>,
@@ -97,7 +114,7 @@ impl SpatialIndex {
 
 fn clean_geometries(source: &[Value], output_limit: usize) -> Result<Value, String> {
     if source.len() > MAX_FEATURES {
-        return Err("图层超过 10000 个要素，请先缩小范围".into());
+        return Err("图层超过 100000 个要素，请先缩小范围".into());
     }
     topology_preflight(source, MAX_VERTICES)?;
     let mut out = Vec::new();
@@ -187,7 +204,7 @@ fn coordinate_count(v: &Value) -> usize {
 
 fn decode(features: &[Value], allow_invalid: bool) -> Result<Vec<Geometry<f64>>, String> {
     if features.len() > MAX_FEATURES {
-        return Err("图层超过 10000 个要素，请先缩小范围".into());
+        return Err("图层超过 100000 个要素，请先缩小范围".into());
     }
     let mut vertices = 0;
     features
@@ -606,7 +623,7 @@ fn group_key(value: &Value) -> Result<String, String> {
 fn push_bounded(out: &mut Vec<Value>, budget: &mut OutputBudget, f: Value) -> Result<(), String> {
     crate::checkpoint()?;
     if out.len() >= MAX_FEATURES {
-        return Err("结果超过 10000 个要素；未返回截断结果".into());
+        return Err("结果超过 100000 个要素；未返回截断结果".into());
     }
     let vertices = budget
         .vertices
@@ -1083,7 +1100,7 @@ fn analyze_registered(
             return Err("需要 target".into());
         }
         if source.len().saturating_add(t.len()) > MAX_FEATURES {
-            return Err("合并结果超过 10000 个要素".into());
+            return Err("合并结果超过 100000 个要素".into());
         }
         let mut out = Vec::new();
         let mut output_budget = OutputBudget::new(output_limit);
@@ -1136,9 +1153,95 @@ fn analyze_registered(
     {
         return Err("候选对超过 1000000，请缩小输入范围".into());
     }
+    // 点最近邻只构建球面索引，不再同时保留未使用的二维包络索引。
+    if operation == Operation::Nearest {
+        nearest_work_preflight(&s, &t)?;
+        let mut pair_budget = PairBudget(0);
+        let mut out = Vec::new();
+        let mut output_budget = OutputBudget::new(output_limit);
+        use geo::{Distance, Geodesic};
+        let point_index = all_points.then(|| {
+            RTree::bulk_load(
+                t.iter()
+                    .enumerate()
+                    .map(|(id, g)| {
+                        let Geometry::Point(p) = g else {
+                            unreachable!()
+                        };
+                        IndexedSpherePoint {
+                            id,
+                            xyz: unit_sphere(*p),
+                        }
+                    })
+                    .collect(),
+            )
+        });
+        for (i, g) in s.iter().enumerate() {
+            crate::checkpoint()?;
+            let mut best: Option<(usize, f64, bool)> = None;
+            if let (Some(tree), Geometry::Point(a)) = (&point_index, g) {
+                let xyz = unit_sphere(*a);
+                for candidate in tree.nearest_neighbor_iter(&xyz) {
+                    // Ellipsoid metric >= minimum WGS84 curvature radius times
+                    // angular distance >= radius times unit-sphere chord length.
+                    // 6,335,000 m is rounded DOWN from 6,335,439.327 m; the extra
+                    // epsilon also prevents floating-point pruning of exact ties.
+                    let lower = candidate.distance_2(&xyz).sqrt() * 6_335_000.;
+                    if best.is_some_and(|(_, d, _)| lower > d + 1e-6) {
+                        break;
+                    }
+                    pair_budget.consume()?;
+                    let Geometry::Point(b) = &t[candidate.id] else {
+                        unreachable!()
+                    };
+                    let distance = Geodesic.distance(*a, *b);
+                    if best.is_none_or(|(id, d, _)| {
+                        distance < d || (distance == d && candidate.id < id)
+                    }) {
+                        best = Some((candidate.id, distance, true));
+                    }
+                }
+            } else {
+                for (j, b) in t.iter().enumerate() {
+                    pair_budget.consume()?;
+                    let (distance, geodesic) = match (g, b) {
+                        (Geometry::Point(a), Geometry::Point(b)) => {
+                            (Geodesic.distance(*a, *b), true)
+                        }
+                        _ => {
+                            let projection = Projection::from_geometries([g, b].into_iter())?;
+                            (
+                                Euclidean
+                                    .distance(&projection.map(g, false), &projection.map(b, false)),
+                                false,
+                            )
+                        }
+                    };
+                    if best.is_none_or(|(_, d, _)| distance < d) {
+                        best = Some((j, distance, geodesic));
+                    }
+                }
+            }
+            let (index, distance, geodesic) = best.ok_or("目标为空")?;
+            push_bounded(
+                &mut out,
+                &mut output_budget,
+                derived_feature(
+                    &source[i],
+                    None,
+                    properties(
+                        &source[i],
+                        "_zgis_nearest",
+                        json!({"targetIndex":index,"distanceMeters":distance,"geodesic":geodesic,"distanceModel":if geodesic {"WGS84_ellipsoidal_geodesic"} else {"pair_local_equirectangular_approximation"}}),
+                    ),
+                ),
+            )?;
+        }
+        let mut result = collection(out, false);
+        result["analysis"] = json!({"distanceModel":if all_points {"WGS84_ellipsoidal_geodesic"} else {"point_geodesic_other_pair_local_approximation"},"units":"meters","geodesic":all_points,"exactDistanceEvaluations":pair_budget.0});
+        return Ok(result);
+    }
     let source_bounds: Vec<_> = s.iter().map(BoundingRect::bounding_rect).collect();
-    let target_bounds: Vec<_> = t.iter().map(BoundingRect::bounding_rect).collect();
-    let target_index = SpatialIndex::new(&target_bounds);
     let mut pair_budget = PairBudget(0);
     let mut relation_work = OverlayBudget(0);
     let mut out = Vec::new();
@@ -1159,8 +1262,9 @@ fn analyze_registered(
             polygon(g)?;
             let candidates = point_index.candidates(source_bounds[i], &mut pair_budget)?;
             let mut count = 0;
+            let vertices = g.coords_count();
             for j in candidates {
-                relation_work.vertices(g.coords_count().saturating_add(1))?;
+                relation_work.vertices(vertices.saturating_add(1))?;
                 if bounded_relation(
                     g,
                     &Geometry::Point(points[j]),
@@ -1183,6 +1287,8 @@ fn analyze_registered(
         }
         return Ok(collection(out, false));
     }
+    let target_bounds: Vec<_> = t.iter().map(BoundingRect::bounding_rect).collect();
+    let target_index = SpatialIndex::new(&target_bounds);
     let mut overlay_budget = OverlayBudget(0);
     if matches!(
         operation,
@@ -1283,90 +1389,6 @@ fn analyze_registered(
         }
         return Ok(collection(out, false));
     }
-    if operation == Operation::Nearest {
-        nearest_work_preflight(&s, &t)?;
-        use geo::{Distance, Geodesic};
-        let point_index = all_points.then(|| {
-            RTree::bulk_load(
-                t.iter()
-                    .enumerate()
-                    .map(|(id, g)| {
-                        let Geometry::Point(p) = g else {
-                            unreachable!()
-                        };
-                        IndexedSpherePoint {
-                            id,
-                            xyz: unit_sphere(*p),
-                        }
-                    })
-                    .collect(),
-            )
-        });
-        for (i, g) in s.iter().enumerate() {
-            crate::checkpoint()?;
-            let mut best: Option<(usize, f64, bool)> = None;
-            if let (Some(tree), Geometry::Point(a)) = (&point_index, g) {
-                let xyz = unit_sphere(*a);
-                for candidate in tree.nearest_neighbor_iter(&xyz) {
-                    // Ellipsoid metric >= minimum WGS84 curvature radius times
-                    // angular distance >= radius times unit-sphere chord length.
-                    // 6,335,000 m is rounded DOWN from 6,335,439.327 m; the extra
-                    // epsilon also prevents floating-point pruning of exact ties.
-                    let lower = candidate.distance_2(&xyz).sqrt() * 6_335_000.;
-                    if best.is_some_and(|(_, d, _)| lower > d + 1e-6) {
-                        break;
-                    }
-                    pair_budget.consume()?;
-                    let Geometry::Point(b) = &t[candidate.id] else {
-                        unreachable!()
-                    };
-                    let distance = Geodesic.distance(*a, *b);
-                    if best.is_none_or(|(id, d, _)| {
-                        distance < d || (distance == d && candidate.id < id)
-                    }) {
-                        best = Some((candidate.id, distance, true));
-                    }
-                }
-            } else {
-                for (j, b) in t.iter().enumerate() {
-                    pair_budget.consume()?;
-                    let (distance, geodesic) = match (g, b) {
-                        (Geometry::Point(a), Geometry::Point(b)) => {
-                            (Geodesic.distance(*a, *b), true)
-                        }
-                        _ => {
-                            let projection = Projection::from_geometries([g, b].into_iter())?;
-                            (
-                                Euclidean
-                                    .distance(&projection.map(g, false), &projection.map(b, false)),
-                                false,
-                            )
-                        }
-                    };
-                    if best.is_none_or(|(_, d, _)| distance < d) {
-                        best = Some((j, distance, geodesic));
-                    }
-                }
-            }
-            let (index, distance, geodesic) = best.ok_or("目标为空")?;
-            push_bounded(
-                &mut out,
-                &mut output_budget,
-                derived_feature(
-                    &source[i],
-                    None,
-                    properties(
-                        &source[i],
-                        "_zgis_nearest",
-                        json!({"targetIndex":index,"distanceMeters":distance,"geodesic":geodesic,"distanceModel":if geodesic {"WGS84_ellipsoidal_geodesic"} else {"pair_local_equirectangular_approximation"}}),
-                    ),
-                ),
-            )?;
-        }
-        let mut result = collection(out, false);
-        result["analysis"] = json!({"distanceModel":if all_points {"WGS84_ellipsoidal_geodesic"} else {"point_geodesic_other_pair_local_approximation"},"units":"meters","geodesic":all_points,"exactDistanceEvaluations":pair_budget.0});
-        return Ok(result);
-    }
     if operation == Operation::Clip {
         let tp = t.iter().map(polygon).collect::<Result<Vec<_>, _>>()?;
         for (i, g) in s.iter().enumerate() {
@@ -1395,24 +1417,26 @@ fn analyze_registered(
         }
         return Ok(collection(out, false));
     }
+    let source_vertices: Vec<_> = s.iter().map(CoordsIter::coords_count).collect();
+    let target_vertices: Vec<_> = t.iter().map(CoordsIter::coords_count).collect();
     for (i, g) in s.iter().enumerate() {
         crate::checkpoint()?;
         if operation == Operation::SpatialQuery {
-            let candidates = target_index.candidates(source_bounds[i], &mut pair_budget)?;
-            let mut matched = predicate == "disjoint";
-            for j in candidates {
-                relation_work.vertices(g.coords_count().saturating_add(t[j].coords_count()))?;
+            let found = target_index.any_candidate(source_bounds[i], &mut pair_budget, |j| {
+                relation_work.vertices(source_vertices[i].saturating_add(target_vertices[j]))?;
                 let current =
                     bounded_relation(g, &t[j], predicate, source_bounds[i], target_bounds[j]);
-                if predicate == "disjoint" && !current {
-                    matched = false;
-                    break;
-                }
-                if predicate != "disjoint" && current {
-                    matched = true;
-                    break;
-                }
-            }
+                Ok(if predicate == "disjoint" {
+                    !current
+                } else {
+                    current
+                })
+            })?;
+            let matched = if predicate == "disjoint" {
+                !found
+            } else {
+                found
+            };
             if matched {
                 push_bounded(&mut out, &mut output_budget, source[i].clone())?;
             }
@@ -1424,7 +1448,7 @@ fn analyze_registered(
             };
             let mut matches = Vec::new();
             for j in candidates {
-                relation_work.vertices(g.coords_count().saturating_add(t[j].coords_count()))?;
+                relation_work.vertices(source_vertices[i].saturating_add(target_vertices[j]))?;
                 if bounded_relation(g, &t[j], predicate, source_bounds[i], target_bounds[j]) {
                     matches.push(j);
                 }
@@ -1692,7 +1716,7 @@ fn topology(source: &[Value]) -> Result<Value, String> {
                     }
                 }
             }
-            if issues.len() > MAX_FEATURES {
+            if issues.len() > 10_000 {
                 return Err("拓扑问题超过 10000，请缩小输入范围；未返回截断报告".into());
             }
         }
@@ -2283,17 +2307,20 @@ mod tests {
         assert!(analyze(
             "merge",
             &json!({}),
-            &vec![a.clone(); 6000],
-            Some(&vec![a.clone(); 5000])
+            &vec![a.clone(); 60_000],
+            Some(&vec![a.clone(); 50_001])
         )
         .unwrap_err()
-        .contains("10000"));
+        .contains("100000"));
         let mut large = a.clone();
-        large["geometry"] = json!({"type":"MultiPoint","coordinates":vec![json!([0,0]);10001]});
+        large["geometry"] =
+            json!({"type":"MultiPoint","coordinates":vec![json!([0,0]);MAX_FEATURES + 1]});
         for name in ["multipart_to_singleparts", "extract_vertices"] {
-            assert!(analyze(name, &json!({}), std::slice::from_ref(&large), None)
-                .unwrap_err()
-                .contains("10000"));
+            assert!(
+                analyze(name, &json!({}), std::slice::from_ref(&large), None)
+                    .unwrap_err()
+                    .contains("100000")
+            );
         }
         let mut z = a;
         z["geometry"]["coordinates"] = json!([0, 0, 5, 1]);
@@ -2909,6 +2936,103 @@ mod tests {
             .candidates(bounds[0], &mut budget)
             .unwrap_err()
             .contains("候选对"));
+    }
+    #[test]
+    fn existence_query_only_charges_visited_candidates_and_honors_failure() {
+        let bounds = Some(geo::Rect::new((0., 0.), (1., 1.)));
+        let index = SpatialIndex::new(&vec![bounds; 1001]);
+        let mut budget = PairBudget(0);
+        assert!(index
+            .any_candidate(bounds, &mut budget, |_| Ok(true))
+            .unwrap());
+        assert_eq!(budget.0, 1);
+        let error = index.any_candidate(bounds, &mut budget, |_| Err("ANALYSIS_CANCELLED".into()));
+        assert_eq!(error.unwrap_err(), "ANALYSIS_CANCELLED");
+        let mut budget = PairBudget(MAX_PAIRS);
+        let mut called = false;
+        assert!(index
+            .any_candidate(bounds, &mut budget, |_| {
+                called = true;
+                Ok(true)
+            })
+            .is_err());
+        assert!(!called, "超限后不能继续几何计算或交付部分结果");
+    }
+    #[test]
+    fn dense_existence_query_short_circuits_without_changing_source_order() {
+        let source: Vec<_> = (0..1001)
+            .map(|i| {
+                let mut f = point(0., 0.);
+                f["id"] = json!(i);
+                f
+            })
+            .collect();
+        let target = vec![point(0., 0.); 1001];
+        let output = analyze("spatial_query", &json!({}), &source, Some(&target)).unwrap();
+        assert_eq!(output["features"], json!(source));
+        let output = analyze(
+            "spatial_query",
+            &json!({"predicate":"disjoint"}),
+            &source,
+            Some(&target),
+        )
+        .unwrap();
+        assert!(output["features"].as_array().unwrap().is_empty());
+        // touches 无匹配，仍须计入全部候选，不因短路优化放松百万候选上限。
+        assert!(analyze(
+            "spatial_query",
+            &json!({"predicate":"touches"}),
+            &source,
+            Some(&target)
+        )
+        .unwrap_err()
+        .contains("候选对"));
+    }
+    fn large_point_fixture() -> Vec<Value> {
+        (0..MAX_FEATURES).map(|i| {
+            json!({"type":"Feature","id":i,"geometry":{"type":"Point","coordinates":[(i % 1000) as f64 / 100.,(i / 1000) as f64 / 100.]},"properties":{"row":i}})
+        }).collect()
+    }
+    #[test]
+    fn hundred_thousand_points_summary_and_sparse_query_preserve_data() {
+        let source = large_point_fixture();
+        let summary = crate::input::execute("layer_summary", &json!({}), &source, None).unwrap();
+        assert_eq!(summary["featureCount"], MAX_FEATURES);
+        assert_eq!(summary["bbox"], json!([0., 0., 9.99, 0.99]));
+        let output =
+            crate::input::execute("spatial_query", &json!({}), &source, Some(&source)).unwrap();
+        assert_eq!(output["features"], json!(source));
+        let too_many = vec![point(0., 0.); MAX_FEATURES + 1];
+        assert!(
+            crate::input::execute("layer_summary", &json!({}), &too_many, None)
+                .unwrap_err()
+                .contains("100000")
+        );
+    }
+    #[test]
+    #[ignore = "release 大数据基准，排除编译与夹具创建，不代表原生显示或内存峰值"]
+    fn large_point_analysis_performance() {
+        let source = large_point_fixture();
+        for operation in ["layer_summary", "spatial_query"] {
+            let target = (operation == "spatial_query").then_some(source.as_slice());
+            crate::input::execute(operation, &json!({}), &source, target).unwrap();
+            let mut samples = Vec::new();
+            for _ in 0..5 {
+                let start = std::time::Instant::now();
+                let result = crate::input::execute(operation, &json!({}), &source, target).unwrap();
+                samples.push(start.elapsed().as_secs_f64() * 1000.);
+                if operation == "spatial_query" {
+                    assert_eq!(result["features"].as_array().unwrap().len(), MAX_FEATURES);
+                } else {
+                    assert_eq!(result["featureCount"], MAX_FEATURES);
+                }
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "{}",
+                json!({"benchmark":"100000_grid_points","operation":operation,"iterations":5,"medianMs":samples[2],"minMs":samples[0],"maxMs":samples[4],"scope":"input validation, decode, analysis and output validation; excludes fixture, build, IPC, rendering and RSS"})
+            );
+        }
     }
     #[test]
     fn query_rejects_bbox_and_target_instead_of_unioning_them() {

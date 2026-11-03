@@ -70,9 +70,10 @@ async function crash() {
   browser = null;
 }
 const readRecovery = () =>
-  page.evaluate(async () =>
-    JSON.parse(await window.__TAURI_INTERNALS__.invoke("load_recovery")),
-  );
+  page.evaluate(async () => {
+    const raw = await window.__TAURI_INTERNALS__.invoke("load_recovery");
+    return JSON.parse(raw instanceof ArrayBuffer ? new TextDecoder().decode(raw) : raw);
+  });
 async function waitRecovery(predicate) {
   await expect.poll(async () => predicate(await readRecovery())).toBe(true);
   return readRecovery();

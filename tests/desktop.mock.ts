@@ -13,7 +13,7 @@ export interface DesktopTestState {
   mcpSyncError: string;
   mcpActiveLayerId: string | null;
   analysisResults: { id: string; name: string; features: unknown[] }[];
-  calls: { command: string; args: Record<string, unknown> }[];
+  calls: { command: string; args: Record<string, unknown>; resolvedContent?: string }[];
   commitError: string;
   queryError: string;
   databaseSources: DatabaseSource[];
@@ -145,6 +145,9 @@ export async function installDesktopMock(
           state.completedCommands[command] = (state.completedCommands[command] ?? 0) + 1;
         }
       };
+      let recoveryUpload: { id: string; next: number; parts: string[] } | undefined;
+      let fileUpload: { id: string; next: number; parts: string[] } | undefined;
+      let stagedFile: { id: string; content: string } | undefined;
       Object.assign(window, {
         isTauri: true,
         __ZG_TEST__: state,
@@ -166,8 +169,10 @@ export async function installDesktopMock(
           invoke: async (
             command: string,
             args: Record<string, unknown> = {},
+            options?: { headers?: Record<string, string> },
           ) => {
-            state.calls.push({ command, args });
+            const call: DesktopTestState["calls"][number] = { command, args };
+            state.calls.push(call);
             if (command === "gis_cancel_analysis") { if (!state.analysisCancellationAccepted) return false; cancelledJobs.add(String(args.jobId)); return true; }
             if (command === "gis_workspace_sync") {
               if (state.mcpSyncError) throw Error(state.mcpSyncError);
@@ -283,7 +288,32 @@ export async function installDesktopMock(
               ];
             if (command === "save_recovery") {
               if (state.backupError) throw Error(state.backupError);
-              state.snapshot = String(args.content);
+              const content = args instanceof Uint8Array ? new TextDecoder().decode(args) : String(args.content);
+              const headers = options?.headers;
+              if (headers?.["x-zgis-recovery-id"]) {
+                const id = headers["x-zgis-recovery-id"], part = Number(headers["x-zgis-recovery-part"]);
+                if (!part) recoveryUpload = { id, next: 0, parts: [] };
+                if (!recoveryUpload || recoveryUpload.id !== id || recoveryUpload.next !== part) throw Error("恢复传输顺序无效");
+                recoveryUpload.parts.push(content);
+                recoveryUpload.next++;
+                if (headers["x-zgis-recovery-final"] === "true") {
+                  state.snapshot = recoveryUpload.parts.join("");
+                  recoveryUpload = undefined;
+                }
+              } else state.snapshot = content;
+              return null;
+            }
+            if (command === "stage_file_content") {
+              const headers = options!.headers!;
+              const id = headers["x-zgis-output-id"], part = Number(headers["x-zgis-output-part"]);
+              if (!part) { fileUpload = { id, next: 0, parts: [] }; stagedFile = undefined; }
+              if (!fileUpload || fileUpload.id !== id || fileUpload.next !== part) throw Error("文件传输顺序无效");
+              fileUpload.parts.push(new TextDecoder().decode(args as unknown as Uint8Array));
+              fileUpload.next++;
+              if (headers["x-zgis-output-final"] === "true") {
+                stagedFile = { id, content: fileUpload.parts.join("") };
+                fileUpload = undefined;
+              }
               return null;
             }
             if (command === "rename_source_file") {
@@ -303,6 +333,12 @@ export async function installDesktopMock(
               };
             }
             if (command === "save_file" || command === "export_shapefile" || command === "save_shapefile_folder") {
+              if (command === "save_file" && args.transferId) {
+                if (!stagedFile || stagedFile.id !== args.transferId) throw Error("文件传输已失效");
+                args = { ...args, content: stagedFile.content };
+                stagedFile = undefined;
+              }
+              if (command === "save_file") call.resolvedContent = String(args.content);
               if (state.saveError) throw Error(state.saveError);
               if (state.saveCancelled) return null;
               return {

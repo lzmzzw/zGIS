@@ -1,19 +1,40 @@
 import { importFiles, importCsv } from "../domain";
 import Papa from "papaparse";
 import type { ImportOptions, InputFile } from "../domain";
+import { ParserPacketSender, transferParserLayers, type ParserAck } from "./parserTransfer";
+interface ParserRequest {
+  files: InputFile[];
+  options: ImportOptions;
+  perFileOptions?: ImportOptions[];
+  preview?: boolean;
+  sampleLimited?: boolean;
+  byteLimit?: number;
+}
+let sender: ParserPacketSender | undefined;
+let running = false;
+function releaseInputs(files: InputFile[]): void {
+  for (const file of files) file.bytes = new Uint8Array();
+  files.length = 0;
+}
 self.onmessage = async (
-  event: MessageEvent<{
-    files: InputFile[];
-    options: ImportOptions;
-    perFileOptions?: ImportOptions[];
-    preview?: boolean;
-  }>,
+  event: MessageEvent<ParserRequest | ParserAck>,
 ) => {
+  if (event.data && "type" in event.data && event.data.type === "ack") {
+    sender?.acknowledge(event.data.sequence);
+    return;
+  }
+  if (running) {
+    sender?.cancel(new Error("解析 Worker 不接受并发请求"));
+    self.postMessage({ error: "解析 Worker 不接受并发请求" });
+    return;
+  }
+  running = true;
+  const request = event.data as ParserRequest;
   try {
-    if (event.data.preview) {
-      const { files, options } = event.data;
+    if (request.preview) {
+      const { files, options } = request;
       const text = new TextDecoder(options.encoding ?? "utf-8").decode(
-        new Uint8Array(files[0].bytes),
+        files[0].bytes instanceof Uint8Array ? files[0].bytes : new Uint8Array(files[0].bytes),
       );
       const parsed = Papa.parse<Record<string, string>>(text, {
         header: true,
@@ -102,20 +123,23 @@ self.onmessage = async (
           geometryTypes,
           validationError,
           invalidFields,
+          sampleLimited: request.sampleLimited,
         },
       });
       return;
     }
-    self.postMessage({
-      layers: await importFiles(
-        event.data.files,
-        event.data.options,
-        event.data.perFileOptions,
-      ),
-    });
+    sender = new ParserPacketSender((packet) => self.postMessage(packet));
+    const layers = await importFiles(request.files, request.options, request.perFileOptions, request.byteLimit);
+    releaseInputs(request.files);
+    await transferParserLayers(layers, (packet) => sender!.send(packet), (packet) => self.postMessage(packet));
   } catch (error) {
     self.postMessage({
       error: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    releaseInputs(request.files);
+    sender?.cancel(new Error("解析任务已结束"));
+    sender = undefined;
+    running = false;
   }
 };

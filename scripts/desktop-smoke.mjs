@@ -120,7 +120,7 @@ async function editCell(field) {
 await page.getByRole("button", { name: "设置", exact: true }).click();
 await page.getByRole("button", { name: "MCP", exact: true }).click();
 const nativeTools = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("gis_mcp_tool_catalog"));
-assert.equal(nativeTools.length, 31);
+assert.equal(nativeTools.length, 33);
 await page.getByRole("button", { name: /工具详情/ }).click();
 await page.waitForSelector(".mcp-tool-item");
 assert.deepEqual((await page.locator(".mcp-tool-item code").allTextContents()).sort(), nativeTools.map(tool => tool.name).sort());
@@ -248,9 +248,10 @@ if (await page.getByRole("button", { name: "放弃并移除", exact: true }).cou
 await page.waitForFunction(
   () => document.querySelectorAll("tbody tr").length === 0,
 );
-const recovery = await page.evaluate(() =>
-  window.__TAURI_INTERNALS__.invoke("load_recovery"),
-);
+const recovery = await page.evaluate(async () => {
+  const raw = await window.__TAURI_INTERNALS__.invoke("load_recovery");
+  return raw instanceof ArrayBuffer ? new TextDecoder().decode(raw) : raw;
+});
 assert.deepEqual(JSON.parse(recovery).layers, []);
 // Edit an owned SHP fixture and verify the native ZIP through an independent reader.
 const originalGroup = Object.fromEntries(
@@ -370,7 +371,7 @@ for (const engine of ["Mysql", "PostGIS"]) {
   const manager = page.getByRole("region", {name:`${engine} 数据源管理`,exact:true});
   await expect(manager).toBeVisible();
   await expect(manager.locator(".pg-source")).toHaveCount(0);
-  await expect(manager).toContainText(`选择或新增一个${engine} 数据源`);
+  await expect(manager).toContainText(`选择或新增一个 ${engine} 数据源。`);
   await manager.getByRole("button", {name:"新增数据源",exact:true}).click();
   const dialog = page.getByRole("dialog", {name:`新增 ${engine} 数据源`,exact:true});
   await expect(dialog.getByLabel("端口", {exact:true})).toHaveValue(engine === "Mysql" ? "3306" : "5432");

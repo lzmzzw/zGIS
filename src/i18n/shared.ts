@@ -1,5 +1,6 @@
 // Shared UI and analysis catalogue translations. Source phrases remain canonical.
 const messages: Record<string, string> = {
+  "正在搜索…": "Searching…",
   "请先选择图层": "Select a layer first",
   "图层没有要素": "The layer has no features",
   "请先结束编辑": "Finish editing first",

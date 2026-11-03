@@ -17,7 +17,7 @@ export async function layerTreeStyleSmoke(page, restoring = false) {
   await checkbox.check(); await expect(checkbox).toBeChecked();
   await expect(layer.locator(".layer-swatch-point")).toBeVisible();
   await page.getByRole("button", { name: `${sourceName}样式`, exact: true }).click();
-  await page.getByLabel(`${sourceName}颜色`, { exact: true }).fill("#cc7733");
+  await page.getByRole("complementary", { name: "图层检查器", exact: true }).getByLabel("颜色", { exact: true }).fill("#cc7733");
   await page.getByRole("button", { name: "应用样式", exact: true }).click();
   await layer.click({ button: "right" });
   await page.getByRole("menuitem", { name: "设置别名", exact: true }).click();

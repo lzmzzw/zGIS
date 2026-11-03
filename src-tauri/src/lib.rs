@@ -28,6 +28,9 @@ mod app_update;
 mod postgis_catalog;
 mod mysql_catalog;
 mod database_passwords;
+mod recovery_upload;
+mod staged_file;
+mod file_content_upload;
 mod locale;
 #[cfg(any(target_os = "macos", test))]
 mod macos_security;
@@ -156,7 +159,7 @@ fn write_shapefile_group(directory: &Path, stem: &str, components: &[(&str, Vec<
     Ok(directory.join(format!("{stem}.shp")))
 }
 
-const MAX_FILE: u64 = 100 * 1024 * 1024;
+const MAX_FILE: u64 = 256 * 1024 * 1024;
 #[derive(Default)]
 pub struct Backend {
     files: Arc<Mutex<HashMap<String, FileHandle>>>,
@@ -192,6 +195,7 @@ impl<T> ConnectionRegistry<T> {
         self.entries.lock().await.remove(id)
     }
 }
+#[derive(Clone)]
 struct FileHandle {
     path: PathBuf,
     hash: Vec<u8>,
@@ -203,7 +207,22 @@ fn fingerprint(path: &Path) -> Result<Vec<u8>, String> {
     if path.extension().is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("shp")) {
         return shapefile_save::group_fingerprint(path);
     }
-    Ok(Sha256::digest(fs::read(path).map_err(|e| e.to_string())?).to_vec())
+    file_fingerprint(path)
+}
+fn file_fingerprint(path: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut file = fs::File::open(path).map_err(io_error)?.take(MAX_FILE + 1);
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut size = 0u64;
+    loop {
+        let read = file.read(&mut buffer).map_err(io_error)?;
+        if read == 0 { break; }
+        size += read as u64;
+        if size > MAX_FILE { return Err("文件超过 256 MiB".into()); }
+        hash.update(&buffer[..read]);
+    }
+    Ok(hash.finalize().to_vec())
 }
 fn ident(s: &str) -> Result<String, String> {
     if s.is_empty() || s.contains('\0') {
@@ -248,7 +267,7 @@ fn append_database_feature(features: &mut Vec<Value>, feature: Value, bytes: &mu
 #[serde(rename_all = "camelCase")]
 struct OpenFile {
     name: String,
-    bytes: Vec<u8>,
+    size: u64,
     source_id: String,
     source_path: String,
     source_hash: String,
@@ -259,6 +278,27 @@ async fn open_files(state: State<'_, Backend>) -> Result<Vec<OpenFile>, String> 
     tauri::async_runtime::spawn_blocking(move || open_files_blocking(&files))
         .await
         .map_err(io_error)?
+}
+#[tauri::command]
+async fn read_open_file(state: State<'_, Backend>, source_id: String) -> Result<tauri::ipc::Response, String> {
+    let handle = state.files.lock().map_err(io_error)?.get(&source_id).cloned()
+        .ok_or("文件来源已失效，请重新打开")?;
+    tauri::async_runtime::spawn_blocking(move || read_open_file_bytes(&handle).map(tauri::ipc::Response::new))
+        .await.map_err(io_error)?
+}
+fn read_open_file_bytes(handle: &FileHandle) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let size = fs::metadata(&handle.path).map_err(io_error)?.len();
+    if size > MAX_FILE { return Err("文件超过 256 MiB".into()); }
+    let mut bytes = Vec::with_capacity(size as usize);
+    fs::File::open(&handle.path).map_err(io_error)?.take(MAX_FILE + 1)
+        .read_to_end(&mut bytes).map_err(io_error)?;
+    if bytes.len() as u64 != size { return Err("读取时文件发生变化，请重试".into()); }
+    let hash = if handle.path.extension().is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case("shp")) {
+        fingerprint(&handle.path)?
+    } else { Sha256::digest(&bytes).to_vec() };
+    if hash != handle.hash { return Err("读取时文件发生变化，请重试".into()); }
+    Ok(bytes)
 }
 fn shapefile_group(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, String> {
     let mut result = paths.clone();
@@ -329,21 +369,18 @@ fn read_selected_files(
         let size = fs::metadata(&path).map_err(io_error)?.len();
         total = total.checked_add(size).ok_or("文件过大")?;
         if size > MAX_FILE || total > MAX_FILE {
-            return Err("单次导入文件总大小不能超过 100 MB".into());
+            return Err("单次导入文件总大小不能超过 256 MiB".into());
         }
-        let bytes = fs::read(&path).map_err(io_error)?;
-        if bytes.len() as u64 > MAX_FILE || bytes.len() as u64 > size {
+        let hash = fingerprint(&path)?;
+        if fs::metadata(&path).map_err(io_error)?.len() != size {
             return Err("读取时文件发生变化，请重试".into());
         }
         let id = uuid::Uuid::new_v4().to_string();
-        let hash = if path.extension().is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("shp")) {
-            fingerprint(&path)?
-        } else { Sha256::digest(&bytes).to_vec() };
         let source_hash = hash_text(&hash);
         pending.push((id.clone(), FileHandle { path: path.clone(), hash }));
         out.push(OpenFile {
             name: path.file_name().unwrap_or_default().to_string_lossy().into(),
-            bytes,
+            size,
             source_id: id,
             source_path: path.to_string_lossy().into_owned(),
             source_hash,
@@ -486,9 +523,7 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
         file.write_all(content).map_err(io_error)?;
         file.sync_all().map_err(io_error)?;
         drop(file);
-        if fs::read(&temp).map_err(io_error)? != content {
-            return Err("写入核验失败".into());
-        }
+        verify_file_content(&temp, content)?;
         replace_file(&temp, path)?;
         Ok(())
     })();
@@ -513,14 +548,30 @@ fn atomic_write_new(path: &Path, content: &[u8]) -> Result<(), String> {
         file.write_all(content).map_err(io_error)?;
         file.sync_all().map_err(io_error)?;
         drop(file);
-        if fs::read(&temp).map_err(io_error)? != content {
-            return Err("写入核验失败".into());
-        }
+        verify_file_content(&temp, content)?;
         publish_new(&temp, path)?;
         Ok(())
     })();
     let _ = fs::remove_file(&temp);
     result
+}
+fn verify_file_content(path: &Path, content: &[u8]) -> Result<(), String> {
+    use std::io::Read;
+    let mut file = fs::File::open(path).map_err(io_error)?;
+    if file.metadata().map_err(io_error)?.len() != content.len() as u64 {
+        return Err("写入核验失败".into());
+    }
+    let mut buffer = [0u8; 64 * 1024];
+    for expected in content.chunks(buffer.len()) {
+        file.read_exact(&mut buffer[..expected.len()]).map_err(io_error)?;
+        if &buffer[..expected.len()] != expected {
+            return Err("写入核验失败".into());
+        }
+    }
+    if file.read(&mut buffer[..1]).map_err(io_error)? != 0 {
+        return Err("写入核验失败".into());
+    }
+    Ok(())
 }
 fn publish_new(temp: &Path, path: &Path) -> Result<(), String> {
     #[cfg(windows)]
@@ -577,20 +628,44 @@ fn replace_file(temp: &Path, path: &Path) -> Result<(), String> {
 }
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // 保持现有 Tauri IPC 的独立参数与恢复来源兼容。
-fn save_file(
-    state: State<Backend>,
+async fn save_file(
+    state: State<'_, Backend>,
     source_id: Option<String>,
     source_path: Option<String>,
     source_hash: Option<String>,
     suggested_name: String,
-    content: String,
+    content: Option<String>,
+    transfer_id: Option<String>,
     overwrite: bool,
     preserve_extension: Option<String>,
 ) -> Result<Option<SavedFile>, String> {
-    if content.len() as u64 > MAX_FILE {
-        return Err("输出超过 100 MB".into());
+    let content = match (content, transfer_id) {
+        (Some(content), None) => staged_file::FileSaveContent::Inline(content),
+        (None, Some(id)) => staged_file::FileSaveContent::Staged(file_content_upload::take(&id).await?),
+        _ => return Err("保存正文与传输标识必须二选一".into()),
+    };
+    if content.len() > MAX_FILE {
+        return Err("输出超过 256 MiB".into());
     }
-    let mut handles = state.files.lock().map_err(io_error)?;
+    let files = state.files.clone();
+    tauri::async_runtime::spawn_blocking(move || save_file_blocking(
+        &files, source_id, source_path, source_hash, suggested_name, content,
+        overwrite, preserve_extension,
+    )).await.map_err(|_| "文件保存失败".to_string())?
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_file_blocking(
+    files: &Mutex<HashMap<String, FileHandle>>,
+    source_id: Option<String>,
+    source_path: Option<String>,
+    source_hash: Option<String>,
+    suggested_name: String,
+    mut content: staged_file::FileSaveContent,
+    overwrite: bool,
+    preserve_extension: Option<String>,
+) -> Result<Option<SavedFile>, String> {
+    let mut handles = files.lock().map_err(io_error)?;
     let path = if overwrite {
         let (path, expected_hash) = if let Some(handle) = handles.get(source_id.as_deref().unwrap_or("")) {
             (handle.path.clone(), hash_text(&handle.hash))
@@ -630,19 +705,20 @@ fn save_file(
         if overwrite || !["csv", "geojson", "json"].contains(&expected.as_str()) || extension != expected {
             return Err("另存为必须保留原文件扩展名，请通过导出为转换格式".into());
         }
-        atomic_write_new(&path, content.as_bytes())?;
+        content.publish(&path, true)?;
     } else {
-        atomic_write(&path, content.as_bytes())?;
+        content.publish(&path, false)?;
     }
     let id = source_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let hash = fingerprint(&path)?;
+    let current_hash = hash_text(&hash);
     handles.insert(
         id.clone(),
         FileHandle {
             path: path.clone(),
-            hash: fingerprint(&path)?,
+            hash,
         },
     );
-    let current_hash = hash_text(&fingerprint(&path)?);
     Ok(Some(SavedFile {
         source_id: id,
         name: path
@@ -655,33 +731,131 @@ fn save_file(
     }))
 }
 #[tauri::command]
-async fn save_recovery(app: tauri::AppHandle, content: String) -> Result<(), String> {
-    if content.len() as u64 > MAX_FILE { return Err("恢复数据过大".into()); }
-    // 在接收次序中取得串行锁；避免较早的大备份晚于新版本落盘。
-    static SERIAL: std::sync::OnceLock<std::sync::Arc<tokio::sync::Mutex<()>>> = std::sync::OnceLock::new();
-    let guard = SERIAL.get_or_init(|| std::sync::Arc::new(tokio::sync::Mutex::new(()))).clone().lock_owned().await;
-    let dir = app.path().app_local_data_dir().map_err(io_error)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let _guard = guard;
-        let _: serde::de::IgnoredAny = serde_json::from_str(&content).map_err(io_error)?;
-        fs::create_dir_all(&dir).map_err(io_error)?;
-        atomic_write(&dir.join("recovery.json"), content.as_bytes())
-    }).await.map_err(|_| "恢复数据保存失败".to_string())?
+async fn stage_file_content(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    file_content_upload::stage(request).await
 }
 #[tauri::command]
-fn load_recovery(app: tauri::AppHandle) -> Result<Option<String>, String> {
+async fn save_recovery(app: tauri::AppHandle, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let packet = recovery_upload::parse_headers(request.headers()).and_then(|part| {
+        let limit = if part.is_some() { recovery_upload::MAX_CHUNK_BYTES } else { MAX_FILE as usize };
+        recovery_request_bytes(request.body(), limit).map(|bytes| (part, bytes))
+    });
+    let state = recovery_upload_state();
+    // 同一锁覆盖分片接收和最终发布；部分接收绝不触及正式恢复文件。
+    let mut guard = state.upload.clone().lock_owned().await;
+    let dir = match app.path().app_local_data_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            guard.clear();
+            state.wake.notify_one();
+            return Err(io_error(error));
+        }
+    };
+    let wake = state.wake.clone();
+    let result = match tauri::async_runtime::spawn_blocking(move || {
+        let result = save_recovery_packet(&mut guard, packet, &dir, std::time::Instant::now());
+        // 即使前端已断开或不再等待响应，清理任务仍能观察到已接收的分片。
+        wake.notify_one();
+        result
+    }).await {
+        Ok(result) => result,
+        Err(_) => {
+            state.upload.lock().await.clear();
+            state.wake.notify_one();
+            Err("恢复数据保存失败".into())
+        }
+    };
+    result
+}
+
+struct RecoveryUploadState {
+    upload: Arc<AsyncMutex<recovery_upload::RecoveryUpload>>,
+    wake: Arc<tokio::sync::Notify>,
+}
+
+fn recovery_upload_state() -> &'static RecoveryUploadState {
+    static STATE: std::sync::OnceLock<RecoveryUploadState> = std::sync::OnceLock::new();
+    STATE.get_or_init(|| {
+        let upload = Arc::new(AsyncMutex::new(recovery_upload::RecoveryUpload::new(MAX_FILE as usize)));
+        let wake = Arc::new(tokio::sync::Notify::new());
+        let cleaner_upload = upload.clone();
+        let cleaner_wake = wake.clone();
+        // 单个清理任务，成功分片会刷新空闲期限；不为每个分片创建定时任务。
+        tauri::async_runtime::spawn(async move {
+            loop {
+                let notified = cleaner_wake.notified();
+                let delay = cleaner_upload.lock().await.expiration_delay(std::time::Instant::now());
+                if let Some(delay) = delay {
+                    let _ = tokio::time::timeout(delay, notified).await;
+                } else {
+                    notified.await;
+                }
+            }
+        });
+        RecoveryUploadState { upload, wake }
+    })
+}
+
+type RecoveryPacket = Result<(Option<recovery_upload::RecoveryPart>, Vec<u8>), String>;
+
+fn save_recovery_packet(
+    upload: &mut recovery_upload::RecoveryUpload,
+    packet: RecoveryPacket,
+    dir: &Path,
+    now: std::time::Instant,
+) -> Result<(), String> {
+    let (part, bytes) = match packet {
+        Ok(packet) => packet,
+        Err(error) => {
+            upload.clear();
+            return Err(error);
+        }
+    };
+    if let Some(mut content) = upload.accept(part, bytes, now)? {
+        fs::create_dir_all(dir).map_err(io_error)?;
+        content.publish(&dir.join("recovery.json"), false)?;
+    }
+    Ok(())
+}
+#[tauri::command]
+async fn load_recovery(app: tauri::AppHandle) -> Result<tauri::ipc::Response, String> {
     let path = app
         .path()
         .app_local_data_dir()
         .map_err(io_error)?
         .join("recovery.json");
-    if !path.exists() {
-        return Ok(None);
+    tauri::async_runtime::spawn_blocking(move || read_recovery_bytes(&path).map(tauri::ipc::Response::new))
+        .await.map_err(|_| "恢复数据读取失败".to_string())?
+}
+fn recovery_request_bytes(body: &tauri::ipc::InvokeBody, limit: usize) -> Result<Vec<u8>, String> {
+    if let tauri::ipc::InvokeBody::Json(Value::Array(values)) = body {
+        // Tauri 的 postMessage 降级传输将 Raw 请求转为字节数组。
+        if values.len() > limit { return Err("恢复数据过大".into()); }
+        return values.iter().map(|value| value.as_u64().filter(|n| *n <= 255)
+            .map(|n| n as u8).ok_or_else(|| "恢复数据结构无效".to_string())).collect();
     }
-    if fs::metadata(&path).map_err(io_error)?.len() > MAX_FILE {
-        return Err("恢复数据过大".into());
-    }
-    Ok(Some(fs::read_to_string(path).map_err(io_error)?))
+    let bytes = match body {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
+        // 保留旧原生测试及同版本内部调用的 JSON 参数兼容。
+        tauri::ipc::InvokeBody::Json(value) => value.get("content").and_then(Value::as_str)
+            .ok_or("恢复数据结构无效")?.as_bytes(),
+    };
+    if bytes.len() > limit { return Err("恢复数据过大".into()); }
+    Ok(bytes.to_vec())
+}
+fn read_recovery_bytes(path: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(io_error(error)),
+    };
+    if file.metadata().map_err(io_error)?.len() > MAX_FILE { return Err("恢复数据过大".into()); }
+    let mut bytes = Vec::new();
+    file.take(MAX_FILE + 1).read_to_end(&mut bytes).map_err(io_error)?;
+    if bytes.len() as u64 > MAX_FILE { return Err("恢复数据过大".into()); }
+    std::str::from_utf8(&bytes).map_err(|_| "恢复数据编码无效".to_string())?;
+    Ok(bytes)
 }
 
 #[derive(Deserialize)]
@@ -776,7 +950,18 @@ struct Layer {
     columns: Vec<Column>,
 }
 async fn discover(client: &Client) -> Result<Vec<Layer>, String> {
-    let rows=client.query("SELECT table_schema,table_name,column_name,data_type,is_nullable,(is_identity='YES' OR is_generated<>'NEVER'),(column_default IS NOT NULL) FROM information_schema.columns WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY ordinal_position",&[]).await.map_err(io_error)?;
+    discover_scoped(client, None).await
+}
+fn scoped_metadata_sql(base: &str, schema_column: &str, table_column: &str, targeted: bool, order: &str) -> String {
+    let filter = if targeted { format!(" AND {schema_column}=$1 AND {table_column}=$2") } else { String::new() };
+    format!("{base}{filter}{order} LIMIT 100001")
+}
+async fn discover_scoped(client: &Client, target: Option<(&str, &str)>) -> Result<Vec<Layer>, String> {
+    let (schema, table) = target.unwrap_or(("", ""));
+    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = if target.is_some() { vec![&schema, &table] } else { vec![] };
+    let sql = scoped_metadata_sql("SELECT table_schema,table_name,column_name,data_type,is_nullable,(is_identity='YES' OR is_generated<>'NEVER'),(column_default IS NOT NULL) FROM information_schema.columns WHERE table_schema NOT IN ('pg_catalog','information_schema')", "table_schema", "table_name", target.is_some(), " ORDER BY ordinal_position");
+    let rows = client.query(&sql, &params).await.map_err(io_error)?;
+    if rows.len() > 100000 { return Err("目录过大，请使用权限限制需要浏览的表".into()); }
     let mut tables: HashMap<(String, String), Vec<Column>> = HashMap::new();
     for r in rows {
         tables
@@ -790,7 +975,9 @@ async fn discover(client: &Client) -> Result<Vec<Layer>, String> {
                 has_default: r.get(6),
             });
     }
-    let keys=client.query("SELECT tc.table_schema,tc.table_name,kcu.column_name FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu ON tc.constraint_name=kcu.constraint_name AND tc.table_schema=kcu.table_schema AND tc.table_name=kcu.table_name WHERE tc.constraint_type='PRIMARY KEY' ORDER BY kcu.ordinal_position",&[]).await.map_err(io_error)?;
+    let sql = scoped_metadata_sql("SELECT tc.table_schema,tc.table_name,kcu.column_name FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu ON tc.constraint_name=kcu.constraint_name AND tc.table_schema=kcu.table_schema AND tc.table_name=kcu.table_name WHERE tc.constraint_type='PRIMARY KEY'", "tc.table_schema", "tc.table_name", target.is_some(), " ORDER BY kcu.ordinal_position");
+    let keys = client.query(&sql, &params).await.map_err(io_error)?;
+    if keys.len() > 100000 { return Err("主键目录超过浏览上限".into()); }
     let mut keymap: HashMap<(String, String), Vec<String>> = HashMap::new();
     for r in keys {
         keymap
@@ -798,13 +985,12 @@ async fn discover(client: &Client) -> Result<Vec<Layer>, String> {
             .or_default()
             .push(r.get(2));
     }
+    let sql = scoped_metadata_sql("SELECT f_table_schema,f_table_name,f_geometry_column,srid FROM geometry_columns WHERE true", "f_table_schema", "f_table_name", target.is_some(), "");
     let geom = client
-        .query(
-            "SELECT f_table_schema,f_table_name,f_geometry_column,srid FROM geometry_columns",
-            &[],
-        )
+        .query(&sql, &params)
         .await
         .map_err(|_| "PostGIS geometry_columns 不可读取，请确认扩展和权限".to_string())?;
+    if geom.len() > 100000 { return Err("目录过大，请使用权限限制需要浏览的表".into()); }
     let mut out = Vec::new();
     for r in geom {
         let schema: String = r.get(0);
@@ -854,7 +1040,7 @@ async fn discover_layers(
     discover(connection.as_mut().ok_or("连接已失效")?).await
 }
 async fn validated(client: &Client, requested: &Layer) -> Result<Layer, String> {
-    let mut layer = discover(client)
+    let mut layer = discover_scoped(client, Some((&requested.schema, &requested.table)))
         .await?
         .into_iter()
         .find(|l| {
@@ -915,49 +1101,52 @@ async fn query_layer(
     limit: i64,
     bbox: Option<Vec<f64>>,
 ) -> Result<Value, String> {
+    if !(1..=100000).contains(&limit) {
+        return Err("加载条数必须为1至100000".into());
+    }
     let mut connection = state.databases.acquire(&connection_id).await?;
     let client = connection.as_mut().ok_or("连接已失效")?;
-    let layer = validated(
-        client,
-        &Layer {
-            schema,
-            table,
-            geometry_column,
-            geometry_kind,
-            srid: srid.unwrap_or(4326),
-            key_columns: vec![],
-            columns: vec![],
-        },
-    )
-    .await?;
-    let count = limit.clamp(1, 100000);
-    let geom = geometry_expr(&layer)?;
-    let bbox = validate_bbox(bbox)?;
-    let filter = if bbox.is_some() && layer.geometry_kind == "geometry" {
-        if layer.srid == 0 {
-            format!(" WHERE ST_Transform(({geom}),4326) && ST_MakeEnvelope($2,$3,$4,$5,4326)")
+    let result = tokio::time::timeout(Duration::from_secs(30), async {
+        let layer = validated(
+            client,
+            &Layer {
+                schema,
+                table,
+                geometry_column,
+                geometry_kind,
+                srid: srid.unwrap_or(4326),
+                key_columns: vec![],
+                columns: vec![],
+            },
+        )
+        .await?;
+        let count = limit;
+        let geom = geometry_expr(&layer)?;
+        let bbox = validate_bbox(bbox)?;
+        let filter = if bbox.is_some() && layer.geometry_kind == "geometry" {
+            if layer.srid == 0 {
+                format!(" WHERE ST_Transform(({geom}),4326) && ST_MakeEnvelope($2,$3,$4,$5,4326)")
+            } else {
+                format!(" WHERE {geom} && ST_Transform(ST_MakeEnvelope($2,$3,$4,$5,4326),{})", layer.srid)
+            }
         } else {
-            format!(" WHERE {geom} && ST_Transform(ST_MakeEnvelope($2,$3,$4,$5,4326),{})", layer.srid)
-        }
-    } else {
-        String::new()
-    };
-    let ordering = order_by(&layer)?;
-    let sql = format!(
-        "SELECT {}, ST_AsGeoJSON(ST_Transform(({geom}),4326))::jsonb FROM {}{filter}{ordering} LIMIT $1",
-        record_expr(&layer)?,
-        table_sql(&layer.schema, &layer.table)?
-    );
-    let take = count + 1;
-    let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = vec![&take];
-    if layer.geometry_kind == "geometry" {
-        if let Some(b) = &bbox {
-            for n in b {
-                params.push(n);
+            String::new()
+        };
+        let ordering = order_by(&layer)?;
+        let sql = format!(
+            "SELECT {}, ST_AsGeoJSON(ST_Transform(({geom}),4326))::jsonb FROM {}{filter}{ordering} LIMIT $1",
+            record_expr(&layer)?,
+            table_sql(&layer.schema, &layer.table)?
+        );
+        let take = count + 1;
+        let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = vec![&take];
+        if layer.geometry_kind == "geometry" {
+            if let Some(b) = &bbox {
+                for n in b {
+                    params.push(n);
+                }
             }
         }
-    }
-    tokio::time::timeout(Duration::from_secs(30), async {
         let rows = client.query_raw(&sql, params.iter().copied()).await
             .map_err(|_| "读取失败，请检查 WKT、SRID 和几何类型")?;
         tokio::pin!(rows);
@@ -979,10 +1168,20 @@ async fn query_layer(
             let geometry: Option<Value> = row.try_get(1).map_err(|_| "几何数据读取失败")?;
             let feature = json!({"id":id,"geometry":geometry,"properties":properties,"dbKey":key,"baseline":baseline});
             append_database_feature(&mut features, feature, &mut bytes)?;
+            if features.len() % 256 == 0 { tokio::task::yield_now().await; }
         }
-        Ok(json!({"features":features,"srid":effective_srid(&layer),"truncated":truncated}))
-    }).await.map_err(|_| "查询超时，请缩小数据范围")?
-
+        let mut result = json!({"srid":effective_srid(&layer),"truncated":truncated});
+        result["features"] = Value::Array(features);
+        Ok(result)
+    }).await;
+    match result {
+        Ok(result) => result,
+        Err(_) => {
+            connection.take();
+            state.databases.remove(&connection_id).await;
+            Err("空间加载超时，连接已断开".into())
+        }
+    }
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1178,7 +1377,7 @@ async fn commit_changes(
     let client = connection.as_mut().ok_or("连接已失效")?;
     let original_layer = validated(client, &layer).await?;
     let schema_changes = schema_changes.unwrap_or_default();
-    let geometry_columns = if schema_changes.is_empty() { vec![] } else { discover(client).await?.into_iter().filter(|other| other.schema == original_layer.schema && other.table == original_layer.table && other.geometry_kind == "geometry").map(|other| other.geometry_column).collect() };
+    let geometry_columns = if schema_changes.is_empty() { vec![] } else { discover_scoped(client, Some((&original_layer.schema, &original_layer.table))).await?.into_iter().filter(|other| other.geometry_kind == "geometry").map(|other| other.geometry_column).collect() };
     let (layer, schema_statements) = schema_change_plan(&original_layer, &schema_changes, &geometry_columns)?;
     let target = table_sql(&layer.schema, &layer.table)?;
     let where_clause = key_where(&layer)?;
@@ -1459,7 +1658,9 @@ pub fn run() {
             save_shapefile_folder,
             save_shapefile_source,
             open_files,
+            read_open_file,
             save_file,
+            stage_file_content,
             rename_source_file,
             save_recovery,
             load_recovery,
@@ -1513,6 +1714,17 @@ pub fn run() {
 mod tests {
     use super::{ConnectionRegistry, Duration, bounded_json_size, append_database_feature};
     use std::future::Future;
+    #[test]
+    fn selected_postgres_metadata_uses_bound_schema_table_without_changing_discovery() {
+        let base = "SELECT column_name FROM information_schema.columns WHERE table_schema NOT IN ('pg_catalog','information_schema')";
+        let selected = super::scoped_metadata_sql(base, "table_schema", "table_name", true, " ORDER BY ordinal_position");
+        assert!(selected.contains("AND table_schema=$1 AND table_name=$2 ORDER BY ordinal_position"));
+        assert!(selected.ends_with("LIMIT 100001"));
+        let global = super::scoped_metadata_sql(base, "table_schema", "table_name", false, " ORDER BY ordinal_position");
+        assert!(!global.contains('$'));
+        assert!(global.contains("NOT IN ('pg_catalog','information_schema')"));
+        assert!(global.ends_with("ORDER BY ordinal_position LIMIT 100001"));
+    }
     #[test]
     fn database_output_budget_counts_complete_baseline_utf8_and_json_escaping() {
         let baseline = serde_json::json!({"id":1,"名称":"中文 🎯\n\"","nested":{"items":["full","text"]}});
@@ -1719,6 +1931,76 @@ mod tests {
         let registered = handles.lock().unwrap();
         assert_eq!(registered[&opened[0].source_id].path, fs::canonicalize(path).unwrap());
         assert_eq!(registered[&opened[0].source_id].hash, Sha256::digest(b"{}").to_vec());
+        assert_eq!(opened[0].size, 2);
+        assert!(serde_json::to_value(&opened[0]).unwrap().get("bytes").is_none());
+        assert_eq!(read_open_file_bytes(&registered[&opened[0].source_id]).unwrap(), b"{}");
+    }
+    #[test]
+    fn binary_read_rejects_changed_and_oversized_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("changed.geojson");
+        fs::write(&path, b"old").unwrap();
+        let handle = FileHandle { path: path.clone(), hash: fingerprint(&path).unwrap() };
+        fs::write(&path, b"new").unwrap();
+        assert!(read_open_file_bytes(&handle).unwrap_err().contains("发生变化"));
+        fs::File::create(&path).unwrap().set_len(MAX_FILE + 1).unwrap();
+        assert!(read_open_file_bytes(&handle).unwrap_err().contains("256 MiB"));
+        let handles = Mutex::new(HashMap::new());
+        assert!(read_selected_files(vec![path], &handles).is_err());
+        assert!(handles.lock().unwrap().is_empty());
+    }
+    #[test]
+    fn recovery_binary_transport_preserves_bytes_and_read_bounds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recovery.json");
+        assert!(read_recovery_bytes(&path).unwrap().is_empty());
+        let content = r#"{"note":"中文\\\"","layers":[]}"#.as_bytes();
+        fs::write(&path, content).unwrap();
+        assert_eq!(read_recovery_bytes(&path).unwrap(), content);
+        assert_eq!(recovery_request_bytes(&tauri::ipc::InvokeBody::Raw(content.to_vec()), MAX_FILE as usize).unwrap(), content);
+        assert_eq!(recovery_request_bytes(&tauri::ipc::InvokeBody::Json(json!(content)), MAX_FILE as usize).unwrap(), content);
+        assert!(recovery_request_bytes(&tauri::ipc::InvokeBody::Json(json!([256])), MAX_FILE as usize).is_err());
+        assert!(recovery_request_bytes(&tauri::ipc::InvokeBody::Json(json!([1.5])), MAX_FILE as usize).is_err());
+        assert_eq!(recovery_request_bytes(&tauri::ipc::InvokeBody::Json(json!({"content": std::str::from_utf8(content).unwrap()})), MAX_FILE as usize).unwrap(), content);
+        assert!(recovery_request_bytes(&tauri::ipc::InvokeBody::Json(json!({"content": 1})), MAX_FILE as usize).is_err());
+        assert!(recovery_request_bytes(&tauri::ipc::InvokeBody::Raw(content.to_vec()), content.len() - 1).is_err());
+        assert!(recovery_request_bytes(&tauri::ipc::InvokeBody::Json(json!(content)), content.len() - 1).is_err());
+        fs::write(&path, [0xff]).unwrap();
+        assert!(read_recovery_bytes(&path).unwrap_err().contains("编码"));
+        fs::File::create(&path).unwrap().set_len(MAX_FILE + 1).unwrap();
+        assert!(read_recovery_bytes(&path).unwrap_err().contains("过大"));
+    }
+    #[test]
+    fn recovery_split_packets_only_publish_a_complete_valid_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recovery.json");
+        let original = b"{\"version\":1}";
+        atomic_write(&path, original).unwrap();
+        let now = std::time::Instant::now();
+        let mut upload = recovery_upload::RecoveryUpload::new(MAX_FILE as usize);
+        let packet = |index: usize, final_part: bool, bytes: &[u8]| {
+            let mut headers = tauri::http::HeaderMap::new();
+            headers.insert("x-zgis-recovery-id", "56be7bdd-0f21-4ec3-b9ee-482ec27f6242".parse().unwrap());
+            headers.insert("x-zgis-recovery-part", index.to_string().parse().unwrap());
+            headers.insert("x-zgis-recovery-final", final_part.to_string().parse().unwrap());
+            recovery_upload::parse_headers(&headers).map(|part| (part, bytes.to_vec()))
+        };
+        save_recovery_packet(&mut upload, packet(0, false, b"["), dir.path(), now).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), original);
+        assert!(save_recovery_packet(&mut upload, packet(1, true, b"}"), dir.path(), now).is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
+        save_recovery_packet(&mut upload, packet(0, false, b"["), dir.path(), now).unwrap();
+        assert!(save_recovery_packet(&mut upload, Err("invalid header".into()), dir.path(), now).is_err());
+        assert!(save_recovery_packet(&mut upload, packet(1, true, b"]"), dir.path(), now).is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
+        let snapshot = "{\"note\":\"中文\"}".as_bytes();
+        save_recovery_packet(&mut upload, packet(0, false, &snapshot[..10]), dir.path(), now).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), original);
+        save_recovery_packet(&mut upload, packet(1, true, &snapshot[10..]), dir.path(), now).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), snapshot);
+        let untouched = dir.path().join("no-partial-files");
+        save_recovery_packet(&mut upload, packet(0, false, b"["), &untouched, now).unwrap();
+        assert!(!untouched.exists());
     }
     #[test]
     fn selected_files_failure_does_not_register_partial_batch() {
@@ -1809,6 +2091,55 @@ mod tests {
         atomic_write(&path, b"new").unwrap();
         assert_ne!(first, fingerprint(&path).unwrap());
         assert_eq!(fs::read(path).unwrap(), b"new");
+    }
+    #[test]
+    fn streaming_write_verification_checks_every_block_and_length() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("verify.csv");
+        let content = vec![b'a'; 2 * 64 * 1024 + 37];
+        atomic_write(&path, &content).unwrap();
+        verify_file_content(&path, &content).unwrap();
+        let mut changed = content.clone();
+        changed[64 * 1024 + 1] = b'b';
+        assert!(verify_file_content(&path, &changed).is_err());
+        assert!(verify_file_content(&path, &content[..content.len() - 1]).is_err());
+        changed.push(b'c');
+        assert!(verify_file_content(&path, &changed).is_err());
+        atomic_write(&path, b"").unwrap();
+        verify_file_content(&path, b"").unwrap();
+    }
+    #[test]
+    fn text_save_keeps_source_conflicts_and_final_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("source.csv");
+        fs::write(&path, b"old").unwrap();
+        let files = Mutex::new(HashMap::from([("source".to_string(), FileHandle {
+            path: path.clone(), hash: fingerprint(&path).unwrap(),
+        })]));
+        fs::write(&path, b"external").unwrap();
+        let save = |content: &str, preserve| save_file_blocking(
+            &files, Some("source".into()), None, None, "source.csv".into(), content.to_string().into(), true, preserve,
+        );
+        assert!(save("new", None).err().unwrap().contains("外部修改"));
+        assert_eq!(fs::read(&path).unwrap(), b"external");
+        files.lock().unwrap().get_mut("source").unwrap().hash = fingerprint(&path).unwrap();
+        assert!(save("new", Some("csv".into())).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"external");
+        let result = save("new", None).unwrap().unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+        let actual = fingerprint(&path).unwrap();
+        assert_eq!(result.source_hash, hash_text(&actual));
+        assert_eq!(files.lock().unwrap().get("source").unwrap().hash, actual);
+        let mut staged = staged_file::StagedFile::new().unwrap();
+        staged.append(&[b'x'; 64 * 1024]).unwrap();
+        staged.append("中文😀".as_bytes()).unwrap();
+        staged.finish(false).unwrap();
+        let saved = save_file_blocking(
+            &files, Some("source".into()), None, None, "source.csv".into(),
+            staged_file::FileSaveContent::Staged(staged), true, None,
+        ).unwrap().unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().len(), 64 * 1024 + 10);
+        assert_eq!(saved.source_hash, hash_text(&fingerprint(&path).unwrap()));
     }
     #[test]
     fn shp_folder_roundtrip_has_five_files_without_zip() {

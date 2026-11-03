@@ -205,7 +205,7 @@ fn attribute_only_logic_cannot_bypass_geometry_structure_size_or_cancellation() 
     let mut invalid = good.clone();
     invalid["type"] = json!("Point");
     assert!(extract(&[invalid], condition.clone()).is_err());
-    assert!(extract(&vec![good.clone(); 10001], condition.clone()).is_err());
+    assert!(extract(&vec![good.clone(); 100001], condition.clone()).is_err());
     let args = json!({"condition":condition});
     let result = spatial_core::with_checkpoint(
         || Err("ANALYSIS_CANCELLED".into()),

@@ -52,7 +52,7 @@ export async function layerBasemapSmoke(page, restoring = false) {
       await page.keyboard.press("Escape");
       await page
         .getByLabel("地理数据地图", { exact: true })
-        .getByRole("button", { name: "+", exact: true })
+          .getByRole("button", { name: "放大", exact: true })
         .click();
       await expect.poll(() => requests.length).toBeGreaterThan(0);
       await expect(

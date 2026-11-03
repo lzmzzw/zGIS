@@ -73,21 +73,16 @@ pub(super) fn group_fingerprint(path: &Path) -> Result<Vec<u8>, String> {
         let size = fs::metadata(&component).map_err(io_error)?.len();
         total = total.checked_add(size).ok_or("文件过大")?;
         if total > MAX_FILE {
-            return Err("SHP 文件组超过 100 MB".into());
+            return Err("SHP 文件组超过 256 MiB".into());
         }
-        let mut bytes = Vec::new();
-        fs::File::open(&component)
-            .map_err(io_error)?
-            .take(MAX_FILE + 1)
-            .read_to_end(&mut bytes)
-            .map_err(io_error)?;
-        if bytes.len() as u64 != size {
+        let digest = super::file_fingerprint(&component)?;
+        if fs::metadata(&component).map_err(io_error)?.len() != size {
             return Err("读取时文件发生变化，请重试".into());
         }
         hash.update(suffix.as_bytes());
         hash.update([0]);
         hash.update(size.to_le_bytes());
-        hash.update(Sha256::digest(&bytes));
+        hash.update(digest);
     }
     Ok(hash.finalize().to_vec())
 }
@@ -215,9 +210,9 @@ fn replace_zip(
         }
         total = total
             .checked_add(file.size())
-            .ok_or("ZIP 解压大小超过 100 MB")?;
+            .ok_or("ZIP 解压大小超过 256 MiB")?;
         if total > MAX_FILE {
-            return Err("ZIP 解压大小超过 100 MB".into());
+            return Err("ZIP 解压大小超过 256 MiB".into());
         }
         if file.name().to_ascii_lowercase().ends_with(".shp") {
             stems.push(file.name()[..file.name().len() - 4].to_string());
@@ -249,7 +244,7 @@ fn replace_zip(
                     .read_to_end(&mut bytes)
                     .map_err(io_error)?;
                 if bytes.len() as u64 > MAX_FILE {
-                    return Err("ZIP 解压大小超过 100 MB".into());
+                    return Err("ZIP 解压大小超过 256 MiB".into());
                 }
                 original.insert(suffix, bytes);
             }
@@ -263,7 +258,7 @@ fn replace_zip(
         .saturating_add(new_selected_size)
         > MAX_FILE
     {
-        return Err("ZIP 输出解压大小超过 100 MB".into());
+        return Err("ZIP 输出解压大小超过 256 MiB".into());
     }
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer.set_raw_comment(archive.comment().to_vec().into());
@@ -285,7 +280,7 @@ fn replace_zip(
     }
     let result = writer.finish().map_err(io_error)?.into_inner();
     if result.len() as u64 > MAX_FILE {
-        return Err("ZIP 输出超过 100 MB".into());
+        return Err("ZIP 输出超过 256 MiB".into());
     }
     zip::ZipArchive::new(Cursor::new(&result)).map_err(io_error)?;
     Ok(result)
@@ -773,7 +768,7 @@ pub(super) fn save_source(
     }
     if extension == "zip" {
         if fs::metadata(&path).map_err(io_error)?.len() > MAX_FILE {
-            return Err("来源 ZIP 超过 100 MB".into());
+            return Err("来源 ZIP 超过 256 MiB".into());
         }
         let output = replace_zip(fs::read(&path).map_err(io_error)?, member, features, crs)?;
         if fingerprint(&path)? != current {

@@ -111,10 +111,10 @@ function layerIssue(
   const label = target ? "目标图层" : "输入图层";
   if (!layer) return `请选择${label}。`;
   if (layer.features.length === 0) return `${label}为空，请先导入或创建要素。`;
-  if (layer.features.length > 10000)
+  if (layer.features.length > 100000)
     return target
-      ? `${label}超过 10000 个要素，请缩小目标范围。`
-      : `${label}超过 10000 个要素，请缩小输入范围或仅使用选中的要素。`;
+      ? `${label}超过 100000 个要素，请缩小目标范围。`
+      : `${label}超过 100000 个要素，请缩小输入范围或仅使用选中的要素。`;
   const kinds = target
     ? (tool.targetKinds ?? tool.sourceKinds)
     : tool.sourceKinds;

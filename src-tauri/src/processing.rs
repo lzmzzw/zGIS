@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn rejects_empty_oversized_and_non_feature_inputs() {
         assert!(execute("buffer", &json!({"distanceMeters":10}), &[], None).is_err());
-        assert!(execute("layer_summary", &json!({}), &vec![point(); 10001], None).is_err());
+        assert!(execute("layer_summary", &json!({}), &vec![point(); 100001], None).is_err());
         let mut feature = point();
         feature["type"] = json!("Point");
         assert!(execute("layer_summary", &json!({}), &[feature], None).is_err());

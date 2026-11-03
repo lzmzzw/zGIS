@@ -16,20 +16,22 @@
 - `discover_database_tables {connectionId}` / `discover_mysql_tables {connectionId}`：返回 `{schemas,tables}`，表包含 schema/table、columns、keyColumns、geometryColumns（name/srid/type）。MySQL schemas 为空，表属于连接指定数据库。
 - `preview_database_table {connectionId,schema,table,limit}` / `preview_mysql_table {connectionId,table,limit}`：返回 `{columns,rows,truncated}`，limit 为 10 或 20，单次最多 128 列/1 MiB，15 秒超时；非空值以字符串保留精度，复杂/大字段摘要。
 - `connect_mysql_database {config}` / `disconnect_mysql_database {connectionId}`：MySQL 独立会话，TLS require/prefer 均验证证书且不降级，disable 明确启用明文。
-- `query_mysql_geometry {connectionId,schema,table,geometryColumn,geometryKind?,limit,srid?,bbox?}`：返回 `{features,srid,truncated,writable}`，最多 10000 条，geometry/WKT 工作坐标 4326；未知 geometry SRID=0 需明确确认，其他拒绝。保留 NULL 几何、稳定主键身份、完整属性及提交基线；geometry 基线保存原始存储。二进制属性或单属性超过 64 KiB/总结果超过 16 MiB 拒绝。writable=false 时前端只读。
+- `query_mysql_geometry {connectionId,schema,table,geometryColumn,geometryKind?,limit,srid?,bbox?}`：返回 `{features,srid,truncated,writable}`，最多 100000 条，geometry/WKT 工作坐标 4326；未知 geometry SRID=0 需明确确认，其他拒绝。保留 NULL 几何、稳定主键身份、完整属性及提交基线；geometry 基线保存原始存储。二进制属性或单属性超过 64 KiB/完整结果超过 100 MiB 拒绝。writable=false 时前端只读。
 - `commit_mysql_changes {connectionId,layer,changes,schemaChanges?}` 与 PostGIS `commit_changes` 使用相同变更契约。支持新增/修改/删除记录、几何与属性分离，InnoDB 事务锁行比较完整基线，参数化并拒绝字段转换警告。MySQL 几何写回只支持二维，属性修改保持原 geometry/SRID；WKT 字段保留文本类型。几何写入及字段同步要求 MySQL 8+。
 - `schemaChanges` 为 `{kind:'add'|'rename'|'delete',name,newName?}[]`，新增 nullable varchar(255)，重命名保留类型。禁止删除/重命名主键、几何、生成字段及不安全依赖。PostGIS ALTER 与记录写入同一事务；MySQL 使用单次原子 ALTER 后再提交记录，结构已提交而数据失败会返回“提交结果待核对”，前端禁止原批次重试并要求重新加载。
 
 | command | 参数 | 返回 |
 | --- | --- | --- |
 | `rename_source_file` | `{sourceId:string,newName:string}` | `{sourceId,name,path}`；只重命名已打开文件，保留扩展名，SHP 同步组件，检测外部修改且拒绝覆盖；失败回滚 |
-| `open_files` | 无 | `[{name,bytes:number[],sourceId,sourcePath,sourceHash}]`，取消返回空数组 |
-| `save_file` | `{sourceId?:string,sourcePath?:string,sourceHash?:string,suggestedName,content,overwrite,preserveExtension?:string}` | `{sourceId,name,path,sourceHash}|null`，覆盖保存按来源指纹校验，取消返回 null |
+| `open_files` | 无 | `[{name,size,sourceId,sourcePath,sourceHash}]`，取消返回空数组 |
+| `read_open_file` | `{sourceId}` | 原生二进制响应，前端接收 ArrayBuffer；只允许已登记来源，读取时校验大小和原指纹 |
+| `stage_file_content` | UTF-8 二进制分片，附 `x-zgis-output-id/part/final`；单片 1 MiB、累计 256 MiB | 无；只暂存正文，不写源文件或打开对话框 |
+| `save_file` | `{sourceId?:string,sourcePath?:string,sourceHash?:string,suggestedName,content?:string,transferId?:string,overwrite,preserveExtension?:string}`，content 与 transferId 必须二选一 | `{sourceId,name,path,sourceHash}\|null`，覆盖保存按来源指纹校验，取消返回 null |
 | `export_shapefile` | `{features:Feature[],suggestedName:string,crs?:string}` | `{sourceId,name,path}\|null`，取消返回 null；只保存新的 ZIP |
 | `save_shapefile_source` | `{features:Feature[],sourceId?:string,sourcePath?:string,sourceHash?:string,crs?:string,zipMember?:string}` | `{sourceId,name,path,sourceHash}`；回写 SHP 文件组或 ZIP 中指定图层，指纹冲突拒绝，失败回滚；ZIP 保留其他成员 |
 | `save_shapefile_folder` | `{features:Feature[],suggestedName,crs?:string}` | `{sourceId,name,path,sourceHash}\|null`；选择文件夹保存新 SHP 文件组，拒绝同名目标 |
-| `save_recovery` | `{content:string}`，合法 JSON | 无 |
-| `load_recovery` | 无 | `string|null` |
+| `save_recovery` | UTF-8 原始二进制请求体；大快照附 `x-zgis-recovery-id/part/final` 分片头，最终完整内容必须为合法 JSON；兼容旧单包内部调用 | 无；分片接受不代表已落盘 |
+| `load_recovery` | 无 | 原始 UTF-8 `ArrayBuffer`；无副本时为零长度 |
 | `connect_database` | `{config:{host,port,database,user,password,sslMode}}` | `connectionId` |
 | `discover_layers` | `{connectionId}` | `Layer[]` |
 | `query_layer` | `{connectionId,schema,table,geometryColumn,geometryKind,srid?:number,limit,bbox?:number[]}` | `{features,srid,truncated}` |
@@ -44,18 +46,24 @@
 
 `export_database.features` 接受 GeoJSON FeatureCollection 或 Feature 数组。只创建新表，字段为 `id bigint identity`、`properties jsonb`、`geom geometry(Geometry,4326)`；不展开任意属性为数据库列，不覆盖现有表。
 
-TLS `require` 和 `prefer` 均验证系统受信证书并要求加密；prefer 不自动回退明文，明文仅在用户明确选择 disable 时启用。查询限制 100000 条并返回 truncated，有主键时稳定排序；bbox 为 WGS84 `[west,south,east,north]`，geometry 使用源 CRS 包围盒过滤，WKT 文本忽略 bbox，首版无分页。导出最多 100000 条，提交最多 10000 条。无真实数据库验证证据时，不声明连接和事务已实测。
+TLS `require` 和 `prefer` 均验证系统受信证书并要求加密；prefer 不自动回退明文，明文仅在用户明确选择 disable 时启用。查询限制 100000 条并返回 truncated，有主键时稳定排序；bbox 为 WGS84 `[west,south,east,north]`，geometry 使用源 CRS 包围盒过滤，WKT 文本忽略 bbox，首版无分页；目标表预览和加载只读取指定表的元数据，不重复扫描全库。导出最多 100000 条，提交最多 10000 条。无真实数据库验证证据时，不声明连接和事务已实测。
 
-PostGIS 通过 `query_raw` 逐行构造要素，查询与遍历共用 30 秒期限；完整响应（含 geometry、properties、dbKey、baseline）最多 100 MiB，超限报错且不返回部分记录。单行网络解码和服务端缓冲峰值不受该预算保护。连接握手及会话初始化分别最多 10 秒。PostGIS/MySQL 各最多 8 连接，耗时请求只锁对应连接，同连接队列等待最多 35 秒；断开移除注册项并使排队请求失效，已经执行的操作允许按原有事务和超时边界结束。
+PostGIS 通过 `query_raw` 逐行构造要素，目标表元数据验证、查询与遍历共用 30 秒期限；超时失效当前连接；完整响应（含 geometry、properties、dbKey、baseline）最多 100 MiB，超限报错且不返回部分记录。单行网络解码和服务端缓冲峰值不受该预算保护。连接握手及会话初始化分别最多 10 秒。PostGIS/MySQL 各最多 8 连接，耗时请求只锁对应连接，同连接队列等待最多 35 秒；断开移除注册项并使排队请求失效，已经执行的操作允许按原有事务和超时边界结束。
 
-文件单个读写上限 100 MB；打开在阻塞任务线程执行，选择单个 SHP 自动带同目录同名 DBF/SHX/PRJ/CPG。路径只在后端句柄表管理，仅 csv/json/geojson 可保存和覆盖。覆盖前比较 SHA-256 指纹；同目录临时写入、sync、内容核验后，Windows 调用 ReplaceFileW，macOS 使用同目录 rename 原子替换。恢复数据保存在应用私有目录 recovery.json，首版只存最近一次快照。
+文件读取、GeoJSON/CSV 保存和恢复副本上限 256 MiB；SHP 导出仍受共享内核 100 MiB 预算限制。打开在阻塞任务线程执行，选择单个 SHP 自动带同目录同名 DBF/SHX/PRJ/CPG。路径只在后端句柄表管理，仅 csv/json/geojson 可保存和覆盖。覆盖前比较 SHA-256 指纹；同目录临时写入、sync、内容核验后，Windows 调用 ReplaceFileW，macOS 使用同目录 rename 原子替换。恢复数据保存在应用私有目录 recovery.json，首版只存最近一次快照；读写使用二进制 IPC，避免再次转义整个 JSON 字符串，读盘和保存校验均在阻塞任务线程执行。
+
+恢复分片标识为 UUID，序号从 0 严格递增；每片最多 1 MiB、累计 256 MiB。part=0 替换未完成传输；缺失、重复或不匹配的头、乱序、超限、最终 JSON 无效均拒绝并释放待接收内容，原恢复文件不变。空闲五分钟后释放未结束传输。产品备份 Promise 只有在全部分片及最终原子写入成功后完成，退出屏障等待整个 Promise。
+
+分片接收逐片写入 OS 临时文件，不累计整份 Vec/String；UTF-8 增量校验只保留最多三个尾字节。恢复最终使用 64 KiB 缓冲读取并验证完整 JSON，最多 128 层嵌套。错误、过期和进程退出关闭上传临时文件句柄，释放对应磁盘空间。
+
+GeoJSON/CSV 产品保存逐要素/逐行生成文本，先分片暂存，最后仅以 transferId 和来源元数据调用 save_file。输出传输与恢复传输隔离；输出只保留一份待接收或完成的临时文件，完成后五分钟过期，标识仅消费一次。UTF-8 校验允许 CSV 文本，不强制 JSON；路径选择、来源指纹及禁止覆盖规则仍由原保存入口执行。发布使用固定 64 KiB 缓冲流式复制到目标同目录临时文件，sync_all 后验证完整长度和 SHA-256，关闭句柄后原子替换；Windows 清除临时属性。临时盘与目标盘需要暂存空间；强杀可能留下发布阶段的同目录临时文件，正式文件仍受原子替换保护。旧单包/内联正文兼容入口以及 load_recovery 仍会整份驻留内存。
 
 `export_shapefile` 将 WGS84 二维工作要素转换并写成 SHP/SHX/DBF/PRJ/CPG ZIP。`crs` 可选 EPSG:4326（省略时默认）、EPSG:4490、EPSG:3857，其他值拒绝；PRJ 与输出坐标一致，3857 拒绝超出有效纬度的输入。4490 采用近似经纬度转换，不含测绘级基准改正。输出前检查单一几何类别、字段命名、类型、长度与数值精度；不静默截断或填充缺失属性。原生对话框选择 ZIP，拒绝已存在目标，临时写入与核验后以不覆盖方式提交单个 ZIP；不提供原 SHP 文件组覆盖接口。返回身份仅表示导出文件，不绑定到编辑图层的覆盖句柄。字段和几何限制见根 README 的“SHP 编辑与另存”。
 
 ## 空间分析与 Agent
 
 - `gis_mcp_status` / `gis_mcp_set_enabled {enabled}`：返回 `{enabled,endpoint?,token?,startupError?,headersHelper?}`；应用启动自动启用，地址固定为 `http://127.0.0.1:9420/mcp`。token 首次生成后保存到当前用户 Windows 凭据管理器或 macOS 钥匙串并复用，停止和重启不轮换；不写配置或日志。headersHelper 为安装资源目录中的平台认证助手命令，Windows 使用 PowerShell，macOS 使用 `/bin/sh`；startupError 展示启动失败原因。
-- `gis_workspace_sync {layers,activeLayerId,incremental?,removedLayerIds?}`：layers 为 `{id,name,features}`，只接受标准 GeoJSON Feature 快照。默认全量替换；incremental=true 合并变更并删除 removedLayerIds，按合并后总量检查预算。后台串行执行；失败标记旧快照不可用，成功后恢复。
+- `gis_workspace_sync {layers,activeLayerId,incremental?,removedLayerIds?,rejected?}`：layers 为 `{id,name,features}`，只接受标准 GeoJSON Feature 快照。默认全量替换；incremental=true 合并变更并删除 removedLayerIds，按合并后总量检查预算。前端预算超限时传空 layers 和 `rejected="size"|"count"`，原生仅记录同步失败，不接收巨型内容；此参数属于内部 IPC，不对 MCP 工具公开。后台串行执行；包括提前拒绝在内的失败均标记旧快照不可用于新分析，成功后恢复。
 - `gis_results_drain`：重复读取待导入的 `{id,name,features}` 结果，不移除队列。`gis_results_ack {resultIds}`：最多确认 20 个结果，幂等移除；前端按稳定 ID 去重并在恢复副本写入成功后确认。队列跨 MCP 重启保留，不跨应用进程崩溃保留。
 - MCP 缓存与待导入结果各有独立 100 MiB 大小预算，队列最多 20 个结果；缓存预算检查采用流式计数。HTTP 连接绑定启动代次，服务停止重启后旧连接不能继承新服务。初始化版本取自 Cargo 包版本。
 - `gis_mcp_audit`：有界工具审计摘要。
@@ -84,3 +92,5 @@ MCP 工具及计算边界见 [空间分析说明](../docs/spatial-mcp.md)。zGIS
 - `gis_cancel_analysis {jobId}`：仅取消桌面命名空间任务，返回是否接受取消；不代表底层几何调用已经停止。
 
 SHP 的 sourceHash 为整组内容指纹，包含配套与索引文件；ZIP 为整个压缩包指纹。保存成功同步同源句柄与前端图层指纹。恢复仅保存文件关联元数据，不保存运行期句柄；缺失来源 CRS/CSV 配置的旧快照不可直接回写。
+
+原生拖入事件 `gis-files-dropped` 使用同一文件元数据结构，前端先校验批次总量再调用 `read_open_file`。不把源路径作为任意读取命令参数。前端 adapter 兼容旧测试夹具的 bytes，但新原生返回不再 JSON 编码字节数组。两引擎每 256 条加载记录让出 Tokio 执行权，最终结果直接接管要素数组；条数与字节预算包含完整基线，超限整体拒绝。

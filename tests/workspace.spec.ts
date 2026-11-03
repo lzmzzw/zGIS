@@ -117,7 +117,7 @@ test("restored workspace CSV chooses format and path from the main file menu", a
     window.__ZG_TEST__.calls.find((call) => call.command === "save_file")!,
   );
   expect(save.args.suggestedName).toBe("points.geojson");
-  expect(JSON.parse(String(save.args.content)).type).toBe("FeatureCollection");
+  expect(JSON.parse(String(save.resolvedContent)).type).toBe("FeatureCollection");
 });
 
 test("恢复的已有文件编辑直接覆盖来源，不再弹出另存窗口", async ({ page }) => {

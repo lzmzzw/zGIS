@@ -4,8 +4,9 @@ import {
   type GeoFeature,
   type InputFile,
 } from "../domain";
+import { MAX_WEB_FILE_BYTES } from "../fileLimits";
 
-export const MAX_IMPORT_BYTES = 100 * 1024 * 1024;
+export const MAX_IMPORT_BYTES = MAX_WEB_FILE_BYTES;
 export async function readBrowserFiles(files: File[]): Promise<InputFile[]> {
   if (!files.length) throw new Error("请选择空间文件");
   if (files.some((file) => !/\.(geojson|json|csv|zip)$/i.test(file.name)))
@@ -14,12 +15,20 @@ export async function readBrowserFiles(files: File[]): Promise<InputFile[]> {
     );
   if (files.reduce((sum, file) => sum + file.size, 0) > MAX_IMPORT_BYTES)
     throw new Error("单次导入文件总大小不能超过 100 MB。");
-  return Promise.all(
-    files.map(async (file) => ({
+  const inputs: InputFile[] = [];
+  let totalBytes = 0;
+  for (const file of files) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    // File 的元数据可能过时；在实际读取后再次检查，避免越界字节进入 Worker。
+    totalBytes += bytes.byteLength;
+    if (bytes.byteLength > file.size || totalBytes > MAX_IMPORT_BYTES)
+      throw new Error("单次导入文件总大小不能超过 100 MB。");
+    inputs.push({
       name: file.name,
-      bytes: new Uint8Array(await file.arrayBuffer()),
-    })),
-  );
+      bytes,
+    });
+  }
+  return inputs;
 }
 
 export function downloadFile(

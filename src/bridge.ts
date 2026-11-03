@@ -1,3 +1,5 @@
+import { MAX_DESKTOP_FILE_BYTES } from "./fileLimits";
+import { textChunks, TEXT_CHUNK_CHARS, type TextInput } from "./textContent";
 import type { DocumentLayer } from "./domain";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -11,8 +13,63 @@ export interface InputFile {
   sourceHash?: string;
 }
 export interface DroppedFiles {
-  files: InputFile[];
+  files: NativeInputFile[];
   error: string | null;
+}
+export type NativeInputFile = Omit<InputFile, "bytes"> & {
+  bytes?: InputFile["bytes"];
+  size?: number;
+};
+const RECOVERY_CHUNK_CHARS = TEXT_CHUNK_CHARS;
+async function backupRecovery(content: TextInput): Promise<unknown> {
+  if (typeof content === "string" && content.length > MAX_DESKTOP_FILE_BYTES) throw new Error("恢复数据过大");
+  if (typeof content === "string" && content.length <= RECOVERY_CHUNK_CHARS)
+    return invoke("save_recovery", new TextEncoder().encode(content));
+  await uploadText("save_recovery", content);
+}
+async function uploadText(command: "save_recovery" | "stage_file_content", content: TextInput): Promise<string> {
+  const encoder = new TextEncoder();
+  const transferId = crypto.randomUUID();
+  const prefix = command === "save_recovery" ? "x-zgis-recovery" : "x-zgis-output";
+  let part = 0, total = 0;
+  const chunks = textChunks(content);
+  let current = chunks.next();
+  try {
+  do {
+    const next = current.done ? current : chunks.next();
+    const bytes = encoder.encode(current.done ? "" : current.value);
+    total += bytes.byteLength;
+    if (total > MAX_DESKTOP_FILE_BYTES) throw new Error(command === "save_recovery" ? "恢复数据过大" : "输出超过 256 MiB");
+    await invoke(command, bytes, { headers: {
+      [`${prefix}-id`]: transferId,
+      [`${prefix}-part`]: String(part),
+      [`${prefix}-final`]: String(next.done),
+    } });
+    part++;
+    current = next;
+  } while (!current.done);
+  } finally { chunks.return(undefined); }
+  return transferId;
+}
+/** 原生入口只传元数据；逐个使用二进制 IPC 读取，避免 JSON number[] 放大。 */
+export async function readNativeFiles(files: NativeInputFile[]): Promise<InputFile[]> {
+  let total = 0;
+  for (const file of files) {
+    const size = file.bytes?.length ?? file.size;
+    if (size === undefined || !Number.isSafeInteger(size) || size < 0 ||
+        size > MAX_DESKTOP_FILE_BYTES || (total += size) > MAX_DESKTOP_FILE_BYTES)
+      throw new Error("单次导入文件总大小不能超过 256 MiB");
+  }
+  const result: InputFile[] = [];
+  for (const file of files) {
+    if (file.bytes) { result.push({ ...file, bytes: file.bytes }); continue; }
+    if (!file.sourceId) throw new Error("文件来源已失效，请重新打开");
+    const buffer = await invoke<ArrayBuffer>("read_open_file", { sourceId: file.sourceId });
+    const bytes = new Uint8Array(buffer);
+    if (bytes.length !== file.size) throw new Error("读取时文件发生变化，请重试");
+    result.push({ ...file, bytes });
+  }
+  return result;
 }
 export const onFilesDropped = (handler: (payload: DroppedFiles) => void) =>
   listen<DroppedFiles>("gis-files-dropped", (event) => handler(event.payload));
@@ -177,13 +234,14 @@ export const api = {
   mcpSync: (
     layers: unknown[],
     activeLayerId?: string,
-    options?: { incremental?: boolean; removedLayerIds?: string[] },
+    options?: { incremental?: boolean; removedLayerIds?: string[]; rejected?: "size" | "count" },
   ) =>
     invoke("gis_workspace_sync", {
       layers,
       activeLayerId: activeLayerId ?? null,
       incremental: options?.incremental ?? false,
       removedLayerIds: options?.removedLayerIds ?? [],
+      rejected: options?.rejected ?? null,
     }),
   mcpResults: () => invoke<AnalysisLayer[]>("gis_results_drain"),
   renameSourceFile: (sourceId: string, newName: string) =>
@@ -193,30 +251,34 @@ export const api = {
       path: string;
       sourceHash: string;
     }>("rename_source_file", { sourceId, newName }),
-  open: () => invoke<InputFile[]>("open_files"),
-  save: (
-    content: string,
+  open: async () => readNativeFiles(await invoke<NativeInputFile[]>("open_files")),
+  save: async (
+    content: TextInput,
     suggestedName: string,
     sourceId?: string,
     sourcePath?: string,
     sourceHash?: string,
     overwrite = false,
     preserveExtension?: string,
-  ) =>
-    invoke<{
+  ) => {
+    if (typeof content === "string" && content.length > MAX_DESKTOP_FILE_BYTES) throw new Error("输出超过 256 MiB");
+    const transferId = typeof content !== "string" || content.length > RECOVERY_CHUNK_CHARS ? await uploadText("stage_file_content", content) : undefined;
+    return invoke<{
       sourceId: string;
       name: string;
       path: string;
       sourceHash: string;
     } | null>("save_file", {
-      content,
+      content: transferId ? null : content,
+      transferId,
       suggestedName,
       sourceId,
       sourcePath,
       sourceHash,
       overwrite,
       preserveExtension,
-    }),
+    });
+  },
   exportShapefile: (
     features: GeoFeature[],
     suggestedName: string,
@@ -277,8 +339,19 @@ export const api = {
   savePreferences: (content: string) => invoke("save_preferences", { content }),
   fetchBasemapTile: (url: string) =>
     invoke<string>("fetch_basemap_tile", { url }),
-  recover: () => invoke<string | null>("load_recovery"),
-  backup: (content: string) => invoke("save_recovery", { content }),
+  recover: async () => {
+    const raw = await invoke<ArrayBuffer | number[] | string | null>("load_recovery");
+    if (raw === null || typeof raw === "string") return raw;
+    if (!(raw instanceof ArrayBuffer) && !Array.isArray(raw))
+      throw new Error("恢复数据结构无效");
+    const length = raw instanceof ArrayBuffer ? raw.byteLength : raw.length;
+    if (length > MAX_DESKTOP_FILE_BYTES) throw new Error("恢复数据过大");
+    if (Array.isArray(raw) && raw.some(value => !Number.isInteger(value) || value < 0 || value > 255))
+      throw new Error("恢复数据结构无效");
+    if (!length) return null;
+    return new TextDecoder("utf-8", { fatal: true }).decode(raw instanceof ArrayBuffer ? raw : new Uint8Array(raw));
+  },
+  backup: backupRecovery,
   connect: (config: DbConnection) =>
     invoke<string>("connect_database", { config }),
   discover: (connectionId: string) =>
@@ -346,9 +419,9 @@ export interface AnalysisLayer {
   name: string;
   features: unknown[];
 }
-export function download(content: string, name: string) {
+export function download(content: TextInput, name: string) {
   const url = URL.createObjectURL(
-    new Blob([content], { type: "text/plain;charset=utf-8" }),
+    new Blob(typeof content === "string" ? [content] : [...textChunks(content)], { type: "text/plain;charset=utf-8" }),
   );
   const link = document.createElement("a");
   link.href = url;

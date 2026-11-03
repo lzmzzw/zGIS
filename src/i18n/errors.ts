@@ -1,5 +1,12 @@
 /** Canonical service messages. Placeholders preserve filenames, field names and external details. */
 const errors: Record<string, string> = Object.fromEntries(`
+单次导入文件总大小不能超过 {0} MB。|The total size of files in one import must not exceed {0} MB.
+CSV 表头或首条记录超过 8 MiB，无法生成预览|The CSV header or first record exceeds 8 MiB. Preview cannot be generated.
+解析任务已达到并发上限，请等待或取消当前导入|Parser concurrency limit reached. Wait for or cancel the current import.
+CSV 预览超过时间预算，请检查记录大小或稍后重试|CSV preview exceeded its time budget. Check record sizes or try again later.
+文件解析超过时间预算，请拆分文件后重试|File parsing exceeded its time budget. Split the file and try again.
+预览仅包含前 8 MiB 内的完整记录；导入时校验全部记录|The preview contains only complete records in the first 8 MiB. All records are validated on import.
+预览仅校验前 5 行；导入时校验全部记录|Only the first five rows are validated in the preview. All records are validated on import.
 ANALYSIS_BUSY: 分析任务正在运行，请稍后重试|ANALYSIS_BUSY: An analysis is already running. Try again later.
 ANALYSIS_CANCELLED: 分析已取消|ANALYSIS_CANCELLED: Analysis cancelled
 ANALYSIS_DUPLICATE: 任务标识正在使用|ANALYSIS_DUPLICATE: Job ID is already in use
@@ -413,6 +420,97 @@ CSV列名为空或重复，无法可靠映射|CSV column names are empty or dupl
 CSV缺少xField或wktField|CSV is missing xField or wktField
 CSV缺少yField|CSV is missing yField
 输出超过 100 MB|Output exceeds 100 MB
+单次导入文件总大小不能超过 256 MiB|Total imported file size must not exceed 256 MiB
+文件来源已失效，请重新打开|File source is no longer available. Open it again.
+文件超过 256 MiB|File exceeds 256 MiB
+输出超过 256 MiB|Output exceeds 256 MiB
+SHP 文件组超过 256 MiB|Shapefile set exceeds 256 MiB
+ZIP 解压大小超过 256 MiB|Uncompressed ZIP exceeds 256 MiB
+ZIP 输出解压大小超过 256 MiB|Uncompressed ZIP output exceeds 256 MiB
+ZIP 输出超过 256 MiB|ZIP output exceeds 256 MiB
+来源 ZIP 超过 256 MiB|Source ZIP exceeds 256 MiB
+加载条数必须为1至100000|Loaded record count must be between 1 and 100,000
+恢复数据结构无效|Invalid recovery data structure
+恢复数据编码无效|Invalid recovery data encoding
+恢复数据读取失败|Failed to read recovery data
+保存正文与传输标识必须二选一|Provide either file content or a transfer identifier
+文件保存失败|Failed to save file
+恢复|Restore
+输出|Output
+分片请求头无效|Invalid chunk headers
+分片标识无效|Invalid chunk identifier
+分片序号无效|Invalid chunk index
+分片结束标记无效|Invalid final-chunk flag
+数据过大|Data exceeds the size limit
+分片超过 1 MiB|Chunk exceeds 1 MiB
+分片不存在或已过期，请重新保存|Upload is missing or expired. Save again.
+分片顺序或标识不匹配，请重新保存|Chunk order or identifier mismatch. Save again.
+分片内存不足|Insufficient memory for upload
+分片状态无效|Invalid upload state
+数据结构无效|Invalid data structure
+数据编码无效|Invalid data encoding
+恢复分片请求头无效|Invalid recovery chunk headers
+恢复分片标识无效|Invalid recovery chunk identifier
+恢复分片序号无效|Invalid recovery chunk index
+恢复分片结束标记无效|Invalid recovery final-chunk flag
+恢复分片超过 1 MiB|Recovery chunk exceeds 1 MiB
+恢复分片不存在或已过期，请重新保存|Recovery upload is missing or expired. Save again.
+恢复分片顺序或标识不匹配，请重新保存|Recovery chunk order or identifier mismatch. Save again.
+恢复分片内存不足|Insufficient memory for recovery upload
+恢复分片状态无效|Invalid recovery upload state
+输出分片请求头无效|Invalid output chunk headers
+输出分片标识无效|Invalid output chunk identifier
+输出分片序号无效|Invalid output chunk index
+输出分片结束标记无效|Invalid output final-chunk flag
+输出数据过大|Output exceeds the size limit
+输出分片不存在或已过期，请重新保存|Output upload is missing or expired. Save again.
+输出分片顺序或标识不匹配，请重新保存|Output chunk order or identifier mismatch. Save again.
+输出分片内存不足|Insufficient memory for output upload
+输出分片状态无效|Invalid output upload state
+输出数据结构无效|Invalid output data structure
+输出数据编码无效|Invalid output data encoding
+输出正文不存在或已过期，请重新保存|Output content is missing or expired. Save again.
+输出正文标识不匹配，请重新保存|Output content identifier mismatch. Save again.
+输出分片超过 1 MiB|Output chunk exceeds 1 MiB
+输出分片结构无效|Invalid output chunk structure
+输出分片请求头缺失|Output chunk headers are missing
+输出正文接收失败|Failed to receive output content
+输出正文标识无效|Invalid output content identifier
+图层超过 100000 个要素，请先缩小范围|Layer exceeds 100,000 features. Reduce the extent first.
+合并结果超过 100000 个要素|Merged result exceeds 100,000 features
+结果超过 100000 个要素；未返回截断结果|Result exceeds 100,000 features. No truncated result was returned.
+{0}超过 100000 个要素，请缩小目标范围。|{0} exceeds 100,000 features. Reduce the target extent.
+{0}超过 100000 个要素，请缩小输入范围或仅使用选中的要素。|{0} exceeds 100,000 features. Reduce the input extent or use selected features only.
+暂存文件创建失败|Failed to create staging file
+数据结构无效或嵌套超过 128 层|Invalid data structure or nesting exceeds 128 levels
+CSV 预览结果传输失败|CSV preview result transfer failed
+解析 Worker 不接受并发请求|Parser Worker does not accept concurrent requests
+解析任务已结束|Parsing task has ended
+解析结果包含不支持的结构|Parsing result contains an unsupported structure
+解析结果确认尚未完成|Parsing result acknowledgement is pending
+解析结果确认顺序无效|Invalid parsing result acknowledgement order
+图层元数据超过 64 MiB 传输上限|Layer metadata exceeds the 64 MiB transfer limit
+单个要素超过 64 MiB 传输上限，请拆分属性或几何后重试|A feature exceeds the 64 MiB transfer limit. Split its attributes or geometry and retry.
+解析结果传输协议无效|Invalid parsing result transfer protocol
+解析结果尚未完整传输|Parsing result transfer is incomplete
+解析结果分片顺序或预算无效|Invalid parsing result chunk order or budget
+解析图层元数据无效|Invalid parsed layer metadata
+解析要素分片无效|Invalid parsed feature chunk
+暂存文件写入失败|Failed to write staging file
+暂存文件读取失败|Failed to read staging file
+恢复暂存文件创建失败|Failed to create recovery staging file
+恢复暂存文件写入失败|Failed to write recovery staging file
+恢复暂存文件读取失败|Failed to read recovery staging file
+输出暂存文件创建失败|Failed to create output staging file
+输出暂存文件写入失败|Failed to write output staging file
+输出暂存文件读取失败|Failed to read output staging file
+恢复数据结构无效或嵌套超过 128 层|Invalid recovery structure or nesting exceeds 128 levels
+新文件保存失败（目标已存在）|Failed to save new file: target already exists
+保存目录无效|Invalid save directory
+保存临时文件创建失败|Failed to create temporary save file
+暂存文件长度发生变化|Staging file length changed
+文件同步失败|Failed to sync file
+保存临时文件属性设置失败|Failed to set temporary save file attributes
 `.trim().split('\n').map((line) => {
   const separator = line.indexOf('|');
   return [line.slice(0, separator), line.slice(separator + 1)];
@@ -558,6 +656,21 @@ ZIP 包含不安全路径|ZIP contains unsafe paths
 解析 Worker 失败|Parser Worker failed
 解析结果传输失败|Parser result transfer failed
 请选择有效的几何列，坐标列必须包含数值|Select valid geometry columns. Coordinate columns must contain numbers.
+单次导入文件总大小不能超过 256 MiB|Total imported file size must not exceed 256 MiB
+文件来源已失效，请重新打开|File source is no longer available. Open it again.
+文件超过 256 MiB|File exceeds 256 MiB
+输出超过 256 MiB|Output exceeds 256 MiB
+SHP 文件组超过 256 MiB|Shapefile set exceeds 256 MiB
+ZIP 解压大小超过 256 MiB|Uncompressed ZIP exceeds 256 MiB
+ZIP 输出解压大小超过 256 MiB|Uncompressed ZIP output exceeds 256 MiB
+ZIP 输出超过 256 MiB|ZIP output exceeds 256 MiB
+来源 ZIP 超过 256 MiB|Source ZIP exceeds 256 MiB
+加载条数必须为1至100000|Loaded record count must be between 1 and 100,000
+图层超过 100000 个要素，请先缩小范围|Layer exceeds 100,000 features. Reduce the extent first.
+合并结果超过 100000 个要素|Merged result exceeds 100,000 features
+结果超过 100000 个要素；未返回截断结果|Result exceeds 100,000 features. No truncated result was returned.
+{0}超过 100000 个要素，请缩小目标范围。|{0} exceeds 100,000 features. Reduce the target extent.
+{0}超过 100000 个要素，请缩小输入范围或仅使用选中的要素。|{0} exceeds 100,000 features. Reduce the input extent or use selected features only.
 `.trim().split('\n').map((line) => {
   const separator = line.indexOf('|');
   return [line.slice(0, separator), line.slice(separator + 1)];
@@ -587,6 +700,21 @@ Douglas–Peucker 近似米制简化；无效结果拒绝|Douglas–Peucker simp
 添加近似平方米面积及米制长度（面包含洞周长），冲突字段加下划线|Add approximate areas in square meters and lengths in meters (polygon lengths include holes); conflicting field names gain underscores
 面内点计数，包含边界，多点按每个点计数|Count points within polygons, including boundaries; count each point in multipoints
 合并两层要素，保留属性并移除旧 ID|Merge features from two layers, retaining properties and removing old IDs
+单次导入文件总大小不能超过 256 MiB|Total imported file size must not exceed 256 MiB
+文件来源已失效，请重新打开|File source is no longer available. Open it again.
+文件超过 256 MiB|File exceeds 256 MiB
+输出超过 256 MiB|Output exceeds 256 MiB
+SHP 文件组超过 256 MiB|Shapefile set exceeds 256 MiB
+ZIP 解压大小超过 256 MiB|Uncompressed ZIP exceeds 256 MiB
+ZIP 输出解压大小超过 256 MiB|Uncompressed ZIP output exceeds 256 MiB
+ZIP 输出超过 256 MiB|ZIP output exceeds 256 MiB
+来源 ZIP 超过 256 MiB|Source ZIP exceeds 256 MiB
+加载条数必须为1至100000|Loaded record count must be between 1 and 100,000
+图层超过 100000 个要素，请先缩小范围|Layer exceeds 100,000 features. Reduce the extent first.
+合并结果超过 100000 个要素|Merged result exceeds 100,000 features
+结果超过 100000 个要素；未返回截断结果|Result exceeds 100,000 features. No truncated result was returned.
+{0}超过 100000 个要素，请缩小目标范围。|{0} exceeds 100,000 features. Reduce the target extent.
+{0}超过 100000 个要素，请缩小输入范围或仅使用选中的要素。|{0} exceeds 100,000 features. Reduce the input extent or use selected features only.
 `.trim().split('\n').map((line) => {
   const separator = line.indexOf('|');
   return [line.slice(0, separator), line.slice(separator + 1)];
@@ -742,6 +870,21 @@ SHP 不支持混合 Point/MultiPoint/线/面，请分图层导出|SHP cannot mix
 拓扑问题超过 10000，请缩小输入范围；未返回截断报告|Topology issues exceed 10,000. Reduce the input extent. No truncated report was returned.
 不支持几何类型 {0}|Unsupported geometry type {0}
 拓扑检查顶点总数超过上限；未返回截断报告|Topology check vertex count exceeds the limit. No truncated report was returned.
+单次导入文件总大小不能超过 256 MiB|Total imported file size must not exceed 256 MiB
+文件来源已失效，请重新打开|File source is no longer available. Open it again.
+文件超过 256 MiB|File exceeds 256 MiB
+输出超过 256 MiB|Output exceeds 256 MiB
+SHP 文件组超过 256 MiB|Shapefile set exceeds 256 MiB
+ZIP 解压大小超过 256 MiB|Uncompressed ZIP exceeds 256 MiB
+ZIP 输出解压大小超过 256 MiB|Uncompressed ZIP output exceeds 256 MiB
+ZIP 输出超过 256 MiB|ZIP output exceeds 256 MiB
+来源 ZIP 超过 256 MiB|Source ZIP exceeds 256 MiB
+加载条数必须为1至100000|Loaded record count must be between 1 and 100,000
+图层超过 100000 个要素，请先缩小范围|Layer exceeds 100,000 features. Reduce the extent first.
+合并结果超过 100000 个要素|Merged result exceeds 100,000 features
+结果超过 100000 个要素；未返回截断结果|Result exceeds 100,000 features. No truncated result was returned.
+{0}超过 100000 个要素，请缩小目标范围。|{0} exceeds 100,000 features. Reduce the target extent.
+{0}超过 100000 个要素，请缩小输入范围或仅使用选中的要素。|{0} exceeds 100,000 features. Reduce the input extent or use selected features only.
 `.trim().split('\n').map((line) => {
   const separator = line.indexOf('|');
   return [line.slice(0, separator), line.slice(separator + 1)];

@@ -78,7 +78,9 @@ test("file menu contains only four actions and projected GeoJSON save-as preserv
   expect(saved.args.suggestedName).toBe("projected.json");
   expect(saved.args.preserveExtension).toBe("json");
   expect(saved.args.overwrite).toBe(false);
-  const content = JSON.parse(String(saved.args.content));
+  expect(saved.args.content).toBeNull();
+  expect(typeof saved.args.transferId).toBe("string");
+  const content = JSON.parse(String(saved.resolvedContent));
   expect(content.crs.properties.name).toBe("urn:ogc:def:crs:EPSG::3857");
   expect(content.features[0].geometry.coordinates[0]).toBeCloseTo(
     111319.49079327357,
@@ -108,7 +110,7 @@ test("CSV save-as keeps WKT columns and SHP save-as uses a folder without an exp
   );
   expect(csv.args.suggestedName).toBe("points.csv");
   expect(csv.args.preserveExtension).toBe("csv");
-  expect(String(csv.args.content)).toMatch(/POINT\s*\(116 40\)/);
+  expect(String(csv.resolvedContent)).toMatch(/POINT\s*\(116 40\)/);
   await dropFile(
     page,
     "cities.zip",

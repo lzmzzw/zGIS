@@ -8,8 +8,11 @@ import {
 } from "./databaseRecovery";
 import { layerSource } from "./layerSource";
 import { sameFeatures } from "./featureEquality";
-import { createRecoveryWriter } from "./recoveryWriter";
-import { searchFeatures } from "./attributeSearch";
+import { createRecoveryWriter, writeRecoveryJournal, recoveryJournalText } from "./recoveryWriter";
+import type { TextContent } from "./textContent";
+import { useAttributeSearch } from "./useAttributeSearch";
+import { MAX_FILE_BYTES } from "./fileLimits";
+import { assertMcpWorkspaceBudget, McpBudgetError } from "./mcpWorkspaceBudget";
 import HeaderMenu from "./HeaderMenu";
 import {
   createContext,
@@ -103,13 +106,13 @@ import { SourcePanel, ConnectionPanel, LoadPanel } from "./DatabasePanels";
 import { databaseChanges } from "./dbChanges";
 import {
   restoreWorkspace,
-  snapshotWorkspace,
+  snapshotWorkspaceContent,
   selectRecoverySnapshot,
   type WorkspaceEditSession,
 } from "./workspace";
 import {
-  exportGeoJSON,
-  exportCsv,
+  exportGeoJSONContent,
+  exportCsvContent,
   cloneFeatures,
   validateGeometry,
   geometryToWkt,
@@ -126,6 +129,7 @@ import {
   download,
   onFilesDropped,
   type DroppedFiles,
+  readNativeFiles,
   type InputFile,
   type DbLayer,
   type DbConnection,
@@ -541,7 +545,7 @@ export default function App() {
   const [fieldTarget, setFieldTarget] = useState("");
   const [recoveryReady, setRecoveryReady] = useState(!desktop);
   const snapshotWriter = useRef(
-    createRecoveryWriter((content) => api.backup(content)),
+    createRecoveryWriter<TextContent>((content) => api.backup(content)),
   );
   const exitPending = useRef(false);
   const updateToInstall = useRef<string | null>(null);
@@ -643,6 +647,13 @@ export default function App() {
       .then(async () => {
         // IPC 进行中只保留最新待同步状态；基线始终对应最后成功写入的版本。
         if (disposed) return;
+        try {
+          assertMcpWorkspaceBudget(layers.map(layer => ({ id: layer.id, name: layer.displayName ?? layer.name, features: layer.features })));
+        } catch (reason) {
+          if (reason instanceof McpBudgetError)
+            await api.mcpSync([], activeId, { rejected: reason.reason });
+          throw reason;
+        }
         const previous = mcpSyncBaseline.current;
         const next = new Map(
           layers.map((layer) => [
@@ -903,7 +914,11 @@ export default function App() {
       return;
     }
     insertionGroup.current = undefined;
-    void importSelected(payload.files);
+    void (async () => {
+      let files: InputFile[] = [];
+      await task(async () => { files = await readNativeFiles(payload.files); });
+      if (files.length) await importSelected(files);
+    })();
   };
   useEffect(() => {
     if (!desktop) return;
@@ -1002,23 +1017,19 @@ export default function App() {
       sessionRef.current = { ...sessionRef.current, selectedId: undefined };
       setSelectedId(undefined);
     }
-    const content = snapshotWorkspace(
+    const content = snapshotWorkspaceContent(
       documents,
       currentTree.current,
       omitEditSession ? undefined : sessionRef.current,
     );
-    // Synchronous write-ahead copy covers termination before the native atomic write.
-    try {
-      localStorage.setItem("zgis.editRecovery", content);
-    } catch {
-      /* Native copy remains authoritative when browser quota is exceeded. */
-    }
+    // 小快照日志覆盖原生写入前的强退窗口；大快照只走原生二进制备份。
+    writeRecoveryJournal(content);
     return persistSnapshot(content, true);
   }
-  function persistSnapshot(content: string, barrier = false) {
+  function persistSnapshot(content: TextContent, barrier = false) {
     return snapshotWriter.current(content, barrier).then((persisted) => {
       try {
-        if (localStorage.getItem("zgis.editRecovery") === persisted)
+        if (localStorage.getItem("zgis.editRecovery") === recoveryJournalText(persisted))
           localStorage.removeItem("zgis.editRecovery");
       } catch {
         /* Native snapshot is durable. */
@@ -1170,25 +1181,21 @@ export default function App() {
       busy
     )
       return;
-    let content: string;
-    try {
-      content = snapshotWorkspace(
-        currentLayers.current,
-        currentTree.current,
-        sessionRef.current,
-      );
-    } catch (reason) {
-      setError("恢复副本保存失败：" + errorText(reason));
-      return;
-    }
-    try {
-      localStorage.setItem("zgis.editRecovery", content);
-    } catch {
-      /* Fall back to native recovery. */
-    }
     const timer = setTimeout(() => {
       if (exitPending.current || busyRef.current) return;
-      // 已写入的浏览器日志与原生备份使用同一版本，避免再次序列化整个工作区。
+      let content: TextContent;
+      try {
+        content = snapshotWorkspaceContent(
+          currentLayers.current,
+          currentTree.current,
+          sessionRef.current,
+        );
+        writeRecoveryJournal(content);
+      } catch (reason) {
+        setError("恢复副本保存失败：" + errorText(reason));
+        return;
+      }
+      // debounce 后才准备安全元数据；传输队列只保留源引用，不保留完整正文。
       void persistSnapshot(content).catch(() => setStatus("恢复副本保存失败"));
     }, 150);
     return () => clearTimeout(timer);
@@ -1669,11 +1676,12 @@ export default function App() {
     setCellDraft(null);
     if (field && featureId) finishCellFocus(featureId, field);
   }
+  const pendingCellFocus = useRef<{ layerId?: string; featureId: string; field: string } | undefined>(undefined);
   function focusCell(featureId: string, field: string) {
+    pendingCellFocus.current = { layerId: activeId, featureId, field };
     const cells = document.querySelectorAll<HTMLElement>(".attribute-cell");
-    Array.from(cells)
-      .find((c) => c.dataset.feature === featureId && c.dataset.field === field)
-      ?.focus();
+    const cell = Array.from(cells).find((c) => c.dataset.feature === featureId && c.dataset.field === field);
+    if (cell) { cell.focus(); pendingCellFocus.current = undefined; }
   }
   function commitCell(direction = 0) {
     if (
@@ -2056,12 +2064,12 @@ export default function App() {
       );
     const content =
       doc.sourceKind === "csv"
-        ? exportCsv(doc.features, {
+        ? exportCsvContent(doc.features, {
             ...doc.csvConfig,
             mode: doc.csvConfig?.wktColumn ? "wkt" : "xy",
             crs: doc.originalCrs,
           })
-        : exportGeoJSON(doc.features, doc.originalCrs);
+        : exportGeoJSONContent(doc.features, doc.originalCrs);
     let updated = { ...doc, dirty: false, restored: false };
     const filename =
       doc.sourceKind === "csv"
@@ -2185,8 +2193,8 @@ export default function App() {
         sourceKind === "shp"
           ? undefined
           : sourceKind === "geojson"
-            ? exportGeoJSON(active.features, exportCrs)
-            : exportCsv(active.features, {
+            ? exportGeoJSONContent(active.features, exportCrs)
+            : exportCsvContent(active.features, {
                 ...previousCsv,
                 ...csvConfig,
                 mode: exportMode === "xy" ? "xy" : "wkt",
@@ -2267,8 +2275,8 @@ export default function App() {
       } else {
         const content =
           exportMode === "geojson"
-            ? exportGeoJSON(active.features, exportCrs)
-            : exportCsv(active.features, {
+            ? exportGeoJSONContent(active.features, exportCrs)
+            : exportCsvContent(active.features, {
                 ...active.csvConfig,
                 mode: exportMode === "xy" ? "xy" : "wkt",
                 crs: exportCrs,
@@ -2981,31 +2989,37 @@ export default function App() {
     const timer = setTimeout(() => setSearchQuery(search), 120);
     return () => clearTimeout(timer);
   }, [search]);
-  const filtered = useMemo(
-    () => searchFeatures(active?.features ?? [], searchQuery),
-    [active?.features, searchQuery],
-  );
+  const { filtered, searching } = useAttributeSearch(active?.features, searchQuery);
   const pageSize = 100;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const effectivePage = Math.min(page, totalPages - 1);
+  const effectivePage = searching ? page : Math.min(page, totalPages - 1);
   const shown = filtered.slice(
     effectivePage * pageSize,
     (effectivePage + 1) * pageSize,
   );
   useEffect(() => {
-    if (page !== effectivePage) setPage(effectivePage);
-  }, [page, effectivePage]);
+    if (!searching && page !== effectivePage) setPage(effectivePage);
+  }, [page, effectivePage, searching]);
   const selectedRow = useRef<HTMLTableRowElement>(null);
   useLayoutEffect(() => {
     document
       .querySelector(".table-scroll")
       ?.scrollTo({ top: 0, behavior: "instant" });
   }, [activeId, effectivePage, search, tableOpen]);
+  const locatedSearchQuery = useRef(searchQuery);
   useEffect(() => {
-    if (!tableOpen || !selectedId) return;
+    if (searching) return;
+    const queryChanged = locatedSearchQuery.current !== searchQuery;
+    locatedSearchQuery.current = searchQuery;
+    if (queryChanged || !tableOpen || !selectedId) return;
     const index = filtered.findIndex((feature) => feature.id === selectedId);
     if (index >= 0) setPage(Math.floor(index / pageSize));
-  }, [selectedId, activeId, tableOpen, tableLocateNonce]);
+  }, [selectedId, activeId, tableOpen, tableLocateNonce, filtered, searching]);
+  useLayoutEffect(() => {
+    const pending = pendingCellFocus.current;
+    if (pending?.layerId !== activeId) pendingCellFocus.current = undefined;
+    else if (!searching && pending && tableOpen) focusCell(pending.featureId, pending.field);
+  }, [filtered, searching, effectivePage, tableOpen, activeId]);
   useLayoutEffect(() => {
     const row = selectedRow.current;
     const viewport = row?.closest<HTMLDivElement>(".table-scroll");
@@ -3698,10 +3712,10 @@ export default function App() {
           onChange={async (e) => {
             const list = Array.from(e.target.files ?? []);
             if (
-              list.some((f) => f.size > 100 * 1024 * 1024) ||
-              list.reduce((n, f) => n + f.size, 0) > 100 * 1024 * 1024
+              list.some((f) => f.size > MAX_FILE_BYTES) ||
+              list.reduce((n, f) => n + f.size, 0) > MAX_FILE_BYTES
             ) {
-              setError("单文件及一批文件总量均不能超过 100 MB");
+              setError(`单次导入文件总大小不能超过 ${MAX_FILE_BYTES / 1024 / 1024} MB。`);
               e.target.value = "";
               return;
             }
@@ -4401,6 +4415,7 @@ export default function App() {
                         aria-label={t("搜索属性")}
                         placeholder={t("搜索属性")}
                         value={search}
+                        aria-busy={searching}
                         disabled={Boolean(cellDraft)}
                         onChange={(e) => {
                           setSearch(e.target.value);
@@ -4459,7 +4474,7 @@ export default function App() {
                     <div className="pagination">
                       <IconButton
                         label={t("上一页")}
-                        disabled={page === 0 || Boolean(cellDraft)}
+                        disabled={searching || page === 0 || Boolean(cellDraft)}
                         onClick={() => setPage((n) => n - 1)}
                       >
                         <ChevronLeft />
@@ -4469,7 +4484,7 @@ export default function App() {
                       </span>
                       <IconButton
                         label={t("下一页")}
-                        disabled={page + 1 >= totalPages || Boolean(cellDraft)}
+                        disabled={searching || page + 1 >= totalPages || Boolean(cellDraft)}
                         onClick={() => setPage((n) => n + 1)}
                       >
                         <ChevronRight />
@@ -4870,7 +4885,7 @@ export default function App() {
                   </table>
                   {!shown.length && (
                     <div className="table-empty">
-                      {active ? t("没有匹配记录") : t("未载入图层")}
+                      {searching ? t("正在搜索…") : active ? t("没有匹配记录") : t("未载入图层")}
                     </div>
                   )}
                 </div>
@@ -5182,7 +5197,7 @@ export default function App() {
             setDbIndex(0);
             setDbWktColumn("");
             setDbSrid(layer.srid || 4326);
-            setDbLimit(Math.min(dbLimit, 10000));
+            setDbLimit(Math.min(dbLimit, 100000));
             setDbUseViewport(false);
             openModal("db-load");
           }}

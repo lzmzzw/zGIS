@@ -2,9 +2,12 @@ import Papa from "papaparse";
 import WKT from "ol/format/WKT";
 import proj4 from "proj4";
 import shp from "shpjs";
-import { parse, LosslessNumber, isSafeNumber } from "lossless-json";
+import { LosslessNumber, isSafeNumber } from "lossless-json";
+import { parseJsonLosslessly as parse } from "../losslessJson";
 import { unzipSync } from "fflate";
 import type { Geometry } from "geojson";
+import { MAX_FILE_BYTES, MAX_DESKTOP_FILE_BYTES, MAX_WEB_FILE_BYTES } from "../fileLimits";
+import { collectText, type TextContent } from "../textContent";
 import type {
   DocumentLayer,
   GeoFeature,
@@ -22,6 +25,7 @@ proj4.defs("EPSG:4490", "+proj=longlat +ellps=GRS80 +no_defs +type=crs");
 const wkt = new WKT();
 let sequence = 0;
 const id = () => `feature-${Date.now()}-${++sequence}`;
+const inputBytes = (bytes: InputFile["bytes"]): Uint8Array => bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 const allowed = new Set([
   "Point",
   "MultiPoint",
@@ -83,7 +87,8 @@ function transformGeometry(
   if (!geometry || from === to) return geometry;
   if (!proj4.defs(from) || !proj4.defs(to))
     throw new Error(`未知坐标系：${from} → ${to}`);
-  const copy = structuredClone(geometry);
+  // 只分配变换后的坐标；预先深拷贝会在大线面上保留一份马上被替换的坐标树。
+  const copy = { ...geometry };
   const walk = (coords: unknown[]): unknown[] => {
     if (typeof coords[0] !== "number")
       return coords.map((c) => walk(c as unknown[]));
@@ -179,7 +184,7 @@ export function importCsv(
           assertGeometry(geometry);
         }
       }
-      return { id: id(), geometry, properties: { ...row } };
+      return { id: id(), geometry, properties: row };
     } catch (error) {
       throw new Error(`CSV 第 ${index + 2} 行：${(error as Error).message}`);
     }
@@ -190,11 +195,13 @@ function plain(value: unknown, coordinate = false): unknown {
     const n = Number(value.value);
     return coordinate || isSafeNumber(value.value) ? n : value.value;
   }
-  if (Array.isArray(value)) return value.map((v) => plain(v, coordinate));
-  if (value && typeof value === "object")
-    return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [k, plain(v, coordinate)]),
-    );
+  // 此函数只消费新解析且尚未公开的对象，原位规范化避免再复制整棵属性/坐标树。
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) value[i] = plain(value[i], coordinate);
+  } else if (value && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+    for (const key of Object.keys(object)) object[key] = plain(object[key], coordinate);
+  }
   return value;
 }
 export function parseProperties(text: string): Record<string, unknown> {
@@ -204,7 +211,11 @@ export function parseProperties(text: string): Record<string, unknown> {
   return result as Record<string, unknown>;
 }
 export function geoJsonCrs(text: string, explicit?: string): string {
-  const data = parse(text) as { crs?: { type?: string; properties?: { name?: string } } };
+  return parsedGeoJsonCrs(parse(text), explicit);
+}
+function parsedGeoJsonCrs(input: unknown, explicit?: string): string {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("无效或不支持的 GeoJSON");
+  const data = input as { crs?: { type?: string; properties?: { name?: string } } };
   let declared: string | undefined;
   if (data.crs !== undefined) {
     const name = data.crs?.type === "name" ? data.crs.properties?.name : undefined;
@@ -219,8 +230,73 @@ export function geoJsonCrs(text: string, explicit?: string): string {
   return crs;
 }
 export function importGeoJSON(text: string, explicitCrs?: string, xyCopy = false): GeoFeature[] {
-  const crs = geoJsonCrs(text, explicitCrs);
-  const data = parse(text) as {
+  return parsedGeoJSON(parse(text), explicitCrs, xyCopy).features;
+}
+
+/** 校验已解析的工作要素；不改动公开对象，只在 JSON 规范化确有变化时复制属性分支。 */
+export function normalizeWorkingFeature(feature: GeoFeature): GeoFeature {
+  const geometry = feature.geometry ?? null;
+  assertGeometry(geometry);
+  const ancestors = new WeakSet<object>();
+  const normalize = (value: unknown, depth = 0): unknown => {
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) return null;
+      if (Object.is(value, -0)) return 0;
+      return isSafeNumber(String(value)) ? value : String(value);
+    }
+    if (typeof value === "bigint") throw new TypeError("BigInt is not a JSON property value");
+    if (value === null || typeof value !== "object") return value;
+    if (depth >= 256 || ancestors.has(value)) throw new TypeError("Invalid or excessively nested JSON property value");
+    ancestors.add(value);
+    try {
+      const prototype = Object.getPrototypeOf(value);
+      if (typeof (value as { toJSON?: unknown }).toJSON === "function" || (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null)) {
+        // 兼容 Date、包装值等少见的自定义对象；普通 GIS 属性不经过文本往返。
+        const encoded = JSON.stringify(value);
+        return encoded === undefined ? undefined : normalize(JSON.parse(encoded), depth + 1);
+      }
+      if (Array.isArray(value)) {
+        // JSON 数组只保留索引元素，不保留运行期附加属性。
+        let copy: unknown[] | undefined = Object.keys(value).some(key => !/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length) ? value.slice() : undefined;
+        for (let index = 0; index < value.length; index++) {
+          const item = normalize(value[index], depth + 1);
+          const next = item === undefined || typeof item === "function" || typeof item === "symbol" ? null : item;
+          if (!Object.is(next, value[index])) {
+            copy ??= value.slice();
+            copy[index] = next;
+          }
+        }
+        return copy ?? value;
+      }
+      const object = value as Record<string, unknown>;
+      let copy: Record<string, unknown> | undefined;
+      for (const key of Object.keys(object)) {
+        const item = normalize(object[key], depth + 1);
+        if (item === undefined || typeof item === "function" || typeof item === "symbol") {
+          copy ??= { ...object };
+          delete copy[key];
+        } else if (!Object.is(item, object[key])) {
+          copy ??= { ...object };
+          Object.defineProperty(copy, key, { value: item, enumerable: true, writable: true, configurable: true });
+        }
+      }
+      return copy ?? object;
+    } finally {
+      ancestors.delete(value);
+    }
+  };
+  const properties = normalize(feature.properties ?? {});
+  if (!properties || typeof properties !== "object" || Array.isArray(properties))
+    throw new Error("GeoJSON properties 必须是对象或 null");
+  const sourceFeatureId = normalize(feature.sourceFeatureId);
+  if (sourceFeatureId !== undefined && typeof sourceFeatureId !== "string" && typeof sourceFeatureId !== "number")
+    throw new Error("GeoJSON Feature.id 必须是字符串或数值");
+  return { id: id(), geometry, properties: properties as Record<string, unknown>, sourceFeatureId };
+}
+
+function parsedGeoJSON(input: unknown, explicitCrs?: string, xyCopy = false): { features: GeoFeature[]; crs: string } {
+  const crs = parsedGeoJsonCrs(input, explicitCrs);
+  const data = input as {
     type: string;
     features?: Array<{
       geometry: Geometry | null;
@@ -240,14 +316,18 @@ export function importGeoJSON(text: string, explicitCrs?: string, xyCopy = false
         : allowed.has(data.type)
           ? [{ geometry: data as unknown as Geometry, properties: {} }]
           : undefined;
-  if (!records) throw new Error("无效或不支持的 GeoJSON");
-  return records.map((record, index) => {
+  if (!Array.isArray(records)) throw new Error("无效或不支持的 GeoJSON");
+  const features = records.map((record, index) => {
+    if (!record || typeof record !== "object" || Array.isArray(record)) throw new Error("无效或不支持的 GeoJSON");
     const input = plain(record.geometry ?? null, true) as Geometry | null;
     // Normalize only an explicitly requested working copy; never coerce invalid numbers.
     const positions = (value: unknown, path: string): unknown => {
       const location = `GeoJSON 第 ${index + 1} 个要素${record.id !== undefined ? `（ID ${String(plain(record.id))}）` : ""} · ${path}`;
       if (!Array.isArray(value) || !value.length) throw new Error(`${location}：坐标数组为空或结构无效`);
-      if (Array.isArray(value[0])) return value.map((child, i) => positions(child, `${path}[${i}]`));
+      if (Array.isArray(value[0])) {
+        for (let i = 0; i < value.length; i++) value[i] = positions(value[i], `${path}[${i}]`);
+        return value;
+      }
       if (value.some(component => typeof component !== "number" || !Number.isFinite(component)))
         throw new Error(`${location}：坐标分量必须是有限数值，不接受字符串或 null`);
       if (value.length < 2) throw new Error(`${location}：坐标至少需要 X、Y 两个分量`);
@@ -283,6 +363,7 @@ export function importGeoJSON(text: string, explicitCrs?: string, xyCopy = false
       properties: plain(record.properties ?? {}) as Record<string, unknown>,
     };
   });
+  return { features, crs };
 }
 export function exportGeoJSON(features: GeoFeature[], crs = "EPSG:4326"): string {
   if (!["EPSG:4326", "EPSG:4490", "EPSG:3857"].includes(crs)) throw new Error("不支持的 GeoJSON 坐标系");
@@ -302,17 +383,45 @@ export function exportGeoJSON(features: GeoFeature[], crs = "EPSG:4326"): string
     2,
   );
 }
+/** 桌面保存逐要素投影和编码，不创建完整导出数组或正文字符串。 */
+export function exportGeoJSONContent(features: GeoFeature[], crs = "EPSG:4326"): TextContent {
+  if (!["EPSG:4326", "EPSG:4490", "EPSG:3857"].includes(crs)) throw new Error("不支持的 GeoJSON 坐标系");
+  const header = JSON.stringify({
+    type: "FeatureCollection",
+    ...(crs !== "EPSG:4326" ? { crs: { type: "name", properties: { name: `urn:ogc:def:crs:EPSG::${crs.split(":")[1]}` } } } : {}),
+  }).slice(0, -1);
+  return {
+    *chunks() {
+      yield header + ',"features":[';
+      for (let index = 0; index < features.length; index++) {
+        const feature = features[index];
+        assertGeometry(feature.geometry);
+        if (index) yield ",";
+        yield JSON.stringify({
+          type: "Feature",
+          ...(feature.sourceFeatureId !== undefined ? { id: feature.sourceFeatureId } : {}),
+          geometry: transformGeometry(feature.geometry, "EPSG:4326", crs),
+          properties: feature.properties,
+        });
+      }
+      yield "]}";
+    },
+  };
+}
+export interface CsvExportOptions {
+  mode: "wkt" | "xy";
+  crs?: string;
+  wktColumn?: string;
+  xColumn?: string;
+  yColumn?: string;
+}
 export function exportCsv(
   features: GeoFeature[],
-  options: {
-    mode: "wkt" | "xy";
-    crs?: string;
-    wktColumn?: string;
-    xColumn?: string;
-    yColumn?: string;
-  },
+  options: CsvExportOptions,
 ): string {
-  const rows = features.map((feature) => {
+  return collectText(exportCsvContent(features, options));
+}
+function csvRow(feature: GeoFeature, options: CsvExportOptions): Record<string, unknown> {
     assertGeometry(feature.geometry);
     const geometry = transformGeometry(
       feature.geometry,
@@ -342,12 +451,35 @@ export function exportCsv(
         geometry && geometry.type === "Point" ? geometry.coordinates[1] : "";
     }
     return row;
-  });
-  const fields = [...new Set(rows.flatMap((row) => Object.keys(row)))];
-  return Papa.unparse({
-    fields,
-    data: rows.map((row) => fields.map((field) => row[field] ?? "")),
-  });
+}
+export function exportCsvContent(features: GeoFeature[], options: CsvExportOptions): TextContent {
+  const config = { ...options };
+  return {
+    *chunks() {
+      const names = new Set<string>();
+      for (const feature of features) {
+        const fields = new Set(Object.keys(feature.properties));
+        if (config.mode === "wkt") {
+          if (config.xColumn) fields.delete(config.xColumn);
+          if (config.yColumn) fields.delete(config.yColumn);
+          fields.add(config.wktColumn ?? "wkt");
+        } else {
+          if (config.wktColumn) fields.delete(config.wktColumn);
+          fields.add(config.xColumn ?? "longitude");
+          fields.add(config.yColumn ?? "latitude");
+        }
+        for (const field of fields) names.add(field);
+      }
+      const fields = [...names];
+      if (!features.length) return;
+      yield Papa.unparse([fields]);
+      for (const feature of features) {
+        const row = csvRow(feature, config);
+        yield "\r\n";
+        yield Papa.unparse([fields.map(field => row[field] ?? "")]);
+      }
+    },
+  };
 }
 import GeoJSON from "ol/format/GeoJSON";
 export function geometryToWkt(geometry: Geometry): string {
@@ -377,7 +509,20 @@ export async function importFiles(
   files: InputFile[],
   options: ImportOptions = {},
   perFileOptions?: ImportOptions[],
+  byteLimit = MAX_FILE_BYTES,
 ): Promise<DocumentLayer[]> {
+  // Worker 没有 Tauri 的 window 注入，预算由主线程传入，仅接受两种既定上限。
+  const limit = byteLimit === MAX_DESKTOP_FILE_BYTES ? MAX_DESKTOP_FILE_BYTES : MAX_WEB_FILE_BYTES;
+  return importFileBatch(files, options, perFileOptions, limit);
+}
+async function importFileBatch(
+  files: InputFile[],
+  options: ImportOptions,
+  perFileOptions: ImportOptions[] | undefined,
+  byteLimit: number,
+): Promise<DocumentLayer[]> {
+  if (files.reduce((total, file) => total + file.bytes.length, 0) > byteLimit)
+    throw new Error(`单次导入文件总大小不能超过 ${byteLimit / 1024 / 1024} MB。`);
   const layers: DocumentLayer[] = [];
   const decoder = new TextDecoder(options.encoding ?? "utf-8");
   const shpFiles = files.filter((f) => /\.(shp|dbf|prj|cpg)$/i.test(f.name));
@@ -398,17 +543,17 @@ export async function importFiles(
     const result = await shp({
       shp: new Uint8Array(pick("shp")!.bytes).buffer,
       dbf: new Uint8Array(pick("dbf")!.bytes).buffer,
-      prj: decoder.decode(new Uint8Array(pick("prj")!.bytes)),
+      prj: decoder.decode(inputBytes(pick("prj")!.bytes)),
       cpg: pick("cpg")
-        ? decoder.decode(new Uint8Array(pick("cpg")!.bytes))
+        ? decoder.decode(inputBytes(pick("cpg")!.bytes))
         : undefined,
     });
     layers.push(
-      makeLayer(base, importGeoJSON(JSON.stringify(result)), "shp", {
+      makeLayer(base, parsedGeoJSON(result).features, "shp", {
         sourceId: pick("shp")?.sourceId,
         sourcePath: pick("shp")?.sourcePath,
         sourceHash: pick("shp")?.sourceHash,
-        originalCrs: decoder.decode(new Uint8Array(pick("prj")!.bytes)),
+        originalCrs: decoder.decode(inputBytes(pick("prj")!.bytes)),
         warnings: ["SHP 保存回写来源文件组；字段和几何须符合 Shapefile 格式限制"],
       }),
     );
@@ -417,12 +562,13 @@ export async function importFiles(
     const fileOptions = { ...options, ...perFileOptions?.[fileIndex] };
     const text = () =>
       new TextDecoder(fileOptions.encoding ?? "utf-8").decode(
-        new Uint8Array(file.bytes),
+        inputBytes(file.bytes),
       );
-    if (/\.(geojson|json)$/i.test(file.name))
+    if (/\.(geojson|json)$/i.test(file.name)) {
+      const imported = parsedGeoJSON(parse(text()), fileOptions.crs, fileOptions.geoJsonXYCopy);
       layers.push(
-        makeLayer(fileOptions.geoJsonXYCopy ? file.name.replace(/\.(geojson|json)$/i, "-二维副本.geojson") : file.name, importGeoJSON(text(), fileOptions.crs, fileOptions.geoJsonXYCopy), "geojson", {
-          originalCrs: geoJsonCrs(text(), fileOptions.crs),
+        makeLayer(fileOptions.geoJsonXYCopy ? file.name.replace(/\.(geojson|json)$/i, "-二维副本.geojson") : file.name, imported.features, "geojson", {
+          originalCrs: imported.crs,
           sourceId: fileOptions.geoJsonXYCopy ? undefined : file.sourceId,
           sourcePath: fileOptions.geoJsonXYCopy ? undefined : file.sourcePath,
           sourceHash: fileOptions.geoJsonXYCopy ? undefined : file.sourceHash,
@@ -430,8 +576,10 @@ export async function importFiles(
           warnings: ["高精度数值属性以文本保存，导出时保持文本类型", ...(fileOptions.geoJsonXYCopy ? ["已明确选择二维副本；仅载入 X/Y，Z/M 未载入。原文件未修改，保存需另存新文件。"] : [])],
         }),
       );
+    }
     else if (/\.csv$/i.test(file.name)) {
-      const fields = Papa.parse<string[]>(text(), { preview: 1 }).data[0] ?? [];
+      const csvText = text();
+      const fields = Papa.parse<string[]>(csvText, { preview: 1 }).data[0] ?? [];
       const find = (names: string[]) =>
         fields.find((f) => names.includes(f.toLowerCase()));
       const config: ImportOptions = {
@@ -445,7 +593,7 @@ export async function importFiles(
         yColumn: fileOptions.yColumn || find(["latitude", "lat", "y", "纬度"]),
       };
       layers.push(
-        makeLayer(file.name, importCsv(text(), config), "csv", {
+        makeLayer(file.name, importCsv(csvText, config), "csv", {
           sourceId: file.sourceId,
           sourcePath: file.sourcePath,
           sourceHash: file.sourceHash,
@@ -454,7 +602,7 @@ export async function importFiles(
         }),
       );
     } else if (/\.zip$/i.test(file.name)) {
-      const bytes = new Uint8Array(file.bytes);
+      const bytes = inputBytes(file.bytes);
       let count = 0,
         total = 0;
       const entries = unzipSync(bytes, {
@@ -472,12 +620,14 @@ export async function importFiles(
           return /\.(shp|dbf|prj|cpg|shx)$/i.test(entry.name);
         },
       });
-      const imported = await importFiles(
+      const imported = await importFileBatch(
         Object.entries(entries).map(([name, data]) => ({
           name,
           bytes: data,
         })),
         options,
+        undefined,
+        200 * 1024 * 1024,
       );
       layers.push(
         ...imported.map((layer) => ({

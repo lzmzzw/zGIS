@@ -1,4 +1,6 @@
 use serde_json::Value;
+// 与几何顶点、候选对和字节预算独立；简单点数据可使用更大的要素数量。
+pub const MAX_ANALYSIS_FEATURES: usize = 100_000;
 // 大小校验直接计数，避免为每个要素及完整结果再分配一份 JSON。
 fn json_size(value: &impl serde::Serialize, limit: usize) -> Result<usize, String> {
     struct Counter {
@@ -51,8 +53,8 @@ pub(crate) fn validate_features(
     let limit = 100 * 1024 * 1024;
     let mut bytes = json_size(parameters, limit).map_err(|_| "分析输入超过 100 MB，请缩小范围")?;
     for input in [Some(source), target].into_iter().flatten() {
-        if input.len() > 10_000 {
-            return Err("图层超过 10000 个要素，请先缩小范围".into());
+        if input.len() > MAX_ANALYSIS_FEATURES {
+            return Err("图层超过 100000 个要素，请先缩小范围".into());
         }
         for feature in input {
             crate::checkpoint()?;
