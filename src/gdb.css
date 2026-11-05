@@ -1,0 +1,81 @@
+.modal:has(.gdb-panel) {
+  width: min(860px, calc(100vw - 48px));
+}
+.gdb-panel {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 2px;
+}
+.gdb-source-actions,
+.gdb-field-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.gdb-source-path {
+  overflow-wrap: anywhere;
+}
+.gdb-coordinate-definition {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.gdb-summary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+.gdb-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.gdb-panel .gdb-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gdb-check input,
+.gdb-field input {
+  width: auto;
+}
+.gdb-bounds {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.gdb-fields {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.gdb-field {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.gdb-field:last-child {
+  border-bottom: 0;
+}
+.gdb-field > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.gdb-field small {
+  display: block;
+  color: var(--muted);
+  font-size: var(--font-size-xs);
+}
+@media (max-width: 600px) {
+  .gdb-panel {
+    width: 100%;
+  }
+  .gdb-source-actions {
+    flex-direction: column;
+  }
+}

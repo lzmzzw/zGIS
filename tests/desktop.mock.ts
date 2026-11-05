@@ -1,8 +1,12 @@
 import type { Page } from "@playwright/test";
 import type { GeoFeature } from "../src/domain";
 import type { DatabaseSource, DatabaseCatalog } from "../src/bridge";
-type DeferredCommand = "gis_run_analysis" | "check_app_update" | "download_app_update" | "fetch_basemap_tile";
+import type { GdbCatalog, GdbReadResult } from "../src/gdb";
+type DeferredCommand = "gis_run_analysis" | "check_app_update" | "download_app_update" | "fetch_basemap_tile" | "gdb_open" | "gdb_read";
 export interface DesktopTestState {
+  gdbCatalog: GdbCatalog | null;
+  gdbReadResult: GdbReadResult | null;
+  gdbError: string;
   heldCommands: DeferredCommand[];
   completedCommands: Partial<Record<DeferredCommand, number>>;
   releaseCommand: (command: DeferredCommand) => number;
@@ -68,6 +72,9 @@ export async function installDesktopMock(
       const cancelledJobs = new Set<string>();
       const pendingCommands = new Map<DeferredCommand, (() => void)[]>();
       const state: DesktopTestState = {
+        gdbCatalog: null,
+        gdbReadResult: null,
+        gdbError: "",
         heldCommands: [],
         completedCommands: {},
         releaseCommand: (command) => {
@@ -173,6 +180,13 @@ export async function installDesktopMock(
           ) => {
             const call: DesktopTestState["calls"][number] = { command, args };
             state.calls.push(call);
+            if (command === "gdb_cancel") return null;
+            if (command === "gdb_open" || command === "gdb_read") {
+              const result = structuredClone(command === "gdb_open" ? state.gdbCatalog : state.gdbReadResult);
+              const error = state.gdbError;
+              // Deliberately allow a late successful reply after cancellation to verify UI race guards.
+              return respond(command, () => { if (error) throw Error(error); return result; });
+            }
             if (command === "gis_cancel_analysis") { if (!state.analysisCancellationAccepted) return false; cancelledJobs.add(String(args.jobId)); return true; }
             if (command === "gis_workspace_sync") {
               if (state.mcpSyncError) throw Error(state.mcpSyncError);

@@ -9,6 +9,7 @@ import {
   type GeoFeature,
 } from "./domain";
 import type { SchemaChange } from "./domain/types";
+import { isGdbLayer, safeGdbSource } from "./gdb";
 import {
   databaseEngine,
   legacyDatabaseIdentity,
@@ -250,6 +251,7 @@ function safeSession(
     throw new Error("恢复编辑会话结构无效");
   const layer = layers.find((item) => item.id === value.layerId);
   if (!layer) throw new Error("恢复编辑会话引用不存在的图层");
+  if (isGdbLayer(layer)) throw new Error("GDB 只读图层不能恢复编辑会话");
   const feature = (id: unknown): GeoFeature => {
     if (!validId(id)) throw new Error("恢复编辑草稿要素标识无效");
     const found = layer.features.find((item) => item.id === id);
@@ -423,6 +425,7 @@ function snapshotLayerData(layers: DocumentLayer[]) {
       graduatedStyle: normalizeGraduatedStyle(layer.graduatedStyle),
       labels: normalizeLayerLabels(layer.labels),
       sourceKind: engine ?? layer.sourceKind,
+      ...(isGdbLayer(layer) ? { gdb: safeGdbSource(layer.gdb), warnings: layer.warnings?.filter(warning => typeof warning === "string").slice(0, 100) } : {}),
       originalCrs: layer.originalCrs,
       csvConfig: engine ? undefined : layer.csvConfig,
       zipMember: engine ? undefined : layer.zipMember,
@@ -530,6 +533,10 @@ function restoreLayerData(data: unknown): DocumentLayer[] {
     )
       throw new Error("恢复图层字段结构无效或重复");
     const features = safeFeatures(value.features);
+    const gdbIdentity = value.sourceKind === "gdb" || value.restoredFrom === "gdb" || value.gdb !== undefined;
+    const gdb = gdbIdentity ? safeGdbSource(value.gdb) : undefined;
+    if (gdb && (value.db !== undefined || gdb.loadedCount !== features.length || typeof value.sourcePath !== "string" || !value.sourcePath))
+      throw new Error("GDB 恢复副本与来源元数据不一致");
     const engine =
       databaseEngine(isRecord(value.db) ? value.db.engine : undefined) ??
       databaseEngine(value.sourceKind) ??
@@ -558,7 +565,7 @@ function restoreLayerData(data: unknown): DocumentLayer[] {
         : value.sourceKind === "csv" || value.sourceKind === "shp"
           ? value.sourceKind
           : "geojson";
-    const kind = engine ?? (filePath ? fileKind : "geojson");
+    const kind = gdb ? "gdb" : engine ?? (filePath ? fileKind : "geojson");
     const csvConfig = value.csvConfig;
     if (
       csvConfig !== undefined &&
@@ -595,7 +602,8 @@ function restoreLayerData(data: unknown): DocumentLayer[] {
       categorizedStyle: normalizeCategorizedStyle(value.categorizedStyle),
       graduatedStyle: normalizeGraduatedStyle(value.graduatedStyle),
       labels: normalizeLayerLabels(value.labels),
-      dirty: value.dirty ?? true,
+      dirty: gdb ? false : value.dirty ?? true,
+      ...(gdb ? { gdb } : {}),
       sourcePath:
         !engine && typeof value.sourcePath === "string"
           ? value.sourcePath
@@ -616,13 +624,16 @@ function restoreLayerData(data: unknown): DocumentLayer[] {
           : typeof value.sourceKind === "string"
             ? value.sourceKind
             : "geojson",
-      warnings: [
-        engine
+      warnings: [...new Set([
+        gdb
+          ? "已恢复 GDB 只读快照；不会自动重读或修改来源，导出仅包含已加载要素。"
+          : engine
           ? "已恢复数据库工作稿；保存前重新连接来源并核对原始记录。"
           : filePath
             ? "已恢复文件工作副本；保存前检查来源指纹。"
             : "已恢复为工作区图层，保存需选择格式与路径。",
-      ],
+        ...(gdb && Array.isArray(value.warnings) ? value.warnings.filter((warning: unknown): warning is string => typeof warning === "string" && warning.length <= 65536).slice(0, 100) : []),
+      ])],
       geometryType: value.geometryType,
       fieldNames: value.fieldNames,
       ...(db

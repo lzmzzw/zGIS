@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { DocumentLayer } from "./domain";
 import { layerSource } from "./layerSource";
+import { isGdbLayer } from "./gdb";
 import type { LayerTreeNode, DropPosition } from "./layerTree";
 import ContextMenu, {
   type ContextMenuAnchor,
@@ -62,9 +63,11 @@ const sourceLabels = {
   workspace: "工作区",
   file: "文件",
   database: "数据库",
+  gdb: "GDB",
 } as const;
 function sourceTitle(layer: DocumentLayer): string {
   const source = layerSource(layer);
+  if (source === "gdb") return "GDB 只读图层 · 导出不会修改来源";
   if (source === "workspace") return "仅工作区图层 · 保存时需选择格式和路径";
   if (source === "database")
     return `数据库图层 · 保存到 ${layer.db!.schema}.${layer.db!.table}`;
@@ -586,7 +589,7 @@ export default function LayerTree(props: Props) {
         setName(menuLayer?.name ?? "");
         setDialog({ kind: "rename-layer", id: node.id });
       },
-      !props.desktop || !menuLayer?.sourceId || Boolean(menuLayer?.db),
+      !props.desktop || !menuLayer?.sourceId || Boolean(menuLayer?.db) || isGdbLayer(menuLayer),
     );
     separator("remove");
     addItem(

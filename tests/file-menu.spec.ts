@@ -32,7 +32,7 @@ async function menu(page: Page) {
   return menu;
 }
 
-test("file menu contains only four actions and projected GeoJSON save-as preserves format", async ({
+test("file menu includes GDB import and projected GeoJSON save-as preserves format", async ({
   page,
 }) => {
   await installDesktopMock(page);
@@ -41,6 +41,7 @@ test("file menu contains only four actions and projected GeoJSON save-as preserv
   await expect(empty.locator("button")).toHaveText([
     "新建",
     "打开",
+    "打开 GDB…",
     "另存为",
     "导出为",
   ]);

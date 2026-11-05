@@ -4,6 +4,7 @@ import type { DocumentLayer } from "./domain";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { GeoFeature } from "./domain/types";
+import type { GdbCatalog, GdbReadOptions, GdbReadResult } from "./gdb";
 export const desktop = isTauri();
 export interface InputFile {
   name: string;
@@ -118,6 +119,10 @@ export interface DatabasePreview {
   truncated: boolean;
 }
 export const api = {
+  openGdb: (requestId: string, zipped: boolean) => invoke<GdbCatalog | null>("gdb_open", { requestId, zipped }),
+  readGdb: (requestId: string, sourceId: string, options: GdbReadOptions) =>
+    invoke<GdbReadResult>("gdb_read", { requestId, sourceId, ...options }),
+  cancelGdb: (requestId: string) => invoke<void>("gdb_cancel", { requestId }),
   setLocale: (locale: "zh-CN" | "en") => invoke<void>("set_locale", { locale }),
   databaseSourcePassword: (engine: "postgis" | "mysql", sourceId: string) =>
     invoke<string | null>("load_database_source_password", {

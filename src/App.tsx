@@ -7,6 +7,8 @@ import {
   type DatabaseSynchronization,
 } from "./databaseRecovery";
 import { layerSource } from "./layerSource";
+import GdbPanel from "./GdbPanel";
+import { isGdbLayer, assertWritableLayer } from "./gdb";
 import { sameFeatures } from "./featureEquality";
 import { createRecoveryWriter, writeRecoveryJournal, recoveryJournalText } from "./recoveryWriter";
 import type { TextContent } from "./textContent";
@@ -509,6 +511,7 @@ export default function App() {
   }, []);
   const [modal, setModal] = useState<
     | "import"
+    | "gdb"
     | "export"
     | "database"
     | "db-load"
@@ -831,6 +834,10 @@ export default function App() {
   }, [theme]);
   function openModal(value: typeof modal) {
     setContext(undefined);
+    if (isGdbLayer(active) && value && ["field", "rename-field", "delete-field", "delete"].includes(value)) {
+      setError("GDB 图层只读，请使用导出生成新文件");
+      return;
+    }
     if (drawDraft && value && !["settings", "quit"].includes(value)) {
       setError("请先完成或取消当前绘制");
       return;
@@ -874,6 +881,15 @@ export default function App() {
   function openFiles() {
     insertionGroup.current = undefined;
     requestFiles();
+  }
+  function openGdb() {
+    if (!desktop || busyRef.current) return;
+    if (editingLayerId || cellDraft) {
+      setError("请先保存并退出当前图层编辑，再打开文件");
+      return;
+    }
+    insertionGroup.current = undefined;
+    openModal("gdb");
   }
   function requestFiles() {
     if (editingLayerId) {
@@ -1234,7 +1250,7 @@ export default function App() {
     exportSaveLayerId.current = undefined;
     setDrawDraft(null);
     const session = restoringSession.current;
-    if (session && session.layerId === activeId) {
+    if (session && session.layerId === activeId && !isGdbLayer(layers.find(layer => layer.id === activeId))) {
       restoringSession.current = undefined;
       setEditingLayerId(session.layerId);
       setSelectedId(session.selectedId);
@@ -1894,6 +1910,12 @@ export default function App() {
     setStatus("已退出编辑，未保存修改已丢弃");
   }
   async function save(asNew = false, stopEditing = false) {
+    if (active && isGdbLayer(active)) {
+      if (busyRef.current) return;
+      exportSaveLayerId.current = undefined;
+      openModal("export");
+      return;
+    }
     if (
       drawDraft ||
       gestureActive ||
@@ -2021,6 +2043,7 @@ export default function App() {
     },
     metadata: Partial<DocumentLayer> = {},
   ) {
+    assertWritableLayer(doc);
     const updated = {
       ...doc,
       ...metadata,
@@ -2053,6 +2076,7 @@ export default function App() {
     doc: DocumentLayer,
     asNew = false,
   ): Promise<DocumentLayer | null> {
+    assertWritableLayer(doc);
     if (
       !asNew &&
       doc.restored &&
@@ -2136,6 +2160,11 @@ export default function App() {
   }
   async function saveWorkspaceLayer() {
     if (!active || exportSaveLayerId.current !== active.id) return;
+    if (isGdbLayer(active)) {
+      exportSaveLayerId.current = undefined;
+      setError("GDB 图层只读，请使用导出生成新文件");
+      return;
+    }
     await task(async () => {
       const stem = exportFilename
         .trim()
@@ -3083,13 +3112,15 @@ export default function App() {
   const h = active ? histories.current.get(active.id) : undefined;
   const canEdit =
     Boolean(active) &&
+    !isGdbLayer(active) &&
     (!active?.db ||
       (Boolean(active.db?.keyColumns.length) &&
         !uncertainDocs.has(active.id!) &&
         !active.dbCommitUncertain));
   const editable = canEdit && editing;
   const sourceSaveState = active
-    ? layerSource(active) === "workspace"
+    ? isGdbLayer(active) ? "GDB 只读快照"
+    : layerSource(active) === "workspace"
       ? "仅工作区副本"
       : layerSource(active) === "database"
         ? active.dbCommitUncertain
@@ -3594,9 +3625,11 @@ export default function App() {
                 <Plus />{t("新建")}</button>
               <button onClick={openFiles} disabled={busy}>
                 <FolderOpen />{t("打开")}</button>
+              {desktop && <button onClick={openGdb} disabled={busy}>
+                <FolderOpen />{t("打开 GDB…")}</button>}
               <button
                 onClick={() => void save(true)}
-                disabled={!active || busy || Boolean(active.db)}
+                disabled={!active || busy || Boolean(active.db) || isGdbLayer(active)}
               >
                 <Save />{t("另存为")}</button>
               <hr />
@@ -3811,8 +3844,8 @@ export default function App() {
               readonlyIds={layers
                 .filter(
                   (l) =>
-                    Boolean(l.db) &&
-                    (!l.db?.keyColumns.length || uncertainDocs.has(l.id)),
+                    isGdbLayer(l) || (Boolean(l.db) &&
+                    (!l.db?.keyColumns.length || uncertainDocs.has(l.id))),
                 )
                 .map((l) => l.id)}
               onSelect={(id) => {
@@ -3851,7 +3884,7 @@ export default function App() {
               }}
               onRenameLayer={(id, name) => {
                 const layer = layers.find((l) => l.id === id);
-                if (!layer?.sourceId || busy || cellDraft) return;
+                if (!layer?.sourceId || busy || cellDraft || isGdbLayer(layer)) return;
                 void task(async () => {
                   const renamed = await api.renameSourceFile(
                     layer.sourceId!,
@@ -5054,6 +5087,14 @@ export default function App() {
             </div>
           </Modal>
         )}
+        {modal === "gdb" && desktop && <Modal title={t("GDB 只读导入")} showError={false} onClose={() => openModal(null)}>
+          <GdbPanel
+            adapter={api}
+            onBusy={value => { busyRef.current = value; setBusy(value); }}
+            onClose={() => openModal(null)}
+            onImport={layer => { addLayers([layer]); setLayersOpen(true); setModal(null); }}
+          />
+        </Modal>}
         {modal === "import" && (
           <Modal
             title={
@@ -5299,7 +5340,20 @@ export default function App() {
                   <dt>{t("要素数量")}</dt>
                   <dd>{active.features.length.toLocaleString()}</dd>
                 </dl>
-                {!canEdit && (
+                {active.gdb && <>
+                  <p className="form-note">{t("GDB 图层只读，可查询、分析和导出；导出仅包含已加载的要素。")}</p>
+                  <dl>
+                    <dt>{t("GDB 图层")}</dt><dd>{active.gdb.layerName}</dd>
+                    <dt>{t("GDB 读取上限")}</dt><dd>{active.gdb.readLimit.toLocaleString()}</dd>
+                    <dt>{t("读取范围")}</dt><dd>{active.gdb.bounds?.join(", ") ?? t("未限制范围")}</dd>
+                    <dt>{t("读取完整性")}</dt><dd>{t(active.gdb.truncated ? "已达到读取上限，当前不是全层" : "已读取筛选范围内全部要素")}</dd>
+                    <dt>{t("坐标转换")}</dt><dd>{t(active.gdb.transformation)}</dd>
+                  </dl>
+                  <details><summary>{t("原始坐标定义与字段")}</summary><pre className="form-note gdb-coordinate-definition">{active.gdb.sourceCrsWkt}</pre>
+                    {active.gdb.fields.map(field => <p className="form-note" key={field.name}>{field.name}{field.alias ? ` (${field.alias})` : ""} · {field.type} · {t(field.nullable ? "允许 NULL" : "非空")}{field.domain ? ` · ${field.domain}` : ""}</p>)}
+                  </details>
+                </>}
+                {!canEdit && !isGdbLayer(active) && (
                   <p className="form-note">{t("当前数据库副本不可编辑，请核对主键及提交状态。")}</p>
                 )}
                 {active.warnings?.map((warning, index) => (

@@ -45,6 +45,27 @@ export interface GraduatedStyle {
   nullColor: string;
   missingColor: string;
 }
+export interface GdbField {
+  name: string;
+  type: string;
+  nullable: boolean;
+  alias?: string;
+  domain?: string;
+}
+export interface GdbSource {
+  layerName: string;
+  fingerprint: string;
+  sourceCrs: string;
+  sourceCrsWkt: string;
+  fields: GdbField[];
+  geometryType: string;
+  readLimit: number;
+  loadedCount: number;
+  truncated: boolean;
+  bounds?: number[];
+  transformation: string;
+  allowApproximateDatum?: boolean;
+}
 export interface DocumentLayer {
   schemaChanges?: SchemaChange[];
   id: string;
@@ -63,7 +84,8 @@ export interface DocumentLayer {
   labels?: LayerLabels;
   restored?: boolean;
   restoredFrom?: string;
-  sourceKind: "geojson" | "csv" | "shp" | "postgis" | "mysql";
+  sourceKind: "geojson" | "csv" | "shp" | "postgis" | "mysql" | "gdb";
+  gdb?: GdbSource;
   sourceId?: string;
   sourcePath?: string;
   sourceHash?: string;

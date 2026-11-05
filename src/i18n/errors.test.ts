@@ -9,7 +9,7 @@ describe("service diagnostic translations", () => {
       "../../src-tauri/src/*.rs", "../../crates/spatial-core/src/*.rs",
       "!../../src-tauri/src/macos_menu.rs",
     ], { query: "?raw", import: "default", eager: true });
-    const nativeTitles = new Set(["导出 Shapefile ZIP", "另存 SHP：选择目标文件夹", "打开空间文件", "另存图层"]);
+    const nativeTitles = new Set(["导出 Shapefile ZIP", "另存 SHP：选择目标文件夹", "打开空间文件", "另存图层", "打开 GDB ZIP", "打开 GDB 文件夹"]);
     for (const [path, contents] of Object.entries(sources)) {
       const production = contents.split(/#\[cfg\(test\)\]\s*mod \w+/)[0];
       for (const match of production.matchAll(/"((?:[^"\\\n]|\\.)*)"/g)) {
