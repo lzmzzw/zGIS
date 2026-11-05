@@ -2,6 +2,18 @@
 
 以下清单从当前锁文件解析生成。项目来源链接用于获取原始许可证；交付前按分发要求复核许可证文本。
 
+## 随包地理数据运行时
+
+桌面运行时从 `config/gdal-runtime.lock.json` 固定的官方源码及 SHA-256 构建，只启用 OpenFileGDB 与 GDAL 必需的 MEM 驱动。PROJ 和 SQLite 静态链接；不包含 Python、.NET、Esri SDK 或系统 GIS 安装依赖。
+
+桌面与 Web 共用 `scripts/gdal-profile.mjs` 中的源码适配：保留 GDAL 必需的 VRT 核心代码，去掉 `GDALAllRegister` 中的 VRT 驱动注册。该适配纳入运行时构建指纹；官方源归档保持原始 SHA-256 校验。
+
+- GDAL 3.13.3：MIT 风格许可，包含内置 zlib、JSON-C 等源码的许可。完整文本随包保存为 `gdal/data/LICENSE.TXT`。https://gdal.org/en/stable/license.html
+- PROJ 9.8.1：MIT 风格许可，完整文本随包保存为 `gdal/licenses/PROJ.COPYING`。https://proj.org/en/stable/about.html
+- SQLite 3.50.4：公有领域。https://www.sqlite.org/copyright.html
+
+运行时文件清单、构建来源版本与逐文件 SHA-256 随包保存为 `gdal/runtime-manifest.json`。这里只分发 `proj.db`，不附加下载格网；需要额外格网的坐标转换会明确失败。
+
 ## JavaScript
 
 - @jridgewell/resolve-uri@3.1.2: MIT https://github.com/jridgewell/resolve-uri#readme

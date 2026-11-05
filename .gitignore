@@ -16,3 +16,8 @@ src-tauri/icons/ios/
 src-tauri/icons/Square*.png
 src-tauri/icons/StoreLogo.png
 release-assets/
+src-tauri/resources/gdal/*
+!src-tauri/resources/gdal/README.md
+src-tauri/resources/gdal.preparing/
+src-tauri/resources/gdal.previous/
+public/gdb-runtime/

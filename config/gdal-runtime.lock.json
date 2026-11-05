@@ -1,0 +1,33 @@
+{
+  "schema": 2,
+  "profile": "openfilegdb-proj",
+  "version": "3.13.3",
+  "drivers": ["MEM", "OpenFileGDB"],
+  "sources": {
+    "gdal": {
+      "version": "3.13.3",
+      "filename": "gdal-3.13.3.tar.gz",
+      "directory": "gdal-3.13.3",
+      "url": "https://download.osgeo.org/gdal/3.13.3/gdal-3.13.3.tar.gz",
+      "sha256": "5e0c388d83da2d686cc00a40272882432cdb54edff43d4af173e532844a0a0ea"
+    },
+    "proj": {
+      "version": "9.8.1",
+      "filename": "proj-9.8.1.tar.gz",
+      "directory": "proj-9.8.1",
+      "url": "https://download.osgeo.org/proj/proj-9.8.1.tar.gz",
+      "sha256": "af5b731c145c1d13c4e3b4eeb7d167e94e845e440f71e3496b4ed8dae0291960"
+    },
+    "sqlite": {
+      "version": "3.50.4",
+      "filename": "sqlite-amalgamation-3500400.zip",
+      "directory": "sqlite-amalgamation-3500400",
+      "url": "https://www.sqlite.org/2025/sqlite-amalgamation-3500400.zip",
+      "sha256": "1d3049dd0f830a025a53105fc79fd2ab9431aea99e137809d064d8ee8356b032"
+    }
+  },
+  "targets": {
+    "windows-x64": { "library": "native/gdal.dll" },
+    "macos-arm64": { "library": "native/libgdal.dylib" }
+  }
+}

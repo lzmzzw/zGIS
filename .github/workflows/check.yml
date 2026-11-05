@@ -27,7 +27,7 @@ permissions:
 jobs:
   check-web:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
         with:
@@ -44,12 +44,43 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/spatial-core
+          workspaces: |
+            crates/spatial-core
+            crates/gdb-wasm
+            src-tauri
+      - uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          targets: wasm32-unknown-unknown,wasm32-unknown-emscripten
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 4.0.19
+          actions-cache-folder: emsdk-cache
       - name: 安装依赖与 WASM 工具
         run: |
           pnpm install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/install-wasm-bindgen.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: 缓存原生与 Web GDB 运行时
+        uses: actions/cache@v4
+        with:
+          path: |
+            output/gdal-sources
+            output/gdal-build
+            src-tauri/resources/gdal
+            public/gdb-runtime
+          key: gdb-web-windows-${{ hashFiles('config/gdal-runtime.lock.json', 'scripts/*gdal*', 'scripts/*gdb*', 'scripts/gdal-sqlite/**', 'crates/gdb-wasm/Cargo*', 'crates/gdb-wasm/src/**', 'src-tauri/src/gdb_*.rs') }}
+      - name: 构建 GDB 运行时与真实兼容性样本
+        shell: pwsh
+        run: |
+          . scripts/msvc-environment.ps1
+          pnpm gdal:prepare
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm gdal:verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo run --manifest-path src-tauri/Cargo.toml --example gdb-fixtures --locked -- src-tauri/resources/gdal output/gdb-fixtures
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm gdb:wasm:build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: 构建 Web 静态资源
         run: pnpm build:web
@@ -68,6 +99,9 @@ jobs:
           pnpm exec playwright install msedge
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm test:web
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:ZGIS_GDB_REAL='1'
+          pnpm exec playwright test --config playwright.web.config.ts tests-web/gdb-real.spec.ts --workers=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: 整理 Web 资源包
         run: node scripts/release-assets.mjs web
@@ -109,6 +143,20 @@ jobs:
           workspaces: src-tauri
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
+      - name: 缓存裁剪 GDAL 源码与构建
+        uses: actions/cache@v4
+        with:
+          path: |
+            output/gdal-sources
+            output/gdal-build
+            src-tauri/resources/gdal
+          key: gdal-windows-x64-${{ hashFiles('config/gdal-runtime.lock.json', 'scripts/*gdal*', 'scripts/gdal-sqlite/**') }}
+      - name: 构建并核验随包 GDAL
+        run: |
+          pnpm gdal:prepare
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm gdal:verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: 核对版本与标签
         id: source
         env:
@@ -132,6 +180,16 @@ jobs:
         run: |
           . scripts/msvc-environment.ps1
           cargo clippy --manifest-path src-tauri/Cargo.toml --lib --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: 原生 GDB 读取与只读验证
+        shell: pwsh
+        run: |
+          . scripts/msvc-environment.ps1
+          cargo build --manifest-path src-tauri/Cargo.toml --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo run --manifest-path src-tauri/Cargo.toml --example gdb-fixtures --locked -- src-tauri/resources/gdal output/gdb-fixtures
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/gdb-worker-smoke.mjs src-tauri/target/debug/zgis.exe src-tauri/resources/gdal output/gdb-fixtures
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: 构建前端
         run: pnpm build
@@ -205,6 +263,18 @@ jobs:
           test "$(uname -m)" = arm64
           pnpm install --frozen-lockfile
           node scripts/check-version.mjs "$RELEASE_TAG"
+      - name: 缓存裁剪 GDAL 源码与构建
+        uses: actions/cache@v4
+        with:
+          path: |
+            output/gdal-sources
+            output/gdal-build
+            src-tauri/resources/gdal
+          key: gdal-macos-arm64-${{ hashFiles('config/gdal-runtime.lock.json', 'scripts/*gdal*', 'scripts/gdal-sqlite/**') }}
+      - name: 构建并核验随包 GDAL
+        run: |
+          pnpm gdal:prepare
+          pnpm gdal:verify
       - name: 检查类型与未使用代码
         run: pnpm exec tsc --noEmit --noUnusedLocals --noUnusedParameters
       - name: 前端测试
@@ -213,6 +283,11 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin --lib --locked
       - name: Rust 静态检查
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin --lib --locked -- -D warnings
+      - name: 原生 GDB 读取与只读验证
+        run: |
+          cargo build --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin --locked
+          cargo run --manifest-path src-tauri/Cargo.toml --target aarch64-apple-darwin --example gdb-fixtures --locked -- src-tauri/resources/gdal output/gdb-fixtures
+          node scripts/gdb-worker-smoke.mjs src-tauri/target/aarch64-apple-darwin/debug/zgis src-tauri/resources/gdal output/gdb-fixtures
       - name: 构建前端
         run: pnpm build
       - name: 构建 macOS ARM64 应用与磁盘镜像
@@ -229,6 +304,8 @@ jobs:
           executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
           test "$(lipo -archs "$app/Contents/MacOS/$executable")" = arm64
           codesign --verify --deep --strict "$app"
+          node scripts/verify-gdal-runtime.mjs --target macos-arm64 --root "$app/Contents/Resources/gdal"
+          node scripts/gdb-worker-smoke.mjs "$app/Contents/MacOS/$executable" "$app/Contents/Resources/gdal" output/gdb-fixtures
       - name: 整理 macOS 产物
         if: inputs.build-installer || inputs.tag == ''
         run: node scripts/release-assets.mjs macos

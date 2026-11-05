@@ -75,6 +75,21 @@ jobs:
       - name: 核对 macOS ARM64 runner
         if: matrix.assets == 'macos'
         run: test "$(uname -m)" = arm64
+      - name: 缓存裁剪 GDAL 源码与构建
+        uses: actions/cache@v4
+        with:
+          path: |
+            output/gdal-sources
+            output/gdal-build
+            src-tauri/resources/gdal
+          key: gdal-${{ matrix.platform }}-${{ hashFiles('config/gdal-runtime.lock.json', 'scripts/*gdal*', 'scripts/gdal-sqlite/**') }}
+      - name: 构建并核验随包 GDAL
+        shell: pwsh
+        run: |
+          pnpm gdal:prepare
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm gdal:verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: 构建平台安装包
         uses: tauri-apps/tauri-action@v1
         with:
@@ -89,13 +104,7 @@ jobs:
           executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
           test "$(lipo -archs "$app/Contents/MacOS/$executable")" = arm64
           codesign --verify --deep --strict "$app"
-      - name: 核验 macOS 应用架构与签名
-        if: matrix.assets == 'macos'
-        run: |
-          app="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/zGIS.app"
-          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
-          test "$(lipo -archs "$app/Contents/MacOS/$executable")" = arm64
-          codesign --verify --deep --strict "$app"
+          node scripts/verify-gdal-runtime.mjs --target macos-arm64 --root "$app/Contents/Resources/gdal"
       - name: 整理平台产物
         run: node scripts/release-assets.mjs ${{ matrix.assets }}
       - uses: actions/upload-artifact@v6
@@ -106,8 +115,8 @@ jobs:
           retention-days: 14
   web:
     needs: verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: windows-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
         with:
@@ -122,13 +131,44 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          targets: wasm32-unknown-unknown,wasm32-unknown-emscripten
+      - uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 4.0.19
+          actions-cache-folder: emsdk-cache
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/spatial-core
+          workspaces: |
+            crates/spatial-core
+            crates/gdb-wasm
+            src-tauri
       - name: 安装依赖与 WASM 工具
         run: |
           pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/install-wasm-bindgen.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: 缓存原生与 Web GDB 运行时
+        uses: actions/cache@v4
+        with:
+          path: |
+            output/gdal-sources
+            output/gdal-build
+            src-tauri/resources/gdal
+            public/gdb-runtime
+          key: gdb-web-windows-${{ hashFiles('config/gdal-runtime.lock.json', 'scripts/*gdal*', 'scripts/*gdb*', 'scripts/gdal-sqlite/**', 'crates/gdb-wasm/Cargo*', 'crates/gdb-wasm/src/**', 'src-tauri/src/gdb_*.rs') }}
+      - name: 构建并核验 Web GDB 运行时
+        shell: pwsh
+        run: |
+          . scripts/msvc-environment.ps1
+          pnpm gdal:prepare
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm gdal:verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm gdb:wasm:build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: 构建检查过的 Web 资源
         run: pnpm build:web
       - name: 整理 Web 资源包
