@@ -68,6 +68,13 @@ const options = {
 };
 
 describe("GDB identity and recovery", () => {
+  it("accepts the native worker's null bounds as an unfiltered snapshot", () => {
+    const layer = makeGdbLayer(catalog, { ...options, bounds: undefined }, { ...result, bounds: null });
+    expect(layer.gdb?.bounds).toBeUndefined();
+    expect(restoreLayers(snapshotLayers([layer]))[0].gdb?.bounds).toBeUndefined();
+    expect(() => assertWritableLayer(layer)).toThrow("GDB 图层只读");
+  });
+
   it("preserves read scope, types, source IDs, XYZ and null/empty across recovery without a live handle", () => {
     const layer = makeGdbLayer(catalog, options, result);
     expect(layerSource(layer)).toBe("gdb");

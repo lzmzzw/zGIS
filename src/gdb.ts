@@ -43,7 +43,7 @@ export interface GdbReadResult {
   truncated: boolean;
   loadedCount: number;
   readLimit: number;
-  bounds?: number[];
+  bounds?: number[] | null;
   sourceFingerprint: string;
   transformation: string;
 }
@@ -151,7 +151,7 @@ export function safeGdbSource(value: unknown): GdbSource {
     readLimit: Number(value.readLimit),
     loadedCount: Number(value.loadedCount),
     truncated: value.truncated,
-    ...(value.bounds === undefined
+    ...(value.bounds == null
       ? {}
       : { bounds: validateGdbBounds(value.bounds) }),
     allowApproximateDatum: value.allowApproximateDatum === true,
