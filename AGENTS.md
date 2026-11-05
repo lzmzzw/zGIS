@@ -2,7 +2,7 @@
 
 个人 Windows / macOS ARM64 轻量 GIS 编辑器与 Web 文件图层分析器，产品范围与验证入口以 README.md 为准。
 
-- SHP 工作副本可编辑，保存编辑回写已打开的 SHP 文件组或 ZIP 中对应图层，须检查来源指纹并保留其他 ZIP 成员；另存为在所选文件夹输出新 SHP 文件组，导出支持新 SHP ZIP，不覆盖已有目标；不支持 GDB。字段转换不能静默丢失，特殊几何不能静默降维。
+- SHP 工作副本可编辑，保存编辑回写已打开的 SHP 文件组或 ZIP 中对应图层，须检查来源指纹并保留其他 ZIP 成员；另存为在所选文件夹输出新 SHP 文件组，导出支持新 SHP ZIP，不覆盖已有目标；GDB 仅支持只读导入、分析与导出副本，不支持原库回写或编辑。字段转换不能静默丢失，特殊几何不能静默降维。
 - 文件解析在 Worker 执行；几何工作坐标统一 WGS84，来源 CRS 独立保存。
 - zGIS 内部图层的 Agent 操作统一使用 zGIS MCP，具体操作以工具清单和 schema 为准。GeoJSON、SHP、含 WKT 的 CSV 等外部文件优先交由 zGIS MCP 加载和分析；调用 Agent 负责按自身权限规则判断文件是否可访问，zGIS 不校验外部文件访问授权。
 - PostGIS 按实际场景选择 zGIS MCP 分析已加载图层快照，或由 DBX 直接操作数据库；不得要求 zGIS MCP 直连数据库。MCP 不暴露任意 shell 或源文件覆盖；分析结果作为独立未保存图层，由用户保存。Agent 只连接本次 zGIS MCP，关闭服务或应用时终止所属进程树。
@@ -16,4 +16,5 @@
 - 用户已授权本机覆盖安装时关闭正在运行的 zGIS，无需再次确认；仅关闭本项目应用进程。原生安装测试允许覆盖或先删除仓库 `output/` 下本次测试生成的同名导出文件，默认在打开保存对话框前删除目标，避免替换确认阻塞。不得据此覆盖真实业务文件或绕过产品的同名文件组保护。
 
 - Web 入口为 `web.html` 和 `src/web/`；不引入数据库、AI、MCP 或终端依赖。共享空间算法与 SHP 内存导出唯一源码在 `crates/spatial-core`，修改算法需运行该 crate 的测试与 Clippy；仅测试 src-tauri 不会执行依赖 crate 测试。
+- GDB 原生和 Web 共享 `src-tauri/src/gdb_native.rs` 的读取逻辑，Web ABI 在 `crates/gdb-wasm/`。桌面随包分发 GDAL，Web 首次使用时下载并缓存；只启用 OpenFileGDB 与必需 MEM，禁止回退到系统 GDAL。构建、兼容与真实样本验证见 `docs/gdb.md`。
 - Web 验证执行 `pnpm build:web`、`pnpm test:web`，真实静态资源在子目录 `/zgis/` 测试。WASM 生成文件不提交，保留类型声明和 Cargo.lock；构建工具安装见 docs/web.md。

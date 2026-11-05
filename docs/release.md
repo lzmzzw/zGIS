@@ -37,3 +37,9 @@ Windows 本地打包和安装继续使用 `pwsh -File scripts/build.ps1`、`pwsh
 独立 check-web job 安装精确版本 wasm-bindgen CLI，执行共享核心测试与 Clippy、构建 `dist-web`，在 `/zgis/` 子目录提供真实静态资源并运行 Edge Web 回归。通过后保存 `zGIS-web` artifact；失败时保存任务目录截图和 trace。Web job 与两端桌面检查均通过，发布流程才继续。
 
 发布时从 verify 核对过的同一提交独立构建 Web ZIP。聚合 job 须同时取得 Windows、macOS 两个产物及 Web ZIP，生成覆盖四个产物的 SHA256SUMS.txt；五个非空资产上传齐全后才公开 Release。Web 静态包无需安装，不会自动部署在线站点，部署说明见 [Web 版](web.md)。
+
+## GDB 运行时交付
+
+桌面打包的前置步骤从 `config/gdal-runtime.lock.json` 锁定并校验的源码构建裁剪 GDAL/PROJ/SQLite，资源随安装包分发；用户不依赖系统 GDAL。Windows x64 与 macOS ARM64 分别在对应 runner 构建和校验资源摘要、架构，再用真实 GDB 样本运行原生读取 smoke。macOS 另检查 `.app/Contents/Resources/gdal` 并执行包内 worker；这些门禁须实际通过，不能由 Windows 结果推定。
+
+Web job 使用 Emscripten 4.0.19 和 Rust 1.96.0 Emscripten target，从同一份共享读取源码构建静态运行时。`build:web` 先核验 GDB/WASM 清单与源码摘要，缺失或过期即失败。CI 在普通 Web 回归之外，必须用 `ZGIS_GDB_REAL=1` 执行真实 OpenFileGDB 目录/ZIP、投影、只读下载及离线缓存用例；ABI 模拟测试不能替代该门禁。Web ZIP 包含完整运行时文件，浏览器首次使用 GDB 才请求这些文件。命令与限制见 [GDB 说明](gdb.md)。

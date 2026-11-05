@@ -9,6 +9,14 @@
 
 前端参数使用 camelCase。错误返回中文字符串；数据库密码按用户授权加密持久化：Windows 使用当前用户 DPAPI，macOS 使用 AES-256-GCM，密钥保存在当前用户钥匙串。普通配置与恢复文件不含密码。
 
+## GDB 只读来源
+
+- `gdb_open {requestId,zipped}`：通过原生选择器选择 `.gdb` 目录或 ZIP，返回 `{sourceId,path,fingerprint,layers,warnings}`，取消返回 null。图层目录包含名称、分组、别名、几何类型、可选计数、来源 CRS/WKT、原始字段 schema、supported/reason 和 warnings；不为取得计数扫描全库。
+- `gdb_read {requestId,sourceId,layerName,limit,fields?,bounds?,allowApproximateDatum?}`：仅读取本次进程已登记且指纹一致的来源。`limit` 为 1–100000，`bounds` 为不跨日期线的 WGS84 `[west,south,east,north]`，`fields` 使用原始字段名。返回 `{features,sourceCrs,sourceCrsWkt,fields,geometryType,warnings,truncated,loadedCount,readLimit,bounds?,sourceFingerprint,transformation}`；features 使用 WGS84 XY、保留原 Z，源 FID 为文本。CGCS2000 近似转换默认关闭，须显式传入 `allowApproximateDatum:true`。
+- `gdb_cancel {requestId}`：取消匹配请求，终止所属隔离读取子进程。目录发现与读取串行，已有任务时返回 `GDB_BUSY`；应用退出释放子进程。命令不接受任意 GDAL 参数、SQL、写模式或运行时路径。
+
+`requestId` 仅允许 1–128 位 ASCII 字母、数字、下划线与连字符。目录发现超时 45 秒，读取超时 120 秒；容量、格式兼容、错误及恢复边界见 [GDB 说明](../docs/gdb.md)。图层始终只读，现有导出生成新副本，不绑定输出来源。
+
 ## 数据源管理
 
 - `load_database_sources` / `save_database_sources {sources}`：PostGIS 安全源配置；MySQL 对应 `load_mysql_sources` / `save_mysql_sources`。源为 `{id,name,host,port,database,user,sslMode}`，不接受 password 或未知字段。

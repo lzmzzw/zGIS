@@ -99,3 +99,9 @@
 | 回归 | pnpm test/build/i18n:check；cargo test/clippy --lib；Web 构建/相关测试；修改共享内核时执行其测试与 Clippy |
 
 GDAL 参考：[OpenFileGDB](https://gdal.org/en/stable/drivers/vector/openfilegdb.html)、[裁剪构建](https://gdal.org/en/stable/development/building_from_source.html)。运行时分发来源、锁定版本和第三方声明由实现提交补齐到长期文档。
+
+## 本次实现与验证范围
+
+原生读取与共享 WASM 核心、桌面只读入口及恢复、Web 首次下载与缓存、源码裁剪运行时和双平台 CI 已实现。Windows 实际样本覆盖目录/ZIP、字段与范围限量、中文、长整数、NULL/空串、XYZ、投影与显式 CGCS2000 近似、面洞和不兼容数据拒绝，读取前后来源内容摘要不变。真实 Tauri 隔离应用的导入、导出和重启只读恢复通过；Windows NSIS 构建通过。Web 21 项回归通过，包含真实 GDAL/WASM，而非仅 ABI 模拟。
+
+macOS ARM64 构建、包内资源、架构及签名门禁已配置，当前 Windows 主机未执行 macOS 验证，也未推送触发 GitHub CI。不将本地 Windows 结果视为 Mac 或云端交付通过；未执行覆盖安装或公开发布。当前使用及命令由 [GDB 说明](gdb.md) 维护。

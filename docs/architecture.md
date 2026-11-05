@@ -9,13 +9,14 @@ zGIS 同仓维护 Tauri 2 桌面应用与纯静态 Web 版。React 保存编辑�
 | 工作区与编辑协调 | `src/App.tsx`、`workspace.ts`、`dbChanges.ts`、`attributeEditing.ts` | 图层、选择、编辑会话、历史、恢复与提交；源文件保存由显式操作触发 |
 | 地图 | `src/MapView.tsx`、`mapEditing.ts`、`mapLayerSync.ts` | 工作几何到地图投影、绘制、移动、顶点编辑、选择样式；属性与数据库基线仍由领域模型持有 |
 | 文件解析 | `src/workers/`、`src/domain/` | 浏览器与 WebView2 的 Worker 解析、字段与 CRS 校验；取消和传输异常释放 Worker |
+| GDB 只读来源 | `src/gdb.ts`、`GdbPanel.tsx`、`src-tauri/src/gdb*.rs`、`crates/gdb-wasm/` | 目录与 schema、字段及范围筛选、严格 CRS 转换、只读快照；原生隔离子进程与 Web Worker 共用读取实现 |
 | 页面与设置 | `LayerTreePanel.tsx`、`FilePanels.tsx`、`DatabasePanels.tsx`、`PostgisManager.tsx`、`SettingsPage.tsx` | 操作入口与局部草稿；原生协议统一经 `bridge.ts` |
 | 原生文件与恢复 | `src-tauri/src/lib.rs`、`preferences.rs` | 注册文件句柄、指纹检查、原子保存、恢复副本、DPAPI 配置 |
 | 数据库 | `lib.rs`、`postgis_catalog.rs`、`mysql_catalog.rs`、`database_passwords.rs` | 每连接串行、不同连接隔离；查询限制、完整基线、事务与不确定提交保护 |
 | 矢量与分析 | `crates/spatial-core/`、`vector_files.rs`、`shapefile_export.rs`、`spatial.rs`、`processing.rs` | 外部矢量读取、格式保真边界、内存分析及输出预算 |
 | MCP 与 Agent | `gis_mcp.rs`、`mcp_credentials.rs`、`codex_agent.rs` | 本机认证、快照、分析缓存、结果发布及所属 Agent 进程生命周期；不直连数据库 |
 | 产品与网络信息 | `app_info.rs`、`app_update.rs`、`basemap_preview.rs` | 固定项目链接、版本比较、正式发行下载与 SHA-256 校验、Windows 退出后覆盖安装、受限图片预览请求 |
-| 交付 | `scripts/build.ps1`、`install.ps1`、`.github/workflows/` | 锁文件构建、版本门禁、包外安装验证、标签发布与校验文件 |
+| 交付 | `scripts/build.ps1`、`install.ps1`、`prepare-gdal.mjs`、`build-gdb-wasm.mjs`、`.github/workflows/` | 锁文件构建、裁剪运行时及摘要核验、版本门禁、包外安装验证、标签发布与校验文件 |
 
 ## 数据流
 
@@ -64,3 +65,5 @@ flowchart LR
 ## Web 平台边界
 
 `web.html` 与 `src/web/main.tsx` 为独立入口，复用 MapView、ImportPanel、ProcessingToolbox、domain 和解析 Worker。`src/web/files.ts` 负责浏览器文件读取与下载；`analysis.ts` 管理任务，`analysis.worker.ts` 加载 `crates/spatial-wasm` 编译产物。共享算法及 SHP 内存导出唯一源码在 `crates/spatial-core`；桌面包装通过 checkpoint hook 保持原有协作式取消，Web 通过终止 Worker 取消。两端各自提供运行时，不共享数据库、Agent、MCP 或原生持久化依赖。Web 使用与构建边界见 [Web 说明](web.md)。
+
+GDB 来源恢复保留已加载数据、原始 schema/CRS、筛选参数与截断/近似转换说明，不自动重读原库。Web 的 `gdbRuntime.ts` 管理同源静态运行时的按需下载和完整性缓存，`gdb.worker.ts` 挂载输入到独立内存文件系统；输入 GDB 不进入浏览器缓存。细节见 [GDB 说明](gdb.md)。
