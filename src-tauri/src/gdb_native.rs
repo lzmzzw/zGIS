@@ -458,19 +458,27 @@ fn read_layer(api: &Gdal, dataset: Handle, layer: Handle, request: &Value) -> Re
     let transform = Transformation::new(api, layer, request["allowApproximateDatum"].as_bool().unwrap_or(false))?;
     if let Some(bounds) = bounds { transform.filter(layer, bounds)?; }
     unsafe { (api.OGR_L_ResetReading)(layer); }
-    let mut output = Vec::new(); let mut truncated = false; let mut bytes = 0usize;
+    let mut output = Vec::new(); let mut truncated = false; let mut bytes = 0usize; let mut feature_ids = HashSet::new();
     let mut budget = Budget { coordinates: 0, feature_coordinates: 0 };
     loop {
         let handle = unsafe { (api.OGR_L_GetNextFeature)(layer) };
         if handle.is_null() { break; }
         let feature = Feature { api, handle };
         check_errors()?;
-        budget.feature_coordinates = 0;
-        let shape = geometry(api, unsafe { (api.OGR_F_GetGeometryRef)(handle) }, &transform, &mut budget)?;
+        // Without a post-transform range check, existence of the extra record is
+        // sufficient. Do not parse a geometry that is outside the requested prefix.
+        if bounds.is_none() && output.len() >= limit as usize { truncated = true; break; }
+        let mut candidate_budget = Budget { coordinates: 0, feature_coordinates: 0 };
+        let shape = geometry(api, unsafe { (api.OGR_F_GetGeometryRef)(handle) }, &transform, &mut candidate_budget)?;
         if bounds.is_some_and(|b| !geometry_intersects_bounds(&shape, b)) { continue; }
         if output.len() >= limit as usize { truncated = true; break; }
+        // Range-filtered candidates and the limit+1 probe do not consume the
+        // output coordinate budget; an individual candidate still has a bound.
+        budget.feature_coordinates = 0;
+        budget.add(candidate_budget.feature_coordinates)?;
         let fid = unsafe { (api.OGR_F_GetFID)(handle) };
         if fid < 0 { return Err("GDB_IDENTITY_UNSUPPORTED: driver did not provide a faithful feature identifier".into()); }
+        if !feature_ids.insert(fid) { return Err("GDB_IDENTITY_UNSUPPORTED: duplicate feature identifier returned by driver".into()); }
         let mut properties = Map::new();
         for field in &chosen {
             let value = unsafe {
@@ -507,6 +515,7 @@ fn dataset_path(source: &Path) -> Result<String, String> {
     let path = source.to_string_lossy().replace('\\', "/");
     let path = path.strip_prefix("//?/").unwrap_or(&path).to_owned();
     if source.is_dir() { return Ok(path); }
+    if path.contains(['{', '}']) { return Err("GDB_ZIP_INVALID: ZIP path contains unsupported virtual-filesystem delimiters".into()); }
     let mut archive = zip::ZipArchive::new(fs::File::open(source).map_err(|_| "GDB_SOURCE_MISSING")?).map_err(|_| "GDB_ZIP_INVALID: cannot read ZIP directory")?;
     if archive.len() > 10000 { return Err("GDB_ZIP_LIMIT: ZIP contains too many members".into()); }
     let mut roots = HashSet::new(); let mut bytes = 0u64;
@@ -601,6 +610,19 @@ mod tests {
         assert!(budget.add(1).is_err());
         let mut budget = Budget { coordinates: 0, feature_coordinates: MAX_FEATURE_COORDS };
         assert!(budget.add(1).is_err());
+    }
+    #[test]
+    fn candidate_and_truncation_probe_cannot_exhaust_the_output_budget() {
+        let mut output = Budget { coordinates: MAX_COORDS - 1, feature_coordinates: 0 };
+        let mut rejected = Budget { coordinates: 0, feature_coordinates: 0 };
+        rejected.add(MAX_FEATURE_COORDS).unwrap();
+        // A rejected range candidate/probe remains isolated from accepted data.
+        assert_eq!(output.coordinates, MAX_COORDS - 1);
+        let mut accepted = Budget { coordinates: 0, feature_coordinates: 0 };
+        accepted.add(1).unwrap();
+        output.add(accepted.feature_coordinates).unwrap();
+        assert_eq!(output.coordinates, MAX_COORDS);
+        assert!(output.add(1).is_err());
     }
     #[test]
     fn output_budget_counts_utf8_and_json_escaping() {

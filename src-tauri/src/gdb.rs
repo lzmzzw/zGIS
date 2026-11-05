@@ -206,9 +206,9 @@ pub async fn gdb_open(app: tauri::AppHandle, state: State<'_, GdbState>, request
         })();
         copy.finish(&job.id);
         result
-    }).await.map_err(|_| "GDB_WORKER_FAILED: read task failed".to_string())?;
+    }).await;
     state.finish(&request_id);
-    result
+    result.map_err(|_| "GDB_WORKER_FAILED: read task failed".to_string())?
 }
 
 #[tauri::command]
@@ -231,9 +231,9 @@ pub async fn gdb_read(app: tauri::AppHandle, state: State<'_, GdbState>, request
         })();
         copy.finish(&job.id);
         result
-    }).await.map_err(|_| "GDB_WORKER_FAILED: read task failed".to_string())?;
+    }).await;
     state.finish(&request_id);
-    result
+    result.map_err(|_| "GDB_WORKER_FAILED: read task failed".to_string())?
 }
 
 #[tauri::command]
