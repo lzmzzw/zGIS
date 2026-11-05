@@ -29,7 +29,7 @@ test("主菜单支持键盘选择、跳过禁用项目、退出与互斥", async
   ).toBeFocused();
   await page.keyboard.press("End");
   await expect(
-    file.getByRole("button", { name: "打开", exact: true }),
+    file.getByRole("button", { name: "打开 GDB…", exact: true }),
   ).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(
@@ -37,7 +37,7 @@ test("主菜单支持键盘选择、跳过禁用项目、退出与互斥", async
   ).toBeFocused();
   await page.keyboard.press("ArrowUp");
   await expect(
-    file.getByRole("button", { name: "打开", exact: true }),
+    file.getByRole("button", { name: "打开 GDB…", exact: true }),
   ).toBeFocused();
   await page.keyboard.press("Home");
   await expect(
@@ -52,7 +52,7 @@ test("主菜单支持键盘选择、跳过禁用项目、退出与互斥", async
   ).toBeFocused();
   await page.keyboard.press("End");
   await expect(
-    file.getByRole("button", { name: "打开", exact: true }),
+    file.getByRole("button", { name: "打开 GDB…", exact: true }),
   ).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(data.locator("summary")).toBeFocused();

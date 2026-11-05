@@ -74,7 +74,7 @@
 }
 .modal.basemap-add-dialog h2 {
   font-size: var(--font-size-dialog);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
 }
 .basemap-add-form {
   display: grid;

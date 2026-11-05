@@ -142,7 +142,7 @@ for (const theme of ["dark", "light"]) {
       await expect(run).toBeEnabled();
       await expect(run).toHaveCSS("background-color", primary.background);
       await expect(run).toHaveCSS("color", primary.color);
-      await expect(run).toHaveCSS("border-radius", "4px");
+      await expect(run).toHaveCSS("border-radius", "6px");
       const sidebar = page.locator(".right-sidebar");
       await expect(sidebar).toHaveCSS(
         "background-color",

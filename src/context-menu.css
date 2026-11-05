@@ -11,7 +11,7 @@
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--dialog-radius);
-  box-shadow: var(--overlay-shadow);
+  box-shadow: var(--popup-shadow);
   font-family: var(--font-ui);
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-normal);

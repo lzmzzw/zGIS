@@ -19,12 +19,14 @@
   --icon-size-tool: 18px;
   --icon-size-map: 20px;
   --control-height: 32px;
-  --control-radius: 4px;
-  --dialog-radius: 6px;
+  --control-radius: 6px;
+  --dialog-radius: 10px;
   --menu-item-height: 32px;
-  --primary: #d6d7db;
-  --primary-hover: #eeeef0;
-  --primary-text: #202022;
+  --primary: #dedee3;
+  --primary-hover: #f0f0f3;
+  --primary-text: #252528;
+  --control-shadow: inset 0 1px 2px #0003;
+  --popup-shadow: 0 18px 60px #0005, 0 1px 3px #0004;
   --neutral-accent: #bdbdbd;
   --overlay-backdrop: #0008;
   font-family: var(--font-ui);
@@ -81,9 +83,11 @@
   --danger-fill: #b83e3e0e;
   --warning: #805b17;
   --warning-fill: #805b170d;
-  --primary: #37393e;
-  --primary-hover: #24272c;
+  --primary: #363639;
+  --primary-hover: #252528;
   --primary-text: #ffffff;
+  --control-shadow: inset 0 1px 2px #0000000b;
+  --popup-shadow: 0 18px 60px #0002, 0 1px 3px #0001;
   --neutral-accent: #626873;
 }
 * {
@@ -422,7 +426,7 @@ details button {
   border: 1px solid var(--border);
   border-radius: var(--dialog-radius);
   background: var(--elevated);
-  box-shadow: var(--overlay-shadow);
+  box-shadow: var(--popup-shadow);
   max-width: calc(100vw - 16px);
   max-height: calc(100dvh - 64px);
   overflow-y: auto;
@@ -636,7 +640,7 @@ details button {
 .search-field {
   display: flex;
   align-items: center;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: var(--control-radius);
   padding: 0 8px;
   width: 170px;
@@ -644,6 +648,7 @@ details button {
   height: 28px;
   color: var(--muted);
   background: var(--surface);
+  box-shadow: var(--control-shadow);
 }
 .search-field input {
   border: 0;
@@ -651,6 +656,7 @@ details button {
   height: 24px;
   padding: 0 8px;
   background: transparent;
+  box-shadow: none;
 }
 .pagination {
   margin-left: auto;
@@ -987,7 +993,7 @@ dd {
   padding: 0 20px 18px;
   color: var(--text);
   background: var(--panel);
-  box-shadow: var(--overlay-shadow);
+  box-shadow: var(--popup-shadow);
   overscroll-behavior: contain;
 }
 .modal::backdrop {
@@ -1003,7 +1009,7 @@ dd {
 }
 .modal h2 {
   font-size: var(--font-size-dialog);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   margin: 0;
 }
 .modal .warning[role="alert"] {
@@ -1565,10 +1571,10 @@ select option:disabled {
     max-height: min(320px, 65vh);
     overflow: auto;
     border: 1px solid var(--control-border);
-    border-radius: 6px;
+    border-radius: var(--dialog-radius);
     color: var(--text);
     background: var(--elevated);
-    box-shadow: var(--overlay-shadow);
+    box-shadow: var(--popup-shadow);
   }
   select option {
     display: flex;
@@ -1576,7 +1582,7 @@ select option:disabled {
     gap: 8px;
     min-height: 32px;
     padding: 7px 9px;
-    border-radius: 3px;
+    border-radius: var(--control-radius);
     line-height: 1.4;
     overflow-wrap: anywhere;
   }
@@ -1596,6 +1602,19 @@ select option:disabled {
 input:not([type="checkbox"]):not([type="color"]),
 textarea {
   border-color: var(--control-border);
+}
+/* 控件质感不覆盖表格内联编辑器或嵌入式搜索框。 */
+:where(
+  input:not([type="checkbox"]):not([type="color"]):not([type="range"]):not(
+      [type="file"]
+    ),
+  select,
+  textarea
+) {
+  box-shadow: var(--control-shadow);
+}
+:where(input, select, textarea):is(:disabled, [readonly]) {
+  box-shadow: none;
 }
 input:not(:disabled):hover,
 textarea:not(:disabled):hover {
@@ -1626,8 +1645,12 @@ select[aria-invalid="true"],
 textarea[aria-invalid="true"] {
   border-color: var(--danger);
 }
+:where(input, select, textarea)[aria-invalid="true"] {
+  box-shadow: 0 0 0 1px var(--danger);
+}
 button:not(:disabled):active {
   background: var(--selected);
+  filter: brightness(0.96);
 }
 .lucide {
   width: var(--icon-size, var(--icon-size-base));
@@ -1658,10 +1681,13 @@ b {
 }
 button,
 summary,
-select {
+select,
+input,
+textarea {
   transition:
-    background-color 120ms ease,
-    border-color 120ms ease;
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
 }
 .menu-items > button:hover:disabled {
   background: transparent;
@@ -1762,6 +1788,8 @@ select {
   button,
   summary,
   select,
+  input,
+  textarea,
   select::picker-icon {
     transition: none;
   }
