@@ -1,4 +1,10 @@
 const web: Record<string, string> = {
+  "导入 GDB": "Import GDB",
+  "GDB 只读": "GDB read-only",
+  "已添加 GDB 只读图层；下载和分析仅包含已加载数据。": "Added a read-only GDB layer; downloads and analysis include only loaded data.",
+  "浏览器无法缓存 GDB 运行时，本次仍可使用；下次可能需要重新下载。": "Your browser cannot cache the GDB runtime. It is available for this session; another download may be needed next time.",
+  "正在准备 GDB 运行时；首次使用需要下载，完成后会缓存。": "Preparing the GDB runtime. The first use requires a download, which will be cached.",
+  "GDB 运行时已就绪，正在读取本地数据。": "The GDB runtime is ready. Reading local data.",
   语言: "Language",
   "© OpenStreetMap 贡献者": "© OpenStreetMap contributors",
   "关闭{0}": "Close {0}",

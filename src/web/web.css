@@ -367,3 +367,16 @@
     display: none;
   }
 }
+.web-modal:has(.gdb-panel) {
+  width: min(860px, calc(100vw - 32px));
+}
+.web-modal:has(.gdb-panel) > header h2 {
+  white-space: nowrap;
+}
+.web-modal:has(.gdb-panel) > header select {
+  width: 150px;
+  margin-left: auto;
+}
+.web-language {
+  white-space: nowrap;
+}

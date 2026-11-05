@@ -21,6 +21,9 @@ import {
 } from "lucide-react";
 import MapView, { type Tool } from "../MapView";
 import { ImportPanel } from "../FilePanels";
+import GdbPanel from "../GdbPanel";
+import { isGdbLayer } from "../gdb";
+import { createBrowserGdbAdapter } from "./gdb";
 import { LayerInspector, type LayerDisplayPatch } from "../LayerInspector";
 import LayerLegend from "../LayerLegend";
 import CommandPalette from "../CommandPalette";
@@ -128,6 +131,7 @@ export default function WebApp() {
     if (!toolboxOpen || editingLayerId) setAnalysisFocus(undefined);
   }, [toolboxOpen, editingLayerId]);
   const [pendingFiles, setPendingFiles] = useState<InputFile[]>([]);
+  const [gdbOpen, setGdbOpen] = useState(false);
   const [exportId, setExportId] = useState<string>();
   const [removeId, setRemoveId] = useState<string>();
   const [exportMode, setExportMode] = useState<
@@ -140,6 +144,8 @@ export default function WebApp() {
   const [status, setStatus] = useState(
     "选择或拖入文件开始；文件仅在本地浏览器处理。",
   );
+  const gdbAdapter = useMemo(() => createBrowserGdbAdapter(setStatus), []);
+  useEffect(() => () => gdbAdapter.dispose(), [gdbAdapter]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [position, setPosition] = useState<number[]>([]);
@@ -148,7 +154,7 @@ export default function WebApp() {
   const locked = useRef(false);
   const mounted = useRef(true);
   const active = layers.find((layer) => layer.id === activeId);
-  const editing = Boolean(activeId && editingLayerId === activeId);
+  const editing = Boolean(activeId && editingLayerId === activeId && !isGdbLayer(active));
   const exporting = layers.find((layer) => layer.id === exportId);
   const removing = layers.find((layer) => layer.id === removeId);
   const dirty = layers.some((layer) => layer.dirty);
@@ -205,7 +211,7 @@ export default function WebApp() {
     setFitNonce((value) => value + 1);
   };
   const beginEditing = () => {
-    if (!active || busy || !active.features.length) return;
+    if (!active || busy || !active.features.length || isGdbLayer(active)) return;
     setEditingLayerId(active.id);
     setTool("select");
     setStatus("编辑中：可新增、移动或修改要素");
@@ -219,7 +225,7 @@ export default function WebApp() {
     setStatus("已退出编辑");
   };
   const editFeature = (feature: DocumentLayer["features"][number], insert: boolean) => {
-    if (!active || !editing) return false;
+    if (!active || !editing || isGdbLayer(active)) return false;
     setLayers((old) =>
       old.map((layer) => {
         if (layer.id !== active.id) return layer;
@@ -236,7 +242,7 @@ export default function WebApp() {
     return true;
   };
   const deleteSelected = () => {
-    if (!active || !editing || !selectedId) return;
+    if (!active || !editing || !selectedId || isGdbLayer(active)) return;
     setLayers((old) =>
       old.map((layer) =>
         layer.id === active.id
@@ -427,7 +433,7 @@ export default function WebApp() {
       }}
       onDrop={(event) => {
         event.preventDefault();
-        if (!pendingFiles.length && !exportId && !removeId)
+        if (!gdbOpen && !pendingFiles.length && !exportId && !removeId && !editingLayerId)
           void selectFiles(Array.from(event.dataTransfer.files));
       }}
     >
@@ -438,6 +444,9 @@ export default function WebApp() {
         <button disabled={busy} onClick={() => input.current?.click()}>
           <FolderOpen size={16} />
           {t("导入文件")}
+        </button>
+        <button disabled={busy || Boolean(editingLayerId)} onClick={() => setGdbOpen(true)}>
+          <FolderOpen size={16} />{t("导入 GDB")}
         </button>
         <input
           hidden
@@ -521,6 +530,7 @@ export default function WebApp() {
               <p>
                 {t(`${layer.features.length} 个要素`)} ·{" "}
                 {layer.originalCrs || layer.crs}
+                {isGdbLayer(layer) && <> · {t("GDB 只读")}</>}
               </p>
               <div className="web-layer-actions">
                 <input
@@ -620,7 +630,7 @@ export default function WebApp() {
               <button
                 aria-label={t(editing ? "退出编辑" : "编辑")}
                 aria-pressed={editing}
-                disabled={!active || busy || gestureActive}
+                disabled={!active || isGdbLayer(active) || busy || gestureActive}
                 onClick={() => (editing ? finishEditing() : beginEditing())}
               >
                 {editing ? <X size={16} /> : <Pencil size={16} />}
@@ -841,6 +851,13 @@ export default function WebApp() {
         )}
       </div>
       {commandOpen && <CommandPalette commands={uiCommands} onClose={() => setCommandOpen(false)} />}
+      {gdbOpen && <Modal title={t("导入 GDB")} onClose={() => { gdbAdapter.dispose(); setGdbOpen(false); }}>
+        <GdbPanel adapter={gdbAdapter} onBusy={value => { locked.current = value; setBusy(value); }}
+          onClose={() => { gdbAdapter.dispose(); setGdbOpen(false); }} onImport={layer => {
+            gdbAdapter.dispose(); addLayers([layer]); setGdbOpen(false);
+            setStatus("已添加 GDB 只读图层；下载和分析仅包含已加载数据。");
+          }} />
+      </Modal>}
       <footer className="web-status" role="status">
         <span>{t(status)}</span>
         {cancellable && (
