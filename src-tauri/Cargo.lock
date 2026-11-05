@@ -6649,6 +6649,7 @@ dependencies = [
  "geojson",
  "i_float",
  "libc",
+ "libloading 0.8.9",
  "mysql_async",
  "native-tls",
  "objc2",

@@ -1,0 +1,23 @@
+[package]
+name = "gdb-wasm"
+version = "0.4.2"
+edition = "2021"
+license = "GPL-3.0-only"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(not(target_os = "emscripten"))'.dependencies]
+libloading = "=0.8.9"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = false
+opt-level = "s"
+panic = "abort"

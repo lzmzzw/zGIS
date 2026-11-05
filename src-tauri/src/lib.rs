@@ -32,6 +32,10 @@ mod recovery_upload;
 mod staged_file;
 mod file_content_upload;
 mod locale;
+mod gdb;
+mod gdb_contract;
+mod gdb_native;
+pub use gdb::worker_entry as gdb_worker_entry;
 #[cfg(any(target_os = "macos", test))]
 mod macos_security;
 #[cfg(any(target_os = "macos", test))]
@@ -1618,6 +1622,7 @@ async fn export_database(
 pub fn run() {
     tauri::Builder::default()
         .manage(Backend::default())
+        .manage(gdb::GdbState::default())
         .manage(app_update::UpdateState::default())
         .manage(mysql_catalog::MysqlBackend::default())
         .manage(database_passwords::PasswordStore::default())
@@ -1639,6 +1644,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             locale::set_locale,
+            gdb::gdb_open,
+            gdb::gdb_read,
+            gdb::gdb_cancel,
             processing::gis_run_analysis,
             processing::gis_cancel_analysis,
             gis_mcp::gis_mcp_status,
@@ -1705,6 +1713,7 @@ pub fn run() {
                 }
             }
             if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<gdb::GdbState>().shutdown();
                 app.state::<codex_agent::CodexAgent>().shutdown();
                 app.state::<gis_mcp::GisMcp>().shutdown();
             }

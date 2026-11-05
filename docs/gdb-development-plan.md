@@ -9,11 +9,21 @@
 - GDB 来源图层只读：禁止几何、属性、字段、记录新增删除、撤销重做及源文件重命名/保存；允许显隐、样式、显示名称、查询、选择、测量、分析和导出。
 - 导出使用现有 GeoJSON、CSV、SHP ZIP 及已有数据库新表入口，各自保持现有类型、坐标和覆盖保护；不新增 GDB 导出或原库回写。导出不改变 GDB 图层身份和只读状态。
 - 分析结果是独立工作区图层，可按现有规则编辑；不修改源 GDB。
-- Web 不加载 GDAL，不新增 GDB 入口；MCP 不扩展外部 GDB 读取工具，已导入图层沿用现有快照分析。
+- Web 支持本地 GDB 文件夹和 GDB ZIP，以独立 GDAL/WASM Worker 复用只读读取规则；运行时只包含 OpenFileGDB、必要投影转换和输出能力，首次使用 GDB 才下载并缓存。普通页面加载、其他文件导入和现有空间分析不加载此运行时。桌面继续随包分发原生 GDAL。
+- MCP 不扩展外部 GDB 读取工具，已导入图层沿用现有快照分析。
 
 ## 技术方案
 
-以固定版本 GDAL OpenFileGDB 读取；原生运行时随安装包分发，不依赖 Python、.NET、QGIS 或系统 GDAL。GDAL 动态库、PROJ 数据和必要资源归一化到安装资源 `gdal/`，下载包版本和 SHA-256 纳入锁定清单，二进制不入 Git。
+以固定版本 GDAL OpenFileGDB 读取；原生运行时随安装包分发，不依赖 Python、.NET、QGIS 或系统 GDAL。GDAL 动态库、PROJ 数据和必要资源归一化到安装资源 `gdal/`，源码及运行时版本和 SHA-256 纳入锁定清单，二进制不入 Git。正式运行时关闭无关矢量/栅格驱动及网络依赖，仅保留 OpenFileGDB、必要投影和输出能力；现成完整 minimal 包只可用作本机开发 bootstrap，不作为裁剪交付证据。
+
+### Web 首用加载与缓存
+
+- 原生与 WASM 复用读取和兼容检查代码；WASM 使用独立构建，不把 Tauri、数据库或原生进程模块引入浏览器。
+- GDB 文件只进入浏览器内存/虚拟文件系统，不上传；目录保留相对路径，ZIP 保持归档输入，限制文件数、总字节和路径结构。
+- 首次打开 GDB 后才请求同源、固定版本运行时清单、胶水 JS、WASM 和必要投影数据；支持部署在 `/zgis/` 子路径，不绑定站点根路径或公共 CDN。
+- 使用按版本隔离的 CacheStorage，校验资源摘要后缓存，失败或损坏不保留可被命中的半成品；缓存不可用时可在本次会话加载并明确提示，重试不会重复添加图层。
+- Worker 终止用于取消/超时，取消下载及导入均不能产生图层；正常页面启动验证不得出现 GDB 运行时网络请求；缓存命中后验证离线再次导入。
+- GDB 图层只读保护覆盖 Web 工具栏、地图、属性及快捷键；允许现有下载和分析结果另存。浏览器数据预算仍受现有 Web 限制。
 
 主程序通过自己的 `--gdb-worker <runtimeRoot>` 模式启动独立读取进程。辅助模式在 Tauri 初始化前分流，只接受一个结构化 JSON 请求，仅注册和只读打开必要驱动，不提供任意命令、SQL或写入能力。运行时缺失、架构不符、驱动不可用时明确失败。
 
@@ -22,19 +32,20 @@
 ### IPC 契约
 
 - `gdb_open(requestId, zipped)`：原生选择目录或 ZIP，检查来源、读取图层目录并注册只读来源，返回 `null` 或 catalog。
-- `gdb_read(requestId, sourceId, layerName, limit, fields?, bounds?)`：按已注册来源读取，返回完整的有界图层工作副本。
+- `gdb_read(requestId, sourceId, layerName, limit, fields?, bounds?, allowApproximateDatum?)`：按已注册来源读取，返回完整的有界图层工作副本；近似基准转换默认关闭。
 - `gdb_cancel(requestId)`：取消目录或读取任务，幂等；不得取消其他任务。
 - catalog：`sourceId, path, fingerprint, layers, warnings`。
 - layer：`name, group?, alias?, geometryType, featureCount, sourceCrs, sourceCrsWkt, fields, supported, reason?, warnings`；数量未知为 `null`，不得强制扫描整层计数。
 - field：`name, type, nullable, alias?, domain?`；domain 保存可用的非敏感定义或说明，不改变原始编码值。
 - read result：`features, sourceCrs, sourceCrsWkt, fields, geometryType, warnings, truncated, loadedCount, readLimit, bounds?, sourceFingerprint, transformation`。feature 使用现有 `{id, geometry, properties, sourceFeatureId}` 格式。
-- worker 输入：`{operation: "catalog" | "read", path, layerName?, limit?, fields?, bounds?}`；输出 `{ok: true, result}` 或 `{ok: false, error}`；不混入调试输出。
+- worker 输入：`{operation: "catalog" | "read", path, layerName?, limit?, fields?, bounds?, allowApproximateDatum?}`；输出 `{ok: true, result}` 或 `{ok: false, error}`；不混入调试输出。
 
 ## 坐标系适配
 
 - 读取每层完整 WKT 和可识别的 authority，工作坐标固定传统 GIS 轴序的 WGS84 经度/纬度。
 - 对可可靠转换的地理/投影坐标使用 GDAL/PROJ，覆盖现有三种 CRS 及常见高斯克吕格/UTM 等投影；禁止将未知 CRS 默认为 EPSG:4326。
 - 禁用网络格网下载，禁止静默使用 ballpark 转换；缺少所需格网、未知/不支持的 CRS 或非有限结果应报错。保留转换说明，不承诺任意 CRS 或测绘级精度。
+- CGCS2000 特例：用户可明确勾选允许近似基准转换（默认关闭），仅对基准地理 CRS 可确认是 EPSG:4490 的图层，在同基准内反投影至 4490，再按现有 zGIS 约定近似视作 WGS84。结果及恢复元数据必须保留选择和警告，不推广到其他基准，不声称历元/七参数/格网或测绘级转换。
 - 仅转换 XY；XYZ 的 Z 保留，不进行垂直基准换算。M/ZM、曲线、集合和特殊几何首期拒绝，避免隐式二维化或曲线离散化。
 - 范围输入使用 WGS84，校验经纬度及顺序，拒绝跨日期变更线范围；原生过滤后对工作坐标复核范围。
 
@@ -67,7 +78,8 @@
 1. **计划**：提交本计划，固定范围、数据契约和验收方式。
 2. **GDAL 分发与原生读取**：锁定运行时、下载校验和双平台资源；实现 worker、目录、字段/范围限量读取、坐标转换、兼容检查及进程管理；提交通过的原生与运行时检查。
 3. **界面与只读语义**：导入面板、来源信息、只读入口和命令保护、快照恢复、导出；提交相关单元及交互验证。
-4. **集成交付**：真实 GDB 样本、预算/取消/错误验证、桌面产物检查、跨平台 CI、文档同步；修复并提交。
+4. **Web 首用运行时**：裁剪 WASM 构建、同源版本清单与摘要、按需下载缓存、目录/ZIP 读取、只读与下载；提交实际浏览器验证。
+5. **集成交付**：真实 GDB 样本、预算/取消/错误验证、桌面产物检查、跨平台 CI、文档同步；修复并提交。
 
 每批先检查对应改动再提交，根 Agent 负责整合；不推送、不创建发行版、不覆盖安装。遇到平台不可用或样本缺失时记录具体覆盖范围，继续完成独立工作，不伪造实测。
 
@@ -83,6 +95,7 @@
 | 只读 | 工具栏、属性编辑、WKT/JSON、字段/记录增删、快捷键、恢复、保存/另存和源文件重命名均不可绕过 |
 | 导出 | 新文件可重读；保持原层只读、身份和范围；不导出未读取的数据；沿用字段及高程保真保护 |
 | 平台 | Windows x64 本地原生 worker/打包 smoke；macOS ARM64 CI 运行真实 worker 与产物架构/资源/签名检查 |
+| Web GDB | `/zgis/` 子路径、首屏无运行时请求、首次下载、缓存摘要、离线命中、损坏/缓存不可用/下载取消、目录与ZIP、只读与导出 |
 | 回归 | pnpm test/build/i18n:check；cargo test/clippy --lib；Web 构建/相关测试；修改共享内核时执行其测试与 Clippy |
 
 GDAL 参考：[OpenFileGDB](https://gdal.org/en/stable/drivers/vector/openfilegdb.html)、[裁剪构建](https://gdal.org/en/stable/development/building_from_source.html)。运行时分发来源、锁定版本和第三方声明由实现提交补齐到长期文档。
