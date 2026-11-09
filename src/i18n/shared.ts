@@ -289,7 +289,7 @@ const messages: Record<string, string> = {
   新建子分组: "New subgroup",
   新建分组: "New group",
   重命名分组: "Rename group",
-  新建文件: "New file",
+  新建文件图层: "New file layer",
   添加文件图层: "Add file layer",
   添加Mysql表图层: "Add MySQL table layer",
   添加PostGIS表图层: "Add PostGIS table layer",

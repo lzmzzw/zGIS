@@ -545,7 +545,7 @@ export default function LayerTree(props: Props) {
       });
       separator("group-name");
     }
-    addItem("new-file", "新建文件", () => props.onNewFile(groupId));
+    addItem("new-file", "新建文件图层", () => props.onNewFile(groupId));
     separator("add");
     addItem("add-files", "添加文件图层", () => props.onAddFiles(groupId));
     addItem(
@@ -617,9 +617,6 @@ export default function LayerTree(props: Props) {
         }}
       >
         <strong>{t("图层")}</strong>
-        {props.layers.length > 0 && (
-          <span className="count">{props.layers.length}</span>
-        )}
       </div>
       <div
         className="layer-tree"
