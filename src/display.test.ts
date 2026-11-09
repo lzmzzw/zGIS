@@ -4,6 +4,7 @@ import MultiPoint from "ol/geom/MultiPoint";
 import { makeLayer, exportGeoJSON } from "./domain";
 import {
   categoryColor,
+  defaultThematicFields,
   createCategorizedStyle,
   normalizeCategorizedStyle,
   reconcileDisplayFieldChange,
@@ -201,5 +202,43 @@ describe("field labels", () => {
     expect(styles[1].getText()?.getStroke()).toBeNull();
     expect(styles[1].getGeometryFunction()(feature)?.getType()).toBe("Point");
     expect(feature.getGeometry()?.getType()).toBe("MultiPoint");
+  });
+});
+
+describe("automatic thematic defaults", () => {
+  it("prefers repeated categories and varying measures over IDs, names and constants", () => {
+    const layer = make(["a", "a", "b", "b"]);
+    layer.features.forEach((feature, i) => {
+      feature.properties = {
+        FID: i,
+        name: `name${i}`,
+        constant: 1,
+        kind: i < 2 ? "A" : "B",
+        amount: [10, 10, 20, 40][i],
+      };
+    });
+    const before = JSON.stringify(layer.features);
+    expect(defaultThematicFields(layer)).toEqual({
+      categoryField: "kind",
+      numericField: "amount",
+      numericClasses: 3,
+    });
+    expect(JSON.stringify(layer.features)).toBe(before);
+  });
+  it("caps default levels at five and never interprets numeric text as numbers", () => {
+    expect(
+      defaultThematicFields(make(["1", "2"])).numericField,
+    ).toBeUndefined();
+    expect(defaultThematicFields(make([7, 7])).numericClasses).toBe(1);
+    expect(
+      defaultThematicFields(make(Array.from({ length: 100 }, (_, i) => i))),
+    ).toEqual({
+      categoryField: "kind",
+      numericField: "kind",
+      numericClasses: 5,
+    });
+    expect(
+      defaultThematicFields(make([null, undefined, {}])).numericClasses,
+    ).toBe(0);
   });
 });

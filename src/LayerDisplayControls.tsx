@@ -12,10 +12,11 @@ import {
   categoryKey,
   createCategorizedStyle,
   displayFields,
+  defaultThematicFields,
+  defaultGraduatedClasses,
   createLayerLabels,
   createGraduatedStyle,
   graduatedRangeLabel,
-  isDisplayNumber,
   parseManualBreaks,
 } from "./layerDisplay";
 import "./layer-display.css";
@@ -90,7 +91,11 @@ export function GraduatedStyleControls({
           aria-label={t("分级字段")}
           value={value.field}
           onChange={(event) =>
-            rebuild(event.target.value, value.method, value.colors.length)
+            rebuild(
+              event.target.value,
+              value.method,
+              defaultGraduatedClasses(layer, event.target.value),
+            )
           }
         >
           {!fields.includes(value.field) && (
@@ -355,13 +360,11 @@ export function CategorizedStyleControls({
     [layer.features, layer.geometryType],
   );
 
-  const numericField = fields.find((field) =>
-    layer.features.some(
-      (feature) =>
-        Object.hasOwn(feature.properties, field) &&
-        isDisplayNumber(feature.properties[field]),
-    ),
+  const defaults = useMemo(
+    () => defaultThematicFields(layer),
+    [layer.features, layer.fieldNames],
   );
+  const numericField = defaults.numericField;
   return (
     <fieldset className="layer-display-controls">
       <legend>{t("分类着色")}</legend>
@@ -372,12 +375,23 @@ export function CategorizedStyleControls({
           value={graduatedValue ? "graduated" : value ? "unique" : "single"}
           onChange={(event) => {
             if (event.target.value === "graduated" && numericField)
-              onChange(undefined, createGraduatedStyle(layer, numericField));
+              onChange(
+                undefined,
+                createGraduatedStyle(
+                  layer,
+                  numericField,
+                  "quantile",
+                  defaults.numericClasses,
+                ),
+              );
             else
               onChange(
                 event.target.value === "single"
                   ? undefined
-                  : createCategorizedStyle(layer, fields[0]),
+                  : createCategorizedStyle(
+                      layer,
+                      defaults.categoryField ?? fields[0],
+                    ),
               );
           }}
         >

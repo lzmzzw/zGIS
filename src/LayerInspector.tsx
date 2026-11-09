@@ -217,13 +217,23 @@ export function LayerInspector({
               layer={{ ...layer, ...current }}
               value={current.categorizedStyle}
               graduatedValue={current.graduatedStyle}
-              onChange={(categorizedStyle, graduatedStyle) =>
+              onChange={(categorizedStyle, graduatedStyle) => {
+                const starting =
+                  !current.categorizedStyle &&
+                  !current.graduatedStyle &&
+                  Boolean(categorizedStyle || graduatedStyle);
                 change({
                   categorizedStyle,
                   graduatedStyle,
                   strokeColor: current.strokeColor ?? current.color,
-                })
-              }
+                  ...(starting
+                    ? {
+                        fillOpacity: Math.max(current.fillOpacity ?? 0, 0.7),
+                        opacity: Math.max(current.opacity ?? 1, 0.7),
+                      }
+                    : {}),
+                });
+              }}
             />
             <LabelStyleControls
               layer={layer}

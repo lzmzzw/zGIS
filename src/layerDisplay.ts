@@ -356,6 +356,54 @@ export function displayFields(layer: DocumentLayer): string[] {
     ]),
   ];
 }
+
+/** Choose useful initial fields without modifying values or retaining unbounded sets. */
+export function defaultThematicFields(layer: DocumentLayer): {
+  categoryField?: string;
+  numericField?: string;
+  numericClasses: number;
+} {
+  const fields = displayFields(layer);
+  const profiles = new Map(fields.map(field => [field, {
+    values: new Set<string>(), numeric: new Set<number>(), count: 0, text: false,
+  }]));
+  for (const feature of layer.features) {
+    for (const [field, value] of Object.entries(feature.properties)) {
+      const profile = profiles.get(field)!;
+      const key = categoryKey(value);
+      if (key === undefined) continue;
+      profile.count++;
+      profile.text ||= typeof value === "string" || typeof value === "boolean";
+      if (profile.values.size <= MAX_DISPLAY_CATEGORIES) profile.values.add(key);
+      if (isDisplayNumber(value) && profile.numeric.size < 5) profile.numeric.add(value);
+    }
+  }
+  const identifier = (field: string) => /^(?:id|fid|oid|objectid|object_id|gid|uuid|编号|序号)$/i.test(field);
+  const candidates = fields.filter(field => profiles.get(field)!.count > 0);
+  const repeated = candidates.filter(field => {
+    const profile = profiles.get(field)!;
+    return profile.values.size > 1 && profile.values.size <= MAX_DISPLAY_CATEGORIES && profile.values.size < profile.count;
+  });
+  const categoryField = repeated.find(field => profiles.get(field)!.text && !identifier(field))
+    ?? repeated.find(field => !identifier(field))
+    ?? candidates.find(field => !identifier(field) && profiles.get(field)!.values.size > 1 && profiles.get(field)!.values.size <= MAX_DISPLAY_CATEGORIES)
+    ?? candidates.find(field => !identifier(field)) ?? candidates[0] ?? fields[0];
+  const numeric = fields.filter(field => profiles.get(field)!.numeric.size > 0)
+    .sort((a, b) => profiles.get(b)!.numeric.size - profiles.get(a)!.numeric.size);
+  const numericField = numeric.find(field => !identifier(field) && profiles.get(field)!.numeric.size > 1)
+    ?? numeric.find(field => !identifier(field)) ?? numeric[0];
+  return { categoryField, numericField, numericClasses: numericField ? profiles.get(numericField)!.numeric.size : 0 };
+}
+
+export function defaultGraduatedClasses(layer: DocumentLayer, field: string): number {
+  const values = new Set<number>();
+  for (const feature of layer.features) {
+    const value = feature.properties[field];
+    if (Object.hasOwn(feature.properties, field) && isDisplayNumber(value)) values.add(value);
+    if (values.size === 5) break;
+  }
+  return Math.max(1, values.size);
+}
 export function createCategorizedStyle(
   layer: DocumentLayer,
   field: string,

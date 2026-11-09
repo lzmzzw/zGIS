@@ -80,7 +80,7 @@ test("图层样式分级、右侧图例与取消预览不改变来源数据", as
     "amount",
   );
   await expect(inspector).toContainText("预览中");
-  await expect(legend.locator("li")).toHaveCount(8);
+  await expect(legend.locator("li")).toHaveCount(7);
   await inspector.getByRole("button", { name: "取消", exact: true }).click();
   await expect(inspector).toBeHidden();
   await layer.getByRole("button", { name: "图层样式", exact: true }).click();
@@ -109,7 +109,7 @@ test("图层样式分级、右侧图例与取消预览不改变来源数据", as
   await inspector.getByRole("button", { name: "取消", exact: true }).click();
   await layer.getByRole("button", { name: "图层样式", exact: true }).click();
   await expect(inspector.getByLabel("分级方法", { exact: true })).toHaveValue(
-    "equal_interval",
+    "quantile",
   );
   await inspector
     .getByRole("button", { name: "关闭检查器", exact: true })

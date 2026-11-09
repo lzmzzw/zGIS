@@ -131,7 +131,7 @@ test("geometry-specific controls, right-side legend, preview cancellation and pe
   await expect(
     inspector.getByLabel("填充颜色", { exact: true }),
   ).toBeDisabled();
-  await expect(inspector.locator(".layer-legend li")).toHaveCount(8);
+  await expect(inspector.locator(".layer-legend li")).toHaveCount(6);
   await inspector.getByRole("button", { name: "取消", exact: true }).click();
   await expect
     .poll(() => page.evaluate(() => window.__ZG_TEST__.snapshot))
@@ -211,7 +211,9 @@ test("category and graduated editors match legend symbols throughout draft chang
     await inspector.getByLabel("图层不透明度", { exact: true }).fill("55");
     await inspector
       .getByLabel(
-        layer.features[0].geometry.type === "MultiLineString" ? "线宽" : "边框宽度",
+        layer.features[0].geometry.type === "MultiLineString"
+          ? "线宽"
+          : "边框宽度",
         { exact: true },
       )
       .fill("3");
@@ -255,4 +257,93 @@ test("category and graduated editors match legend symbols throughout draft chang
     );
     await inspector.getByRole("button", { name: "取消", exact: true }).click();
   }
+});
+
+test("thematic modes generate editable defaults immediately without a rebuild action", async ({
+  page,
+}) => {
+  const layer = {
+    ...layers[2],
+    fillOpacity: 0,
+    opacity: 0,
+    features: layers[2].features.map((feature, i) => ({
+      ...feature,
+      properties: {
+        FID: i,
+        name: `Object${i}`,
+        group: i < 2 ? "A" : "B",
+        amount: i * 10,
+      },
+    })),
+  };
+  await installDesktopMock(
+    page,
+    JSON.stringify({
+      version: 2,
+      layers: [layer],
+      tree: [{ kind: "layer", id: layer.id }],
+    }),
+  );
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: `${layer.name}样式`, exact: true })
+    .click();
+  const inspector = page.locator(".layer-inspector");
+  await inspector
+    .getByLabel("着色方式", { exact: true })
+    .selectOption("unique");
+  await expect(inspector.getByLabel("分类字段", { exact: true })).toHaveValue(
+    "group",
+  );
+  await expect(
+    inspector.locator(".layer-category-list input[type=color]"),
+  ).toHaveCount(5);
+  const colors = await inspector
+    .locator(".layer-category-list input[type=color]")
+    .evaluateAll((nodes) =>
+      nodes.slice(0, 2).map((node) => (node as HTMLInputElement).value),
+    );
+  expect(new Set(colors).size).toBe(2);
+  await expect(
+    inspector.getByLabel("填充不透明度", { exact: true }),
+  ).toHaveValue("70");
+  await inspector.getByLabel("类别 1 颜色", { exact: true }).fill("#abcdef");
+  await inspector.getByLabel("填充不透明度", { exact: true }).fill("25");
+  await inspector
+    .getByRole("button", { name: "应用样式", exact: true })
+    .click();
+  await inspector
+    .getByRole("button", { name: "关闭检查器", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: `${layer.name}样式`, exact: true })
+    .click();
+  await expect(
+    inspector.getByLabel("类别 1 颜色", { exact: true }),
+  ).toHaveValue("#abcdef");
+  await expect(
+    inspector.getByLabel("填充不透明度", { exact: true }),
+  ).toHaveValue("25");
+  await inspector
+    .getByLabel("着色方式", { exact: true })
+    .selectOption("graduated");
+  await expect(inspector.getByLabel("分级字段", { exact: true })).toHaveValue(
+    "amount",
+  );
+  await expect(inspector.getByLabel("分级方法", { exact: true })).toHaveValue(
+    "quantile",
+  );
+  await expect(inspector.getByLabel("分级数量", { exact: true })).toHaveValue(
+    "3",
+  );
+  await expect(
+    inspector.locator(".layer-category-list input[type=color]"),
+  ).toHaveCount(6);
+  // Changing modes after manual adjustment keeps the user's opacity.
+  await expect(
+    inspector.getByLabel("填充不透明度", { exact: true }),
+  ).toHaveValue("25");
+  await inspector.getByLabel("分级 1 颜色", { exact: true }).fill("#112233");
+  await inspector.getByLabel("分级数量", { exact: true }).selectOption("2");
+  await expect(inspector.locator(".layer-legend li")).toHaveCount(5);
 });
