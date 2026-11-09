@@ -181,6 +181,9 @@ export default function MapView(props: Props) {
             true,
             accent,
             active?.strokeWidth ?? 2,
+            undefined,
+            undefined,
+            active?.pointRadius ?? 5,
           ),
         ];
         if (current.current.editable && current.current.tool === "modify") {
@@ -342,7 +345,7 @@ export default function MapView(props: Props) {
       layer.setOpacity(item.opacity ?? 1);
       layer.setDeclutter(item.labels ? "zgis-labels" : false);
       layer.setZIndex(props.layers.length - index + 10);
-      const styleKey = JSON.stringify([item.color, item.strokeWidth ?? 2, item.categorizedStyle, item.graduatedStyle, item.labels]);
+      const styleKey = JSON.stringify([item.color, item.fillColor, item.strokeColor, item.fillOpacity, item.pointRadius, item.linePattern, item.strokeWidth, item.categorizedStyle, item.graduatedStyle, item.labels]);
       if (layer.get("styleKey") !== styleKey || ((item.categorizedStyle || item.graduatedStyle || item.labels) && layer.get("dataRef") !== item.features)) {
         layer.setStyle(
           createLayerDisplayStyle(item),

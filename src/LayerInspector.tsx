@@ -15,10 +15,17 @@ import {
 } from "./layerDisplay";
 import { t, useLocale } from "./i18n";
 import "./layer-inspector.css";
+import LayerLegend from "./LayerLegend";
+import { GeometryStyleControls } from "./GeometryStyleControls";
 
 export type LayerDisplayPatch = Pick<
   DocumentLayer,
   | "color"
+  | "fillColor"
+  | "strokeColor"
+  | "fillOpacity"
+  | "pointRadius"
+  | "linePattern"
   | "opacity"
   | "strokeWidth"
   | "categorizedStyle"
@@ -37,8 +44,13 @@ export interface LayerInspectorProps {
 export function layerDisplayPatch(layer: DocumentLayer): LayerDisplayPatch {
   return structuredClone({
     color: layer.color,
+    fillColor: layer.fillColor,
+    strokeColor: layer.strokeColor,
+    fillOpacity: layer.fillOpacity ?? 36 / 255,
+    pointRadius: layer.pointRadius ?? 5,
+    linePattern: layer.linePattern ?? "solid",
     opacity: layer.opacity ?? 1,
-    strokeWidth: layer.strokeWidth ?? 2,
+    strokeWidth: layer.strokeWidth,
     categorizedStyle: layer.categorizedStyle,
     graduatedStyle: layer.graduatedStyle,
     labels: layer.labels,
@@ -50,12 +62,24 @@ export function validateLayerDisplayPatch(
 ): string | undefined {
   if (
     !/^#[\da-f]{6}$/i.test(patch.color) ||
+    (patch.fillColor !== undefined &&
+      !/^#[\da-f]{6}$/i.test(patch.fillColor)) ||
+    (patch.strokeColor !== undefined &&
+      !/^#[\da-f]{6}$/i.test(patch.strokeColor)) ||
     !Number.isFinite(patch.opacity) ||
     patch.opacity! < 0 ||
     patch.opacity! > 1 ||
-    !Number.isFinite(patch.strokeWidth) ||
-    patch.strokeWidth! < 1 ||
-    patch.strokeWidth! > 8
+    !Number.isFinite(patch.fillOpacity) ||
+    patch.fillOpacity! < 0 ||
+    patch.fillOpacity! > 1 ||
+    !Number.isFinite(patch.pointRadius) ||
+    patch.pointRadius! < 2 ||
+    patch.pointRadius! > 16 ||
+    (patch.strokeWidth !== undefined &&
+      (!Number.isFinite(patch.strokeWidth) ||
+        patch.strokeWidth < 0 ||
+        patch.strokeWidth > 8)) ||
+    !["solid", "dashed", "dotted"].includes(patch.linePattern ?? "solid")
   )
     return "颜色、透明度或线宽无效";
   if (patch.categorizedStyle && patch.graduatedStyle)
@@ -107,6 +131,11 @@ export function LayerInspector({
     () => layerDisplayPatch(layer),
     [
       layer.color,
+      layer.fillColor,
+      layer.strokeColor,
+      layer.fillOpacity,
+      layer.pointRadius,
+      layer.linePattern,
       layer.opacity,
       layer.strokeWidth,
       layer.categorizedStyle,
@@ -157,6 +186,7 @@ export function LayerInspector({
     if (disabled) return;
     try {
       change({
+        strokeColor: current.strokeColor ?? current.color,
         categorizedStyle: undefined,
         graduatedStyle: createGraduatedStyle(layer, field, "equal_interval", 5),
       });
@@ -168,13 +198,17 @@ export function LayerInspector({
     }
   };
   return (
-    <aside className="layer-inspector" aria-label={t("图层检查器")} onKeyDown={event => {
-      if (event.key === "Escape" && !event.defaultPrevented) {
-        event.preventDefault();
-        event.stopPropagation();
-        close();
-      }
-    }}>
+    <aside
+      className="layer-inspector"
+      aria-label={t("图层检查器")}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !event.defaultPrevented) {
+          event.preventDefault();
+          event.stopPropagation();
+          close();
+        }
+      }}
+    >
       <header className="layer-inspector-header">
         <div>
           <strong title={layer.displayName ?? layer.name}>
@@ -243,55 +277,17 @@ export function LayerInspector({
             key={`${layer.id}:${initialField ?? ""}`}
             layer={layer}
             initialField={initialField}
+            embedded
             onGraduated={disabled ? undefined : graduate}
           />
         ) : (
           <div className="layer-inspector-style">
-            <p className="layer-inspector-note">
-              {t("修改即时预览；应用后保存显示设置，取消不改变图层。")}
-            </p>
-            <fieldset disabled={disabled} className="layer-inspector-base">
-              <legend>{t("基础样式")}</legend>
-              <label>
-                <span>{t("颜色")}</span>
-                <input
-                  type="color"
-                  aria-label={t("颜色")}
-                  value={current.color}
-                  onChange={(event) => change({ color: event.target.value })}
-                />
-              </label>
-              <label>
-                <span>{t("不透明度")}</span>
-                <output>{Math.round((current.opacity ?? 1) * 100)}%</output>
-                <input
-                  type="range"
-                  aria-label={t("不透明度")}
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={current.opacity ?? 1}
-                  onChange={(event) =>
-                    change({ opacity: Number(event.target.value) })
-                  }
-                />
-              </label>
-              <label>
-                <span>{t("线宽")}</span>
-                <output>{current.strokeWidth ?? 2} px</output>
-                <input
-                  type="range"
-                  aria-label={t("线宽")}
-                  min="1"
-                  max="8"
-                  step="1"
-                  value={current.strokeWidth ?? 2}
-                  onChange={(event) =>
-                    change({ strokeWidth: Number(event.target.value) })
-                  }
-                />
-              </label>
-            </fieldset>
+            <GeometryStyleControls
+              layer={layer}
+              value={current}
+              disabled={disabled}
+              onChange={change}
+            />
             <fieldset disabled={disabled} className="layer-inspector-controls">
               <legend className="sr-only">{t("着色与标注")}</legend>
               <CategorizedStyleControls
@@ -299,7 +295,11 @@ export function LayerInspector({
                 value={current.categorizedStyle}
                 graduatedValue={current.graduatedStyle}
                 onChange={(categorizedStyle, graduatedStyle) =>
-                  change({ categorizedStyle, graduatedStyle })
+                  change({
+                    categorizedStyle,
+                    graduatedStyle,
+                    strokeColor: current.strokeColor ?? current.color,
+                  })
                 }
               />
               <LabelStyleControls
@@ -308,6 +308,7 @@ export function LayerInspector({
                 onChange={(labels) => change({ labels })}
               />
             </fieldset>
+            <LayerLegend layer={{ ...layer, ...current }} defaultOpen />
           </div>
         )}
         {(actionError || validationError) && (
@@ -316,31 +317,30 @@ export function LayerInspector({
           </p>
         )}
       </div>
-      {dirty && (
-        <p className="layer-inspector-pending">{t("当前预览尚未应用")}</p>
-      )}
-      <footer className="layer-inspector-actions">
-        <button type="button" onClick={close}>
-          {t("取消")}
-        </button>
-        <button
-          type="button"
-          disabled={
-            disabled ||
-            !dirty ||
-            Boolean(validationError) ||
-            Boolean(actionError)
-          }
-          onClick={() => {
-            if (!validationError && !disabled) {
-              onApply(structuredClone(current));
-              preview.current(undefined);
+      {(tab === "style" || dirty) && (
+        <footer className="layer-inspector-actions">
+          <button type="button" onClick={close}>
+            {t("取消")}
+          </button>
+          <button
+            type="button"
+            disabled={
+              disabled ||
+              !dirty ||
+              Boolean(validationError) ||
+              Boolean(actionError)
             }
-          }}
-        >
-          {t("应用样式")}
-        </button>
-      </footer>
+            onClick={() => {
+              if (!validationError && !disabled) {
+                onApply(structuredClone(current));
+                preview.current(undefined);
+              }
+            }}
+          >
+            {t("应用样式")}
+          </button>
+        </footer>
+      )}
     </aside>
   );
 }

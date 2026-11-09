@@ -23,7 +23,8 @@ describe("layer inspector draft", () => {
     layer.graduatedStyle = createGraduatedStyle(layer, "x");
     const draft = layerDisplayPatch(layer);
     expect(draft.opacity).toBe(1);
-    expect(draft.strokeWidth).toBe(2);
+    // An unset width retains the legacy point/line defaults until explicitly edited.
+    expect(draft.strokeWidth).toBeUndefined();
     expect(draft).not.toHaveProperty("features");
     draft.graduatedStyle!.colors[0] = "#ffffff";
     expect(layer.graduatedStyle.colors[0]).not.toBe("#ffffff");
@@ -37,7 +38,7 @@ describe("layer inspector draft", () => {
       validateLayerDisplayPatch(layer, { ...draft, opacity: NaN }),
     ).toBeTruthy();
     expect(
-      validateLayerDisplayPatch(layer, { ...draft, strokeWidth: 0 }),
+      validateLayerDisplayPatch(layer, { ...draft, strokeWidth: -1 }),
     ).toBeTruthy();
     draft.graduatedStyle = createGraduatedStyle(layer, "x");
     expect(validateLayerDisplayPatch(layer, draft)).toBeUndefined();

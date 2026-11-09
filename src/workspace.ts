@@ -419,6 +419,11 @@ function snapshotLayerData(layers: DocumentLayer[]) {
       ),
       visible: layer.visible,
       color: layer.color,
+      fillColor: layer.fillColor,
+      strokeColor: layer.strokeColor,
+      fillOpacity: layer.fillOpacity,
+      pointRadius: layer.pointRadius,
+      linePattern: layer.linePattern,
       opacity: layer.opacity,
       strokeWidth: layer.strokeWidth,
       categorizedStyle: normalizeCategorizedStyle(layer.categorizedStyle),
@@ -587,18 +592,35 @@ function restoreLayerData(data: unknown): DocumentLayer[] {
         typeof value.color === "string" && /^#[0-9a-f]{6}$/i.test(value.color)
           ? value.color
           : "#5479b6",
+      fillColor:
+        typeof value.fillColor === "string" && /^#[0-9a-f]{6}$/i.test(value.fillColor)
+          ? value.fillColor
+          : undefined,
+      strokeColor:
+        typeof value.strokeColor === "string" && /^#[0-9a-f]{6}$/i.test(value.strokeColor)
+          ? value.strokeColor
+          : undefined,
+      fillOpacity:
+        typeof value.fillOpacity === "number" && value.fillOpacity >= 0 && value.fillOpacity <= 1
+          ? value.fillOpacity
+          : undefined,
+      pointRadius:
+        typeof value.pointRadius === "number" && value.pointRadius >= 2 && value.pointRadius <= 16
+          ? value.pointRadius
+          : undefined,
       opacity:
         typeof value.opacity === "number" &&
         value.opacity >= 0 &&
         value.opacity <= 1
           ? value.opacity
           : 1,
+      linePattern: ["solid", "dashed", "dotted"].includes(value.linePattern) ? value.linePattern : undefined,
       strokeWidth:
         typeof value.strokeWidth === "number" &&
-        value.strokeWidth >= 1 &&
+        value.strokeWidth >= 0 &&
         value.strokeWidth <= 8
           ? value.strokeWidth
-          : 2,
+          : undefined,
       categorizedStyle: normalizeCategorizedStyle(value.categorizedStyle),
       graduatedStyle: normalizeGraduatedStyle(value.graduatedStyle),
       labels: normalizeLayerLabels(value.labels),

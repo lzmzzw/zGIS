@@ -140,7 +140,7 @@ test("checkboxes and nested indentation align and geometry symbols open the only
     .getByRole("button", { name: "points.geojson样式", exact: true })
     .click();
   await expect(page.locator(".layer-inspector")).toContainText("points.geojson");
-  await page.getByLabel("颜色", { exact: true }).fill("#ff8833");
+  await page.getByLabel("填充颜色", { exact: true }).fill("#ff8833");
   await page.getByRole("button", { name: "应用样式", exact: true }).click();
   await expect(row(page, "points.geojson").locator(".layer-swatch")).toHaveCSS(
     "background-color",
@@ -163,10 +163,10 @@ test("switching layers closes the inspector and discards an unapplied style prev
   await setup(page);
   await page.getByRole("button", { name: "points.geojson样式", exact: true }).click();
   const inspector = page.locator(".layer-inspector");
-  const color = inspector.getByLabel("颜色", { exact: true });
+  const color = inspector.getByLabel("填充颜色", { exact: true });
   const original = await color.inputValue();
   await color.fill("#fa1234");
-  await expect(inspector).toContainText("当前预览尚未应用");
+  await expect(inspector).toContainText("预览中");
   await row(page, "lines.geojson").locator(".layer-text").click();
   await expect(inspector).toHaveCount(0);
   await page.getByRole("button", { name: "points.geojson样式", exact: true }).click();

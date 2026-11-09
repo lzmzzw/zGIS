@@ -167,7 +167,7 @@ export interface LayerLegendItem {
   count: number;
   translate?: boolean;
 }
-export function layerLegendItems(layer: DocumentLayer): LayerLegendItem[] {
+export function layerLegendItems(layer: DocumentLayer, includeCounts = true): LayerLegendItem[] {
   const graduated = layer.graduatedStyle,
     categorized = layer.categorizedStyle;
   if (!graduated && !categorized)
@@ -214,6 +214,7 @@ export function layerLegendItems(layer: DocumentLayer): LayerLegendItem[] {
       translate: true,
     })),
   );
+  if (!includeCounts) return items;
   const counts = new Map(items.map((item) => [item.key, item]));
   for (const feature of layer.features) {
     let key: string;

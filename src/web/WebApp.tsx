@@ -25,7 +25,6 @@ import GdbPanel from "../GdbPanel";
 import { isGdbLayer } from "../gdb";
 import { createBrowserGdbAdapter } from "./gdb";
 import { LayerInspector, type LayerDisplayPatch } from "../LayerInspector";
-import LayerLegend from "../LayerLegend";
 import CommandPalette from "../CommandPalette";
 import { createUiCommands } from "../uiCommands";
 import { captureAnalysisLocation, type AnalysisFocus } from "../analysisLocation";
@@ -536,10 +535,10 @@ export default function WebApp() {
                 <input
                   type="color"
                   value={layer.color}
-                  disabled={busy}
+                  disabled={busy || Boolean(layer.categorizedStyle || layer.graduatedStyle)}
                   aria-label={t(`${nameOf(layer)} 颜色`)}
                   onChange={(event) =>
-                    patchLayer(layer.id, { color: event.target.value })
+                    patchLayer(layer.id, { color: event.target.value, fillColor: event.target.value, strokeColor: layer.strokeColor ?? layer.color })
                   }
                 />
                 <label>
@@ -573,7 +572,6 @@ export default function WebApp() {
                   <Trash2 size={15} />
                 </button>
               </div>
-              <LayerLegend layer={layer} />
               <div className="web-layer-inspect-actions"><button disabled={busy} onClick={() => openInspector(layer.id, "profile")}>{t("字段概览")}</button><button disabled={busy} onClick={() => openInspector(layer.id, "style")}>{t("图层样式")}</button></div>
               {!!layer.warnings?.length && (
                 <details>

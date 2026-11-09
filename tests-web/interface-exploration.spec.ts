@@ -61,17 +61,15 @@ test("命令搜索禁用原因、焦点恢复与工具仅打开不执行", async
   await expect(page.locator(".web-layer")).toHaveCount(1);
 });
 
-test("字段概览进入分级，取消预览与图例数量不会改变来源数据", async ({
+test("字段概览进入分级，右侧图例与取消预览不改变来源数据", async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await load(page);
   const layer = page.locator(".web-layer");
-  const legend = layer.locator(".layer-legend");
-  await legend.locator("summary").click();
-  await expect(legend.locator("li")).toHaveCount(1);
-  await expect(legend.locator("li small")).toHaveText("6");
+  await expect(layer.locator(".layer-legend")).toHaveCount(0);
+  const legend = page.locator(".layer-inspector .layer-legend");
   await layer.getByRole("button", { name: "字段概览", exact: true }).click();
   const inspector = page.locator(".layer-inspector");
   await inspector
@@ -89,8 +87,8 @@ test("字段概览进入分级，取消预览与图例数量不会改变来源�
   await expect(inspector.getByLabel("分级字段", { exact: true })).toHaveValue(
     "amount",
   );
-  await expect(inspector).toContainText("当前预览尚未应用");
-  await expect(legend.locator("li")).toHaveCount(1);
+  await expect(inspector).toContainText("预览中");
+  await expect(legend.locator("li")).toHaveCount(8);
   await inspector.getByRole("button", { name: "取消", exact: true }).click();
   await expect(inspector).toBeHidden();
   await layer.getByRole("button", { name: "图层样式", exact: true }).click();
@@ -105,14 +103,7 @@ test("字段概览进入分级，取消预览与图例数量不会改变来源�
     .getByRole("button", { name: "应用样式", exact: true })
     .click();
   await expect(legend.locator("li")).toHaveCount(6);
-  await expect(legend.locator("li small")).toHaveText([
-    "2",
-    "1",
-    "1",
-    "0",
-    "1",
-    "1",
-  ]);
+  await expect(legend.locator("li small")).toHaveCount(0);
   await expect(legend).toContainText("≤ 10");
   await expect(legend).toContainText("(10, 20]");
   await inspector

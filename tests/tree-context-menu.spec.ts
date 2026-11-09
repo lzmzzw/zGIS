@@ -79,7 +79,7 @@ test("root, group and layer menus contain exactly the requested actions without 
   await page.keyboard.press("Shift+F10");
   await expect(page.getByRole("menuitem")).toHaveText([
     "新建分组",
-    "新建文件",
+    "新建文件图层",
     "添加文件图层",
     "添加Mysql表图层",
     "添加PostGIS表图层",
@@ -92,7 +92,7 @@ test("root, group and layer menus contain exactly the requested actions without 
   await expect(page.getByRole("menuitem")).toHaveText([
     "新建子分组",
     "重命名分组",
-    "新建文件",
+    "新建文件图层",
     "添加文件图层",
     "添加Mysql表图层",
     "添加PostGIS表图层",
@@ -283,7 +283,7 @@ test("file rename uses the registered source, preserves alias and handles collis
 test("new file from a group is inserted into that group", async ({ page }) => {
   await setup(page);
   await row(page, "子组").click({ button: "right" });
-  await page.getByRole("menuitem", { name: "新建文件", exact: true }).click();
+  await page.getByRole("menuitem", { name: "新建文件图层", exact: true }).click();
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByRole("button", { name: "编辑", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "编辑", exact: true }).click();

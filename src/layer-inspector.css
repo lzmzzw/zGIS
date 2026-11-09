@@ -62,6 +62,11 @@
 .layer-inspector-style {
   padding: 12px;
 }
+.layer-inspector .layer-legend {
+  margin: 18px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
 .layer-inspector-note,
 .layer-inspector-pending {
   color: var(--muted);
@@ -93,6 +98,31 @@
   grid-column: 1 / -1;
   width: 100%;
   min-width: 0;
+}
+.layer-inspector-base .symbol-range {
+  grid-template-columns: minmax(90px, 1fr) minmax(60px, 1.3fr) 42px;
+  min-height: 36px;
+  padding: 4px 0;
+}
+.layer-inspector-base .symbol-range input[type="range"] {
+  grid-column: 2;
+  grid-row: 1;
+  height: 24px;
+  min-height: 24px;
+  margin: 0;
+  padding: 0;
+}
+.layer-inspector-base .symbol-range output {
+  grid-column: 3;
+  grid-row: 1;
+  text-align: right;
+}
+.layer-inspector-base select {
+  min-width: 90px;
+  max-width: 100%;
+}
+.layer-inspector-controls .layer-display-controls {
+  font-size: var(--font-size-sm);
 }
 .layer-inspector-base input[type="color"] {
   width: 36px;

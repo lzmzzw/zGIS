@@ -16,7 +16,6 @@ import ContextMenu, {
   type ContextMenuItem,
 } from "./ContextMenu";
 import "./layer-tree.css";
-import LayerLegend from "./LayerLegend";
 
 interface Props {
   tree: LayerTreeNode[];
@@ -460,7 +459,6 @@ export default function LayerTree(props: Props) {
               </span>
             )}
           </div>
-          {!group && layer && <div style={{ paddingLeft: 20 + level * 16 }}><LayerLegend layer={layer} /></div>}
           {group && !node.collapsed && (
             <div role="group">
               {renderNodes(

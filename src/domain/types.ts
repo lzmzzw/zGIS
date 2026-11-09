@@ -77,6 +77,12 @@ export interface DocumentLayer {
   fieldNames?: string[];
   visible: boolean;
   color: string;
+  /** Optional geometry-specific colors; color remains the backwards-compatible primary color. */
+  fillColor?: string;
+  strokeColor?: string;
+  fillOpacity?: number;
+  pointRadius?: number;
+  linePattern?: "solid" | "dashed" | "dotted";
   opacity?: number;
   strokeWidth?: number;
   categorizedStyle?: CategorizedStyle;

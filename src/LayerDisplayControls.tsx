@@ -134,12 +134,6 @@ export function GraduatedStyleControls({
         </>
       )}
       {error && <p role="alert">{t(error)}</p>}
-      <p>
-        {t(
-          "断点保存后不随数据变化重算；相同断点合并，常量字段显示一级。区间左开右闭，首尾覆盖所有安全数值。",
-        )}
-      </p>
-      <p>{t("只使用有限安全数值，不转换文本；空值、缺失与非数值分别显示。")}</p>
       <div
         className="layer-category-list"
         role="group"
@@ -299,11 +293,7 @@ export function LabelStyleControls({
               }
             />
           </label>
-          <p>
-            {t(
-              "每层最多标注前 1000 个有效要素，每条最多 80 个字符；拥挤文字自动避让，空值、缺失和对象不显示。",
-            )}
-          </p>
+
         </>
       )}
     </fieldset>
@@ -394,11 +384,6 @@ export function CategorizedStyleControls({
               {t("分类字段已不存在，可重新选择字段或切回单色。")}
             </p>
           )}
-          <p>
-            {t(
-              "最多保留前 32 个唯一值；额外值及对象归入其他，空值与缺失分别着色。",
-            )}
-          </p>
           <div
             className="layer-category-list"
             role="group"
