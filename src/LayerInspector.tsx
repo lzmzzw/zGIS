@@ -214,7 +214,7 @@ export function LayerInspector({
           <fieldset disabled={disabled} className="layer-inspector-controls">
             <legend className="sr-only">{t("着色与标注")}</legend>
             <CategorizedStyleControls
-              layer={layer}
+              layer={{ ...layer, ...current }}
               value={current.categorizedStyle}
               graduatedValue={current.graduatedStyle}
               onChange={(categorizedStyle, graduatedStyle) =>

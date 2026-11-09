@@ -176,3 +176,83 @@ test("geometry-specific controls, right-side legend, preview cancellation and pe
   ).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test("category and graduated editors match legend symbols throughout draft changes", async ({
+  page,
+}) => {
+  await installDesktopMock(
+    page,
+    JSON.stringify({
+      version: 2,
+      layers,
+      tree: layers.map((layer) => ({ kind: "layer", id: layer.id })),
+    }),
+  );
+  await page.goto("/");
+  const inspector = page.locator(".layer-inspector");
+  const symbols = async () =>
+    inspector.evaluate((element) => ({
+      editors: Array.from(
+        element.querySelectorAll(".symbol-color-input svg"),
+        (node) => node.outerHTML,
+      ),
+      legend: Array.from(
+        element.querySelectorAll(".layer-legend svg"),
+        (node) => node.outerHTML,
+      ),
+    }));
+  for (const layer of layers) {
+    await page
+      .getByRole("button", { name: `${layer.name}样式`, exact: true })
+      .click();
+    await inspector
+      .getByLabel("着色方式", { exact: true })
+      .selectOption("unique");
+    await inspector.getByLabel("图层不透明度", { exact: true }).fill("55");
+    await inspector
+      .getByLabel(
+        layer.features[0].geometry.type === "MultiLineString" ? "线宽" : "边框宽度",
+        { exact: true },
+      )
+      .fill("3");
+    if (layer.features[0].geometry.type !== "MultiPoint")
+      await inspector
+        .getByLabel("线型", { exact: true })
+        .selectOption("dashed");
+    if (layer.features[0].geometry.type !== "MultiLineString")
+      await inspector.getByLabel("边框颜色", { exact: true }).fill("#ef3300");
+    if (layer.features[0].geometry.type === "MultiPolygon")
+      await inspector.getByLabel("填充不透明度", { exact: true }).fill("14");
+    const category = inspector.getByLabel("类别 1 颜色", { exact: true });
+    await category.fill("#22aa77");
+    await category.focus();
+    await expect(category).toBeFocused();
+    const categorized = await symbols();
+    expect(categorized.editors).toEqual(categorized.legend);
+    expect(categorized.editors[0]).toContain("#22aa77");
+    await inspector
+      .getByLabel("着色方式", { exact: true })
+      .selectOption("graduated");
+    await inspector.getByLabel("分级 1 颜色", { exact: true }).fill("#cc55aa");
+    const graduated = await symbols();
+    expect(graduated.editors).toEqual(graduated.legend);
+    expect(graduated.editors[0]).toContain("#cc55aa");
+    if (layer.features[0].geometry.type === "MultiPolygon") {
+      await inspector.getByLabel("填充不透明度", { exact: true }).fill("0");
+      const transparent = await symbols();
+      expect(transparent.editors).toEqual(transparent.legend);
+      expect(transparent.editors[0]).toContain('fill-opacity="0"');
+      await page.screenshot({
+        path: "output/inspector-redesign/symbol-editors.png",
+      });
+    }
+    await inspector.getByRole("button", { name: "取消", exact: true }).click();
+    await page
+      .getByRole("button", { name: `${layer.name}样式`, exact: true })
+      .click();
+    await expect(inspector.getByLabel("着色方式", { exact: true })).toHaveValue(
+      "single",
+    );
+    await inspector.getByRole("button", { name: "取消", exact: true }).click();
+  }
+});

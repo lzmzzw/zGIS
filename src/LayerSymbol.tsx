@@ -17,9 +17,9 @@ export function LayerSymbol({
   const width = layer.strokeWidth ?? 2;
   const dash =
     layer.linePattern === "dashed"
-      ? "6 3"
+      ? "8 5"
       : layer.linePattern === "dotted"
-        ? "1 3"
+        ? "1 4"
         : undefined;
   return (
     <svg

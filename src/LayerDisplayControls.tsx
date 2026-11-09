@@ -1,5 +1,7 @@
 import { t, useLocale } from "./i18n";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { LayerSymbol } from "./LayerSymbol";
+import { layerGeometryKinds, type GeometryKind } from "./geometryStyle";
 import type {
   CategorizedStyle,
   DocumentLayer,
@@ -18,6 +20,32 @@ import {
 } from "./layerDisplay";
 import "./layer-display.css";
 
+function SymbolColorInput({
+  layer,
+  kinds,
+  value,
+  label,
+  onChange,
+}: {
+  layer: DocumentLayer;
+  kinds: GeometryKind[];
+  value: string;
+  label: string;
+  onChange: (color: string) => void;
+}) {
+  return (
+    <span className="symbol-color-input" title={label}>
+      <LayerSymbol layer={layer} kinds={kinds} color={value} />
+      <input
+        type="color"
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </span>
+  );
+}
+
 export function GraduatedStyleControls({
   layer,
   value,
@@ -29,6 +57,11 @@ export function GraduatedStyleControls({
 }) {
   useLocale();
   const fields = displayFields(layer);
+  const kinds = useMemo(
+    () => layerGeometryKinds(layer),
+    [layer.features, layer.geometryType],
+  );
+
   const [manual, setManual] = useState(value.breaks.join(", "));
   const manualId = useId();
   const [error, setError] = useState("");
@@ -126,7 +159,9 @@ export function GraduatedStyleControls({
               try {
                 const breaks = parseManualBreaks(manual);
                 rebuild(value.field, "manual", breaks.length + 1, breaks);
-              } catch (reason) { setError((reason as Error).message); }
+              } catch (reason) {
+                setError((reason as Error).message);
+              }
             }}
           >
             {t("应用断点")}
@@ -142,15 +177,16 @@ export function GraduatedStyleControls({
         {value.colors.map((color, index) => (
           <label key={index}>
             <span>{t(graduatedRangeLabel(value, index))}</span>
-            <input
-              type="color"
-              aria-label={t("分级 {0} 颜色", index + 1)}
+            <SymbolColorInput
+              kinds={kinds}
+              layer={layer}
+              label={t("分级 {0} 颜色", index + 1)}
               value={color}
-              onChange={(event) =>
+              onChange={(nextColor) =>
                 onChange({
                   ...value,
                   colors: value.colors.map((old, i) =>
-                    i === index ? event.target.value : old,
+                    i === index ? nextColor : old,
                   ),
                 })
               }
@@ -166,13 +202,12 @@ export function GraduatedStyleControls({
         ).map(([key, label]) => (
           <label key={key}>
             <span>{t(label)}</span>
-            <input
-              type="color"
-              aria-label={t(label)}
+            <SymbolColorInput
+              kinds={kinds}
+              layer={layer}
+              label={t(label)}
               value={value[key]}
-              onChange={(event) =>
-                onChange({ ...value, [key]: event.target.value })
-              }
+              onChange={(color) => onChange({ ...value, [key]: color })}
             />
           </label>
         ))}
@@ -293,7 +328,6 @@ export function LabelStyleControls({
               }
             />
           </label>
-
         </>
       )}
     </fieldset>
@@ -316,6 +350,11 @@ export function CategorizedStyleControls({
 }) {
   useLocale();
   const fields = displayFields(layer);
+  const kinds = useMemo(
+    () => layerGeometryKinds(layer),
+    [layer.features, layer.geometryType],
+  );
+
   const numericField = fields.find((field) =>
     layer.features.some(
       (feature) =>
@@ -395,17 +434,16 @@ export function CategorizedStyleControls({
                   {JSON.stringify(category.value)}{" "}
                   <small>({typeof category.value})</small>
                 </span>
-                <input
-                  type="color"
-                  aria-label={t("类别 {0} 颜色", index + 1)}
+                <SymbolColorInput
+                  kinds={kinds}
+                  layer={layer}
+                  label={t("类别 {0} 颜色", index + 1)}
                   value={category.color}
-                  onChange={(event) =>
+                  onChange={(color) =>
                     onChange({
                       ...value,
                       categories: value.categories.map((item, i) =>
-                        i === index
-                          ? { ...item, color: event.target.value }
-                          : item,
+                        i === index ? { ...item, color } : item,
                       ),
                     })
                   }
@@ -421,13 +459,12 @@ export function CategorizedStyleControls({
             ).map(([key, label]) => (
               <label key={key}>
                 <span>{t(label)}</span>
-                <input
-                  type="color"
-                  aria-label={t(label)}
+                <SymbolColorInput
+                  kinds={kinds}
+                  layer={layer}
+                  label={t(label)}
                   value={value[key]}
-                  onChange={(event) =>
-                    onChange({ ...value, [key]: event.target.value })
-                  }
+                  onChange={(color) => onChange({ ...value, [key]: color })}
                 />
               </label>
             ))}
