@@ -14,6 +14,31 @@ test.beforeEach(async ({ page, baseURL }) => {
   ).toBeEnabled();
 });
 
+test("滚轮缩放在侧栏保留焦点时立即响应地图悬停", async ({ page }) => {
+  const tree = page.getByRole("tree", { name: "图层树" });
+  const map = page.getByLabel("地理数据地图", { exact: true });
+  const box = (await map.boundingBox())!;
+  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const coordinates = page.getByLabel("经纬度坐标");
+  const span = async () => {
+    await page.mouse.move(center.x, center.y);
+    await expect.poll(async () => Number((await coordinates.innerText()).split(",")[0])).toBeCloseTo(104, 3);
+    await page.mouse.move(center.x + 100, center.y);
+    await expect.poll(async () => Number((await coordinates.innerText()).split(",")[0])).toBeGreaterThan(104.01);
+    return Number((await coordinates.innerText()).split(",")[0]) - 104;
+  };
+  await tree.focus();
+  const before = await span();
+  await page.mouse.move(center.x, center.y);
+  await page.mouse.wheel(0, -240);
+  await expect.poll(span).toBeLessThan(before * 0.8);
+  await expect(tree).toBeFocused();
+  await page.mouse.move(center.x, center.y);
+  await page.mouse.wheel(0, 240);
+  await expect.poll(span).toBeGreaterThan(before * 0.9);
+  await expect(tree).toBeFocused();
+});
+
 test("主菜单支持键盘选择、跳过禁用项目、退出与互斥", async ({ page }) => {
   const file = page
     .locator(".header-menu")

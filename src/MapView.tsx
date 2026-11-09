@@ -10,7 +10,7 @@ import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
 import XYZ from "ol/source/XYZ";
 import GeoJSON from "ol/format/GeoJSON";
-import { Draw, Modify, Select, Snap, Translate } from "ol/interaction";
+import { defaults as defaultInteractions, Draw, Modify, MouseWheelZoom, Select, Snap, Translate } from "ol/interaction";
 import Collection from "ol/Collection";
 import LineString from "ol/geom/LineString";
 import Polygon from "ol/geom/Polygon";
@@ -165,6 +165,9 @@ export default function MapView(props: Props) {
       target: element.current!,
       layers: [base],
       controls: defaultControls({ rotate: false, attribution: false }),
+      // Wheel zoom follows the pointer without taking keyboard focus from panels.
+      interactions: defaultInteractions({ onFocusOnly: true, mouseWheelZoom: false })
+        .extend([new MouseWheelZoom({ onFocusOnly: false })]),
       view: new View({ center: fromLonLat([104, 34]), zoom: 4 }),
     });
     mapRef.current = map;
