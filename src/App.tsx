@@ -71,6 +71,7 @@ import ContextMenu, {
 } from "./ContextMenu";
 import { cellText, parseCellValue } from "./attributeEditing";
 import LayerTree from "./LayerTreePanel";
+import brandMarkUrl from "./zgis.svg";
 import PostgisManager from "./PostgisManager";
 import {
   reconcileTree,
@@ -3614,7 +3615,7 @@ export default function App() {
               .catch((reason) => setError(errorText(reason)));
           }}
         >
-          <img className="brand-mark" src="/zgis.svg" alt="zGIS" />
+          <img className="brand-mark" src={brandMarkUrl} alt="zGIS" />
           <nav
             className="header-menus"
             aria-label={t("主菜单")}
@@ -3685,7 +3686,6 @@ export default function App() {
             )}
           </div>
           <div className="header-actions">
-            <button className="quiet command-search-trigger" aria-label={t("搜索操作")} disabled={busy || Boolean(modal) || gestureActive || Boolean(cellDraft)} onClick={() => setCommandOpen(true)}>{t("搜索操作")}<kbd>{isMacOS ? "⌘ K" : "Ctrl K"}</kbd></button>
             {desktop && modal !== "settings" && (
               <>
                 <IconButton
