@@ -52,12 +52,13 @@ try {
     });
   });
   await page.reload();
-  const commandTrigger = page.getByRole("button", { name: /搜索操作/ });
-  await commandTrigger.click();
+  const commandTrigger = page.getByRole("button", { name: "工具", exact: true });
+  await commandTrigger.focus();
+  await page.keyboard.press("Control+k");
   const commandDialog = page.getByRole("dialog", { name: "搜索操作", exact: true });
   const commandInput = commandDialog.getByRole("textbox", { name: "搜索操作", exact: true });
   await expect(commandInput).toBeFocused();
-  await commandInput.fill("字段概览");
+  await commandInput.fill("图层样式");
   await expect(commandDialog.locator(".command-palette-results button").first()).toHaveAttribute("aria-disabled", "true");
   await commandInput.press("Enter");
   await expect(commandDialog).toBeVisible();
@@ -363,9 +364,9 @@ try {
   await styleDialog.getByRole("button", { name: "关闭检查器", exact: true }).click();
 
   await page.getByRole("button", { name: "native-a.geojson样式", exact: true }).click();
-  await styleDialog.getByRole("tab", { name: "字段概览", exact: true }).click();
-  await styleDialog.getByLabel("概览字段", { exact: true }).selectOption("value");
-  await styleDialog.getByRole("button", { name: "按此字段分级着色", exact: true }).click();
+  await expect(styleDialog.getByRole("tablist")).toHaveCount(0);
+  await styleDialog.getByLabel("着色方式", { exact: true }).selectOption("graduated");
+  await styleDialog.getByLabel("分级字段", { exact: true }).selectOption("value");
   await expect(styleDialog.getByLabel("分级数量", { exact: true })).toHaveValue("1");
   assert.equal((await snapshot()).layers.find(layer => layer.name === "native-a.geojson").graduatedStyle, undefined);
   await styleDialog.getByRole("button", { name: "取消", exact: true }).click();
@@ -447,7 +448,7 @@ try {
           "optional spatial aggregation, globally collision-safe fields, MultiPoint counted once, unmatched null and legacy default",
           "native toolbox cleaning and attribute extraction preserve source geometry",
           "real desktop categorized style and label inspector with persisted configuration after reload",
-          "field profile to graduated style, constant class collapse, preview cancellation and saved manual break recovery",
+          "direct graduated style, constant class collapse, preview cancellation and saved manual break recovery",
           "empty-workspace command search disabled reason, Enter guard and Escape focus restoration",
           "topology issue locate selects a source row",
           "normal snapshot exit",

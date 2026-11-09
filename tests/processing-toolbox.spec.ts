@@ -484,9 +484,9 @@ for (const theme of ["dark", "light"]) {
       };
     });
     expect(geometry.regionHeight).toBe(288);
-    expect(geometry.mainGap).toBe(36);
+    expect(geometry.mainGap).toBe(24);
     expect(geometry.groupGap).toBe(32);
-    expect(geometry.mainGap).toBeGreaterThan(geometry.groupGap);
+    expect(geometry.groupGap).toBeGreaterThan(geometry.mainGap);
     expect(geometry.neutral).toBe(true);
     await page.screenshot({ path: `output/toolbox-design-${theme}-1440.png` });
     await page.setViewportSize({ width: 960, height: 640 });

@@ -25,7 +25,7 @@
   border-bottom: 1px solid var(--border);
 }
 .processing-heading strong {
-  font-size: var(--font-size-dialog);
+  font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
 }
 .processing-body {
@@ -138,7 +138,7 @@
 }
 .processing-tool-title h3 {
   margin: 0;
-  font-size: var(--font-size-heading);
+  font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
 }
 .processing-tool-title > span {
@@ -172,17 +172,12 @@
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
   color: var(--text);
-  padding: 0 0 9px;
-  margin: 8px 0 5px;
-  border-bottom: 1px solid var(--border);
+  padding: 12px 0 8px;
+  margin: 0 0 10px;
+  border-top: 1px solid var(--border);
 }
 .processing-form legend::before {
-  content: "";
-  width: 3px;
-  height: 17px;
-  flex-shrink: 0;
-  border-radius: 2px;
-  background: var(--accent);
+  content: none;
 }
 .processing-form legend::after {
   content: none;
