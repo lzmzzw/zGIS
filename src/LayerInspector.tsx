@@ -1,13 +1,11 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { DocumentLayer } from "./domain/types";
-import { FieldProfile } from "./FieldProfilePanel";
 import {
   CategorizedStyleControls,
   LabelStyleControls,
 } from "./LayerDisplayControls";
 import {
-  createGraduatedStyle,
   isDisplayNumber,
   normalizeCategorizedStyle,
   normalizeGraduatedStyle,
@@ -34,8 +32,6 @@ export type LayerDisplayPatch = Pick<
 >;
 export interface LayerInspectorProps {
   layer: DocumentLayer;
-  initialTab: "profile" | "style";
-  initialField?: string;
   disabled?: boolean;
   onPreview: (patch: LayerDisplayPatch | undefined) => void;
   onApply: (patch: LayerDisplayPatch) => void;
@@ -115,16 +111,12 @@ export function validateLayerDisplayPatch(
 
 export function LayerInspector({
   layer,
-  initialTab,
-  initialField,
   disabled = false,
   onPreview,
   onApply,
   onClose,
 }: LayerInspectorProps) {
   useLocale();
-  const id = useId();
-  const [tab, setTab] = useState(initialTab);
   const [draft, setDraft] = useState(() => layerDisplayPatch(layer));
   const [actionError, setActionError] = useState("");
   const baseline = useMemo(
@@ -182,21 +174,6 @@ export function LayerInspector({
     preview.current(undefined);
     onClose();
   };
-  const graduate = (field: string) => {
-    if (disabled) return;
-    try {
-      change({
-        strokeColor: current.strokeColor ?? current.color,
-        categorizedStyle: undefined,
-        graduatedStyle: createGraduatedStyle(layer, field, "equal_interval", 5),
-      });
-      setTab("style");
-    } catch (error) {
-      setActionError(
-        error instanceof Error ? error.message : "无法创建分级样式",
-      );
-    }
-  };
   return (
     <aside
       className="layer-inspector"
@@ -226,121 +203,64 @@ export function LayerInspector({
           <X size={16} />
         </button>
       </header>
-      <div
-        className="layer-inspector-tabs"
-        role="tablist"
-        aria-label={t("图层检查器")}
-      >
-        {(["profile", "style"] as const).map((value) => (
-          <button
-            type="button"
-            key={value}
-            role="tab"
-            id={`${id}-${value}`}
-            data-tab={value}
-            aria-selected={tab === value}
-            aria-controls={`${id}-content`}
-            tabIndex={tab === value ? 0 : -1}
-            onClick={() => setTab(value)}
-            onKeyDown={(event) => {
-              if (
-                !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
-              )
-                return;
-              event.preventDefault();
-              const next =
-                event.key === "Home"
-                  ? "profile"
-                  : event.key === "End"
-                    ? "style"
-                    : value === "profile"
-                      ? "style"
-                      : "profile";
-              setTab(next);
-              event.currentTarget.parentElement
-                ?.querySelector<HTMLButtonElement>(`[data-tab="${next}"]`)
-                ?.focus();
-            }}
-          >
-            {t(value === "profile" ? "字段概览" : "图层样式")}
-          </button>
-        ))}
-      </div>
-      <div
-        className="layer-inspector-scroll"
-        role="tabpanel"
-        id={`${id}-content`}
-        aria-labelledby={`${id}-${tab}`}
-      >
-        {tab === "profile" ? (
-          <FieldProfile
-            key={`${layer.id}:${initialField ?? ""}`}
+      <div className="layer-inspector-scroll" aria-label={t("图层样式")}>
+        <div className="layer-inspector-style">
+          <GeometryStyleControls
             layer={layer}
-            initialField={initialField}
-            embedded
-            onGraduated={disabled ? undefined : graduate}
+            value={current}
+            disabled={disabled}
+            onChange={change}
           />
-        ) : (
-          <div className="layer-inspector-style">
-            <GeometryStyleControls
+          <fieldset disabled={disabled} className="layer-inspector-controls">
+            <legend className="sr-only">{t("着色与标注")}</legend>
+            <CategorizedStyleControls
               layer={layer}
-              value={current}
-              disabled={disabled}
-              onChange={change}
+              value={current.categorizedStyle}
+              graduatedValue={current.graduatedStyle}
+              onChange={(categorizedStyle, graduatedStyle) =>
+                change({
+                  categorizedStyle,
+                  graduatedStyle,
+                  strokeColor: current.strokeColor ?? current.color,
+                })
+              }
             />
-            <fieldset disabled={disabled} className="layer-inspector-controls">
-              <legend className="sr-only">{t("着色与标注")}</legend>
-              <CategorizedStyleControls
-                layer={layer}
-                value={current.categorizedStyle}
-                graduatedValue={current.graduatedStyle}
-                onChange={(categorizedStyle, graduatedStyle) =>
-                  change({
-                    categorizedStyle,
-                    graduatedStyle,
-                    strokeColor: current.strokeColor ?? current.color,
-                  })
-                }
-              />
-              <LabelStyleControls
-                layer={layer}
-                value={current.labels}
-                onChange={(labels) => change({ labels })}
-              />
-            </fieldset>
-            <LayerLegend layer={{ ...layer, ...current }} defaultOpen />
-          </div>
-        )}
+            <LabelStyleControls
+              layer={layer}
+              value={current.labels}
+              onChange={(labels) => change({ labels })}
+            />
+          </fieldset>
+          <LayerLegend layer={{ ...layer, ...current }} defaultOpen />
+        </div>
         {(actionError || validationError) && (
           <p className="layer-inspector-error" role="alert">
             {t(actionError || validationError)}
           </p>
         )}
       </div>
-      {(tab === "style" || dirty) && (
-        <footer className="layer-inspector-actions">
-          <button type="button" onClick={close}>
-            {t("取消")}
-          </button>
-          <button
-            type="button"
-            disabled={
-              disabled ||
-              !dirty ||
-              Boolean(validationError) ||
-              Boolean(actionError)
+      <footer className="layer-inspector-actions">
+        <button type="button" onClick={close}>
+          {t("取消")}
+        </button>
+        <button
+          type="button"
+          disabled={
+            disabled ||
+            !dirty ||
+            Boolean(validationError) ||
+            Boolean(actionError)
+          }
+          onClick={() => {
+            if (!validationError && !disabled) {
+              onApply(structuredClone(current));
+              preview.current(undefined);
             }
-            onClick={() => {
-              if (!validationError && !disabled) {
-                onApply(structuredClone(current));
-                preview.current(undefined);
-              }
-            }}
-          >
-            {t("应用样式")}
-          </button>
-        </footer>
-      )}
+          }}
+        >
+          {t("应用样式")}
+        </button>
+      </footer>
     </aside>
   );
 }

@@ -124,7 +124,7 @@ export default function WebApp() {
   const [toolboxOpen, setToolboxOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [requestedTool, setRequestedTool] = useState<{id:string;nonce:number}>();
-  const [inspector, setInspector] = useState<{layerId:string;tab:"profile"|"style";field?:string;nonce:number}>();
+  const [inspector, setInspector] = useState<{layerId:string;nonce:number}>();
   const [stylePreview, setStylePreview] = useState<LayerDisplayPatch>();
   useEffect(() => {
     if (!toolboxOpen || editingLayerId) setAnalysisFocus(undefined);
@@ -159,14 +159,14 @@ export default function WebApp() {
   const dirty = layers.some((layer) => layer.dirty);
   const inspectorLayer = layers.find(layer => layer.id === inspector?.layerId);
   const displayLayers = useMemo(() => stylePreview && inspectorLayer ? layers.map(layer => layer.id === inspectorLayer.id ? {...layer,...stylePreview}:layer) : layers,[layers,stylePreview,inspectorLayer]);
-  function openInspector(id:string,tab:"profile"|"style",field?:string) {
+  function openInspector(id:string) {
     if(busy || gestureActive || editingLayerId && editingLayerId !== id) return;
     setActiveId(id); setStylePreview(undefined); setToolboxOpen(false);
-    setInspector(old=>({layerId:id,tab,field,nonce:(old?.nonce??0)+1}));
+    setInspector(old=>({layerId:id,nonce:(old?.nonce??0)+1}));
   }
   const uiCommands=createUiCommands({layer:active,blockedReason:busy || pendingFiles.length || exportId || removeId || gestureActive ? "请先完成当前操作":undefined,
     analysisBlockedReason:editingLayerId?"请先结束编辑":undefined,
-    profile:()=>{if(active)openInspector(active.id,"profile");}, style:()=>{if(active)openInspector(active.id,"style");}, fit:()=>{if(active)locate(active.id);},
+    style:()=>{if(active)openInspector(active.id);}, fit:()=>{if(active)locate(active.id);},
     analysis:id=>{setAnalysisFocus(undefined);setInspector(undefined);setStylePreview(undefined);setToolboxOpen(true);setRequestedTool(old=>({id,nonce:(old?.nonce??0)+1}));}
   });
   useEffect(()=>{if(inspector&&(!inspectorLayer || inspector.layerId !== activeId)){setInspector(undefined);setStylePreview(undefined);}},[inspector,inspectorLayer,activeId]);
@@ -572,7 +572,7 @@ export default function WebApp() {
                   <Trash2 size={15} />
                 </button>
               </div>
-              <div className="web-layer-inspect-actions"><button disabled={busy} onClick={() => openInspector(layer.id, "profile")}>{t("字段概览")}</button><button disabled={busy} onClick={() => openInspector(layer.id, "style")}>{t("图层样式")}</button></div>
+              <div className="web-layer-inspect-actions"><button disabled={busy} onClick={() => openInspector(layer.id)}>{t("图层样式")}</button></div>
               {!!layer.warnings?.length && (
                 <details>
                   <summary>{t(`图层提示（${layer.warnings.length}）`)}</summary>
@@ -745,7 +745,7 @@ export default function WebApp() {
                     <th>{t("要素")}</th>
                     <th>{t("几何")}</th>
                     {fields.map((field) => (
-                      <th key={field}><button title={t("字段概览")} disabled={Boolean(busy || gestureActive)} onClick={() => active && openInspector(active.id, "profile", field)}>{field}</button></th>
+                      <th key={field}>{field}</th>
                     ))}
                   </tr>
                 </thead>
@@ -823,7 +823,7 @@ export default function WebApp() {
           </section>
         </main>
         {inspectorLayer && inspector && <div className="web-toolbox"><LayerInspector key={inspector.nonce}
-          layer={inspectorLayer} initialTab={inspector.tab} initialField={inspector.field} disabled={busy || gestureActive}
+          layer={inspectorLayer} disabled={busy || gestureActive}
           onPreview={setStylePreview} onApply={patch => { patchLayer(inspector.layerId, patch); setStylePreview(undefined); setStatus("图层样式已更新"); }}
           onClose={() => { setInspector(undefined); setStylePreview(undefined); }} /></div>}
         {toolboxOpen && (

@@ -41,7 +41,7 @@
   display: flex;
   flex-direction: column;
   margin: 0 16px;
-  padding: 12px 0 16px;
+  padding: 14px 0 16px;
   border-bottom: 1px solid var(--border);
 }
 .processing-search {
@@ -71,13 +71,13 @@
 .processing-group-toggle {
   justify-content: flex-start;
   width: 100%;
-  height: 29px;
-  padding: 0 4px;
-  gap: 6px;
+  height: 34px;
+  padding: 0 6px;
+  gap: 8px;
   border-color: transparent;
   background: transparent;
-  font-size: var(--font-size-xs);
-  color: var(--muted);
+  font-size: var(--font-size-sm);
+  color: var(--text);
   font-weight: var(--font-weight-semibold);
 }
 .processing-group-toggle > svg {
@@ -92,9 +92,10 @@
   width: calc(100% - 20px);
   margin-left: 20px;
   min-width: 0;
-  height: 29px;
-  padding: 0 8px;
+  height: 32px;
+  padding: 0 10px;
   font-size: var(--font-size-sm);
+  color: var(--muted);
   border-color: transparent;
   background: transparent;
 }
@@ -102,6 +103,10 @@
   color: var(--text);
   background: var(--selected);
   font-weight: var(--font-weight-medium);
+}
+.processing-tool-option:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--hover);
 }
 .processing-tool-option > span {
   overflow: hidden;
@@ -121,7 +126,7 @@
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  padding: 36px 16px 16px;
+  padding: 24px 16px 20px;
 }
 .processing-tool-title {
   display: flex;
@@ -145,7 +150,7 @@
   padding: 0;
 }
 .processing-description {
-  margin: 10px 0 24px;
+  margin: 8px 0 28px;
   color: var(--muted);
   font-size: var(--font-size-sm);
   line-height: 1.65;
@@ -153,7 +158,7 @@
 .processing-form fieldset {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   border: 0;
   margin: 0;
   padding: 0;
@@ -164,26 +169,23 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-base);
   font-weight: var(--font-weight-semibold);
   color: var(--text);
-  padding: 0;
-  margin-bottom: 16px;
+  padding: 0 0 9px;
+  margin: 8px 0 5px;
+  border-bottom: 1px solid var(--border);
 }
 .processing-form legend::before {
   content: "";
   width: 3px;
-  height: 16px;
+  height: 17px;
   flex-shrink: 0;
   border-radius: 2px;
   background: var(--accent);
 }
 .processing-form legend::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  margin-left: 4px;
-  background: var(--border);
+  content: none;
 }
 .processing-form .processing-output {
   margin-top: 32px;
@@ -193,7 +195,13 @@
   grid-template-columns: 104px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
+  min-height: 34px;
   font-size: var(--font-size-sm);
+  color: var(--muted);
+}
+.processing-form label input,
+.processing-form label select {
+  color: var(--text);
 }
 .processing-form label > span {
   min-width: 0;

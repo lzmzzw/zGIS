@@ -294,7 +294,7 @@ export default function App() {
   const [toolboxOpen, setToolboxOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [requestedTool, setRequestedTool] = useState<{ id: string; nonce: number }>();
-  const [inspector, setInspector] = useState<{ layerId: string; tab: "profile" | "style"; field?: string; nonce: number }>();
+  const [inspector, setInspector] = useState<{ layerId: string; nonce: number }>();
   const [stylePreview, setStylePreview] = useState<LayerDisplayPatch>();
   const [toolboxMounted, setToolboxMounted] = useState(false);
   const [toolboxRunning, setToolboxRunning] = useState(false);
@@ -3221,16 +3221,15 @@ export default function App() {
   const displayMapLayers = useMemo(() => stylePreview && inspectorLayer
     ? mapLayers.map(layer => layer.id === inspectorLayer.id ? { ...layer, ...stylePreview } : layer)
     : mapLayers, [mapLayers, stylePreview, inspectorLayer]);
-  function openInspector(id: string, tab: "profile" | "style", field?: string) {
+  function openInspector(id: string) {
     if (busy || cellDraft || gestureActive || !activateLayer(id)) return;
     setStylePreview(undefined); setToolboxOpen(false); setAgentOpen(false);
-    setInspector(old => ({ layerId: id, tab, field, nonce: (old?.nonce ?? 0) + 1 }));
+    setInspector(old => ({ layerId: id, nonce: (old?.nonce ?? 0) + 1 }));
   }
   const uiCommands = createUiCommands({ layer: active,
     blockedReason: busy || modal || gestureActive || cellDraft ? "请先完成当前操作" : undefined,
     analysisBlockedReason: !desktop ? "空间分析需要桌面版，请在 zGIS 应用中运行" : editingLayerId ? "请先结束编辑" : undefined,
-    profile: () => { if(active) openInspector(active.id, "profile"); },
-    style: () => { if(active) openInspector(active.id, "style"); },
+    style: () => { if(active) openInspector(active.id); },
     fit: () => setFitNonce(n => n + 1),
     analysis: id => { setAnalysisFocus(undefined); setInspector(undefined); setStylePreview(undefined); setAgentOpen(false); setToolboxMounted(true); setToolboxOpen(true); setRequestedTool(old => ({id, nonce:(old?.nonce??0)+1})); }
   });
@@ -3346,7 +3345,6 @@ export default function App() {
     contextAction("copy-text", "复制", () => copyText(context.text));
   } else if (context?.kind === "field") {
     contextAction("copy-name", "复制字段名", () => copyText(context.field));
-    contextAction("profile-field", "字段概览", () => openInspector(context.layerId, "profile", context.field), contextBlocked);
     if (tableEditing) {
       contextItems.push({ id: "field-separator", separator: true });
       contextAction(
@@ -3858,8 +3856,7 @@ export default function App() {
                 if (!activateLayer(id)) return;
                 openModal("layer");
               }}
-              onStyle={(id) => openInspector(id, "style")}
-              onProfile={(id) => openInspector(id, "profile")}
+              onStyle={(id) => openInspector(id)}
               onAliasLayer={(id, value) => {
                 const displayName = value.trim();
                 if (
@@ -4745,7 +4742,6 @@ export default function App() {
                             }}
                           >
                             <HeaderMenu label={field}>
-                              <button disabled={Boolean(busy || cellDraft || gestureActive)} onClick={() => active && openInspector(active.id, "profile", field)}>{t("字段概览")}</button>
                               <span className="field-info">
                                 {t(fieldSummary(field))}
                               </span>
@@ -4934,7 +4930,7 @@ export default function App() {
               onWidthChange={setSidebarWidth}
             >
               {inspectorLayer && inspector && <LayerInspector key={inspector.nonce}
-                layer={inspectorLayer} initialTab={inspector.tab} initialField={inspector.field}
+                layer={inspectorLayer}
                 disabled={busy || Boolean(cellDraft) || gestureActive}
                 onPreview={setStylePreview}
                 onApply={patch => { setLayers(old => old.map(layer => layer.id === inspector.layerId ? { ...layer, ...patch } : layer)); setStylePreview(undefined); setStatus("图层样式已更新"); }}

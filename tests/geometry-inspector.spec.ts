@@ -119,20 +119,15 @@ test("geometry-specific controls, right-side legend, preview cancellation and pe
   await inspector
     .getByRole("button", { name: "应用样式", exact: true })
     .click();
-  await page.screenshot({ path: "output/inspector-redesign/polygon-dark.png" });
-  await inspector.getByRole("tab", { name: "字段概览", exact: true }).click();
-  await expect(
-    inspector.locator(
-      ".field-profile-header, .field-profile-counts, .field-profile-histogram",
-    ),
-  ).toHaveCount(0);
-  await expect(inspector.locator(".layer-inspector-actions")).toHaveCount(0);
-  await inspector.getByLabel("概览字段", { exact: true }).selectOption("数量");
-  await expect(inspector).toContainText("数值范围");
-  await page.screenshot({ path: "output/inspector-redesign/fields-dark.png" });
   await inspector
-    .getByRole("button", { name: "按此字段分级着色", exact: true })
-    .click();
+    .getByLabel("着色方式", { exact: true })
+    .selectOption("unique");
+  await page.screenshot({ path: "output/inspector-redesign/polygon-dark.png" });
+  await expect(inspector.getByRole("tab")).toHaveCount(0);
+  await expect(page.getByText("字段概览", { exact: true })).toHaveCount(0);
+  await inspector
+    .getByLabel("着色方式", { exact: true })
+    .selectOption("graduated");
   await expect(
     inspector.getByLabel("填充颜色", { exact: true }),
   ).toBeDisabled();

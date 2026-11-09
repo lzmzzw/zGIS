@@ -102,7 +102,6 @@ test("root, group and layer menus contain exactly the requested actions without 
   await page.keyboard.press("Escape");
   await row(page, "points.geojson").click({ button: "right" });
   await expect(page.getByRole("menuitem")).toHaveText([
-    "字段概览",
     "图层样式",
     "设置别名",
     "重命名",

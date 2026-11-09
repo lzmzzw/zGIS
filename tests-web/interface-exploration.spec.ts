@@ -37,7 +37,7 @@ test("命令搜索禁用原因、焦点恢复与工具仅打开不执行", async
   const dialog = page.getByRole("dialog", { name: "搜索操作", exact: true });
   const input = dialog.getByRole("textbox", { name: "搜索操作", exact: true });
   await expect(input).toBeFocused();
-  await input.fill("字段概览");
+  await input.fill("图层样式");
   const command = dialog.locator(".command-palette-results button").first();
   await expect(command).toHaveAttribute("aria-disabled", "true");
   await input.press("Enter");
@@ -61,7 +61,7 @@ test("命令搜索禁用原因、焦点恢复与工具仅打开不执行", async
   await expect(page.locator(".web-layer")).toHaveCount(1);
 });
 
-test("字段概览进入分级，右侧图例与取消预览不改变来源数据", async ({
+test("图层样式分级、右侧图例与取消预览不改变来源数据", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -70,20 +70,12 @@ test("字段概览进入分级，右侧图例与取消预览不改变来源数�
   const layer = page.locator(".web-layer");
   await expect(layer.locator(".layer-legend")).toHaveCount(0);
   const legend = page.locator(".layer-inspector .layer-legend");
-  await layer.getByRole("button", { name: "字段概览", exact: true }).click();
+  await expect(layer.getByRole("button", { name: "字段概览", exact: true })).toHaveCount(0);
+  await layer.getByRole("button", { name: "图层样式", exact: true }).click();
   const inspector = page.locator(".layer-inspector");
-  await inspector
-    .getByLabel("概览字段", { exact: true })
-    .selectOption("amount");
-  await expect(
-    inspector.getByRole("button", { name: "按此字段分级着色", exact: true }),
-  ).toBeEnabled();
-  await inspector
-    .getByRole("button", { name: "按此字段分级着色", exact: true })
-    .click();
-  await expect(
-    inspector.getByRole("tab", { name: "图层样式", exact: true }),
-  ).toHaveAttribute("aria-selected", "true");
+  await expect(inspector.getByRole("tablist")).toHaveCount(0);
+  await inspector.getByLabel("着色方式", { exact: true }).selectOption("graduated");
+  await inspector.getByLabel("分级字段", { exact: true }).selectOption("amount");
   await expect(inspector.getByLabel("分级字段", { exact: true })).toHaveValue(
     "amount",
   );
@@ -126,10 +118,8 @@ test("字段概览进入分级，右侧图例与取消预览不改变来源数�
     path: "output/interface-0.4.1/graduated-legend-web.png",
     fullPage: true,
   });
-  await page.getByRole("table", { name: "图层属性", exact: true }).getByRole("button", { name: "amount", exact: true }).click();
-  await expect(inspector.getByRole("tab", { name: "字段概览", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(inspector.getByLabel("概览字段", { exact: true })).toHaveValue("amount");
-  await inspector.getByRole("button", { name: "关闭检查器", exact: true }).click();
+  await expect(page.getByRole("table", { name: "图层属性", exact: true }).getByRole("columnheader", { name: "amount", exact: true })).toBeVisible();
+  await expect(page.getByRole("table", { name: "图层属性", exact: true }).getByRole("button", { name: "amount", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "下载图层", exact: true }).click();
   await page.getByLabel("输出格式").selectOption("geojson");
   const pending = page.waitForEvent("download");

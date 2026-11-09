@@ -30,7 +30,6 @@ interface Props {
   onRemoveLayer?(id: string): void;
   removalBusy?: boolean;
   onStyle(id: string): void;
-  onProfile?(id: string): void;
   onRenameLayer(id: string, name: string): void;
   onAliasLayer(id: string, name: string): void;
   onNewFile(groupId?: string): void;
@@ -573,7 +572,6 @@ export default function LayerTree(props: Props) {
       );
     }
   } else {
-    addItem("profile-layer", "字段概览", () => props.onProfile?.(node.id), !props.onProfile);
     addItem("style-layer", "图层样式", () => props.onStyle(node.id));
     separator("layer-display");
     addItem("alias-layer", "设置别名", () => {

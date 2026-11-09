@@ -12,7 +12,6 @@ export interface CommandContext {
   layer?: DocumentLayer;
   blockedReason?: string;
   analysisBlockedReason?: string;
-  profile: () => void;
   style: () => void;
   fit: () => void;
   analysis: (id: string) => void;
@@ -21,7 +20,6 @@ export interface CommandContext {
 export function createUiCommands(context: CommandContext): UiCommand[] {
   const layerReason = context.blockedReason || (!context.layer ? "请先选择图层" : undefined);
   return [
-    { id: "layer.profile", label: "字段概览", group: "图层", disabledReason: layerReason, run: context.profile },
     { id: "layer.style", label: "图层样式", group: "图层", disabledReason: layerReason, run: context.style },
     { id: "map.fit", label: "缩放至图层", group: "地图", disabledReason: layerReason || (!context.layer?.features.length ? "图层没有要素" : undefined), run: context.fit },
     ...analysisTools.map(tool => ({
