@@ -98,7 +98,7 @@ macOS ARM64 支持 macOS 14 及以上。采用左侧系统原生红黄绿窗口�
 
 覆盖安装统一执行 `pwsh -File scripts/install.ps1 -Smoke`，先正常关闭现有 zGIS 会话。脚本通过临时、非提权的当前用户计划任务在 Codex MSIX 包外安装；任务无触发器，完成后删除。使用文件句柄解析真实安装路径、比较 release 内容（仅归一化 NSIS bundle 标记）、核对桌面/开始菜单快捷方式及启动进程，并在 `output/install` 保存报告。不能以安装器退出码或 Codex 包内 `%LOCALAPPDATA%` 文件核对认定安装成功，包内路径会被重定向到 Codex LocalCache。`-Smoke` 验证默认 MCP 启动、固定令牌与认证助手、文件操作及跨进程恢复，不发起模型推理；追加 `-Launch` 可在恢复用户配置后通过包外进程启动安装版；完整验收可从普通包外 PowerShell 执行 `pwsh -File scripts/installed-smoke.ps1`。脚本暂存并最终还原原恢复文件，使用独立 WebView2 目录，仅操作生成的测试文件；验证原生打开、保存、导出、取消、外部修改保护，以及真实退出后跨进程工作区及底图恢复。`node scripts/codex-mcp-smoke.mjs` 在 zGIS 运行时验证 Codex 从持久配置取得固定令牌并发现 33 个工具，不创建聊天或发起推理。完整 MCP/Agent 测试还需要 PATH 中有已登录的 Codex CLI，验证鉴权、链式分析、外部文件直读和 `/mcp` 工具发现，不发起模型推理。可用 `-Executable` 指定新构建的 release EXE。WebView2 本地 CDP 仅测试时通过环境启用，不写入产品配置，常规启动不开调试端口。独立 WebView2 目录本身不隔离 Rust 恢复文件，不直接对用户运行中的实例执行底层 smoke。
 
-接口见 [src-tauri/IPC.md](src-tauri/IPC.md)。最初设计见 [zGIS技术方案](../../../Deliverables/zGIS/设计与方案/zGIS技术方案.md)，实现边界以本 README 为准。数据库的 AI 直接操作仍遵守工作台 DBX 入口，应用数据层不提供旁路工具。
+接口见 [src-tauri/IPC.md](src-tauri/IPC.md)。最初设计见 [zGIS技术方案](../../../Deliverables/个人项目/zGIS/设计与方案/zGIS技术方案.md)，实现边界以本 README 为准。数据库的 AI 直接操作仍遵守工作台 DBX 入口，应用数据层不提供旁路工具。
 
 图层区为统一图层树，首次启动为空。空白处右键新建分组、新建文件、添加文件图层、添加Mysql表图层或添加PostGIS表图层；文件入口打开文件并添加图层；数据库入口从已配置数据源选择表，未配置对应数据源时置灰。分组右键新建、添加的图层进入该组。拖动可调整叠放顺序、进出分组，列表上方对应地图上方；分组支持嵌套、显隐和折叠。恢复副本保存树结构，并兼容旧版数组快照。
 
