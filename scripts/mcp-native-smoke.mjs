@@ -1,18 +1,174 @@
 import assert from 'node:assert/strict';
-import { resolve } from 'node:path';
-export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
-  const plain = value => value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '');
-  async function waitIPC(command, predicate, args = {}) {
-    let last;
-    for (let i = 0; i < 150; i++) {
-      const value = await page.evaluate(({command,args}) => window.__TAURI_INTERNALS__.invoke(command,args), {command,args});
-      last = value;
-      if (predicate(value)) return value;
-      await page.waitForTimeout(200);
-    }
-    const diagnostic = command === 'agent_read' ? plain(last?.data ?? '').replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,'[email]').replace(/https?:\/\/\S+/g,'[url]').replace(/[A-Za-z]:\\[^\r\n]*/g,'[path]').replace(/[A-Za-z0-9_=-]{24,}/g,'[identifier]').slice(-1200) : '';
-    throw new Error(`Timed out waiting for ${command}: ${diagnostic}`);
+import { lstat, readdir } from 'node:fs/promises';
+import { createConnection } from 'node:net';
+import { join, resolve } from 'node:path';
+import { expect } from '@playwright/test';
+
+const ipc = (page, command, args = {}) =>
+  page.evaluate(({ command, args }) => window.__TAURI_INTERNALS__.invoke(command, args), { command, args });
+const button = (scope, name) => scope.getByRole('button', { name, exact: true });
+const cliLabels = { codex: 'Codex CLI', claudeCode: 'Claude Code CLI' };
+const claudeFiles = ['zgis-instructions.txt', 'zgis-mcp.json', 'zgis-settings.json'];
+const toolCount = /\b(?:33\s+tools|tools:\s*33)\b/i;
+const mcpCompletion = /^[ \t]*[›❯]?[ \t]*\/mcp[ \t]+(?:list|manage|show|view)\b[^\n]*\bMCP\b/im;
+
+async function waitFor(label, check, timeout = 30_000) {
+  const deadline = Date.now() + timeout;
+  do {
+    const result = await check();
+    if (result) return result;
+    await new Promise(resolve => setTimeout(resolve, 200));
+  } while (Date.now() < deadline);
+  throw new Error(`Timed out: ${label}`);
+}
+
+function connectionRefused(endpoint) {
+  const { hostname, port } = new URL(endpoint);
+  return new Promise((resolve, reject) => {
+    const socket = createConnection({ host: hostname, port: Number(port) });
+    socket.once('connect', () => { socket.destroy(); resolve(false); });
+    socket.once('error', error => error.code === 'ECONNREFUSED' ? resolve(true) : reject(error));
+    socket.setTimeout(1000, () => { socket.destroy(); reject(new Error('Timed out probing stopped MCP listener')); });
+  });
+}
+
+// The existing installed smoke remains Codex-only. Run the dual flow separately
+// on an isolated native instance with disposable CLI profiles: trust decisions
+// can persist in CLI config, not just the app-owned workspace. The caller owns
+// WebView2/CDP attachment and app startup/cleanup; this helper starts no app.
+export async function agentNativeSmoke(page, {
+  includeClaude = false,
+  privateCliProfiles = process.env.ZGIS_SMOKE_PRIVATE_CLI_PROFILES === '1',
+} = {}) {
+  assert.ok(!includeClaude || privateCliProfiles, 'Dual CLI smoke requires disposable CLI profiles');
+  const current = () => ipc(page, 'agent_current');
+  const panel = page.locator('.gis-agent-panel');
+  const stop = button(panel, '停止会话');
+  const terminalRows = panel.locator('.xterm-rows > div');
+  let session;
+  const write = data => ipc(page, 'agent_write', { sessionId: session.sessionId, data });
+
+  async function idleChoices() {
+    for (const name of Object.values(cliLabels)) await expect(button(panel, name)).toBeEnabled();
+    await expect(stop).toHaveCount(0);
   }
+
+  async function start(cli) {
+    await button(panel, cliLabels[cli]).click();
+    await waitFor(`${cliLabels[cli]} starts`, async () => {
+      session = await current();
+      if (await panel.getByRole('alert').count()) throw new Error(`${cliLabels[cli]} could not start (Agent sidebar reports an error)`);
+      if (!session) return false;
+      assert.equal(session.cli, cli);
+      assert.equal(session.running, true, `${cliLabels[cli]} exited during startup`);
+      return true;
+    });
+    await expect(stop).toBeEnabled();
+    for (const name of Object.values(cliLabels)) await expect(button(panel, name)).toHaveCount(0);
+    return session.sessionId;
+  }
+
+  async function waitForScreen(label, predicate) {
+    return waitFor(`${cliLabels[session.cli]}: ${label}`, async () => {
+      const info = await current();
+      assert.ok(info?.running && info.sessionId === session.sessionId, `${cliLabels[session.cli]} exited while waiting for ${label}`);
+      // Inspect the current xterm rendering rather than raw PTY history: repaints
+      // can leave stale prompts and partial text in the history. Never log rows.
+      const screen = (await terminalRows.allTextContents()).join('\n').replace(/ /g, ' ');
+      return predicate(screen);
+    });
+  }
+
+  async function allowWorkspaceTrust() {
+    assert.ok(privateCliProfiles, 'Refusing to persist workspace trust in a non-disposable CLI profile');
+    assert.match(session.sessionId, /^[0-9a-f-]{36}$/i);
+    const appLocalData = await ipc(page, 'plugin:path|resolve_directory', { directory: 15 }); // AppLocalData
+    const sessions = join(appLocalData, 'agent-sessions');
+    const workspace = join(sessions, session.sessionId);
+    for (const path of [sessions, workspace]) {
+      assert.ok((await lstat(path)).isDirectory(), 'Refusing to trust a redirected Agent workspace');
+    }
+    const files = await readdir(workspace, { withFileTypes: true });
+    const expected = session.cli === 'claudeCode' ? claudeFiles : [];
+    assert.ok(files.length === expected.length && files.every(file => file.isFile() && expected.includes(file.name)),
+      'Refusing to trust an Agent workspace containing anything other than its app-owned bootstrap files');
+    await write('\r');
+  }
+
+  async function discover() {
+    const codex = session.cli === 'codex';
+    const trust = (screen) => codex
+      ? /trust (?:this directory|and continue)/i.test(screen) && /[›❯]\s*(?:1[.)]\s+)?(?:Yes, continue|Trust and continue)\b/i.test(screen)
+      : /[›❯]\s*1[.)]\s+Yes, I trust this folder/i.test(screen);
+    const prompt = (screen) => /^\s*[›❯](?:[ \t]*$|[ \t]+(?:Ask Codex\b|Try ["“]))/mi.test(screen);
+    const setup = await waitForScreen('workspace trust or ready input', screen => trust(screen) ? 'trust' : prompt(screen) && 'ready');
+    if (setup === 'trust') {
+      await allowWorkspaceTrust();
+      await waitForScreen('ready input after private workspace trust', screen => !trust(screen) && prompt(screen));
+    }
+    await write('/mcp');
+    // Do not press Enter if the CLI doesn't recognize the slash command. Some
+    // versions submit unrecognized slash strings as model prompts.
+    await waitForScreen('recognized /mcp command completion (not submitted)', screen => mcpCompletion.test(screen));
+    await write('\r');
+    const result = await waitForScreen('zgis MCP discovery', screen => {
+      if (/\bzgis\b/i.test(screen) && (toolCount.test(screen) || /\b(?:spatial_query|mcp__zgis__spatial_query)\b/i.test(screen))) return 'tools';
+      if (!codex && /[❯›]\s*(?:1[.)]\s+)?zgis\s+(?:[✓✔]\s*)?connected\b/i.test(screen)) return 'selected';
+      return false;
+    });
+    if (result === 'selected') {
+      // Claude displays the server list first. Enter only on the selected,
+      // connected zgis row to open local server details, never on a chat input.
+      await write('\r');
+      await waitForScreen('zgis MCP tool count', screen => /\bzgis\b/i.test(screen) && toolCount.test(screen));
+    }
+  }
+
+  assert.equal(await current(), null, 'Agent smoke requires a fresh app with no existing Agent session');
+  const mcp = () => ipc(page, 'gis_mcp_status').then(({ enabled, endpoint }) => ({ enabled, endpoint }));
+  const { enabled, endpoint } = await mcp();
+  assert.equal(enabled, true, 'MCP must already be running in the isolated app');
+  assert.match(endpoint, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+  await button(page, 'Agent').click();
+  await idleChoices();
+  try {
+    const codexId = await start('codex');
+    await discover();
+    if (includeClaude) {
+      await stop.click();
+      await waitFor('Codex session disposed by Stop Session', async () => await current() === null);
+      session = undefined;
+      await idleChoices();
+
+      const claudeId = await start('claudeCode');
+      assert.notEqual(claudeId, codexId, 'Claude Code must get a new PTY session');
+      await discover();
+    }
+
+    const activeCli = cliLabels[session.cli];
+    assert.equal((await current())?.running, true, `${activeCli} must still be running before stopping MCP`);
+    await button(page, '设置').click();
+    await button(page, 'MCP').click();
+    await button(page, '停止 MCP').click();
+    await button(page, '启用 MCP').waitFor({ state: 'visible' });
+    await waitFor(`${activeCli} session disposed by MCP shutdown`, async () => await current() === null);
+    session = undefined;
+    assert.equal((await mcp()).enabled, false);
+    await waitFor('MCP stops accepting loopback connections', () => connectionRefused(endpoint));
+    await button(page, '返回地图').click();
+    await idleChoices();
+    await panel.getByTitle('隐藏侧栏，保留会话').click();
+  } finally {
+    if (session && (await current())?.sessionId === session.sessionId) {
+      await ipc(page, 'agent_close', { sessionId: session.sessionId });
+    }
+  }
+  console.log(includeClaude
+    ? 'PASS: native Agent selection, Codex /mcp and Stop Session, Claude Code /mcp, Agent disposal on MCP shutdown, and closed loopback listener (no model prompts)'
+    : 'PASS: native Agent choices, Codex /mcp, Agent disposal on MCP shutdown, and closed loopback listener (no model prompts)');
+}
+
+export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   const opening = nativeDialog('output/smoke/fixtures/native.geojson');
   await fileAction('打开'); await opening;
   await page.getByRole('button', {name:'导入',exact:true}).click();
@@ -57,35 +213,7 @@ export async function mcpNativeSmoke(page, nativeDialog, fileAction) {
   const loaded = await call('load_vector_file',{path,crs:'EPSG:4326'});
   assert.equal(loaded.featureCount,2);
   assert.match(JSON.stringify(await call('read_result',{resultId:loaded.resultId})),/北京/);
-  await page.getByRole('button',{name:'Codex Agent',exact:true}).click();
-  await page.getByRole('button',{name:'连接 Codex',exact:true}).click();
-  await page.getByRole('button',{name:'停止会话',exact:true}).waitFor({state:'visible'});
-  const agent = await waitIPC('agent_current', value => value?.running);
-  const greeting = await waitIPC('agent_read', value => /OpenAI Codex|update|context left|›/i.test(plain(value.data)), {sessionId:agent.sessionId});
-  // Skip the CLI's optional update prompt; never update the user's CLI in this test.
-  if (/update/i.test(plain(greeting.data)) && /skip/i.test(plain(greeting.data))) {
-    await page.evaluate(sessionId => window.__TAURI_INTERNALS__.invoke('agent_write',{sessionId,data:'\x1b[B\r'}), agent.sessionId);
-  }
-  await page.waitForTimeout(1500);
-  const onboarding = await page.evaluate(sessionId => window.__TAURI_INTERNALS__.invoke('agent_read',{sessionId}), agent.sessionId);
-  if (/trust/i.test(plain(onboarding.data)) && /continue/i.test(plain(onboarding.data))) {
-    // This session's cwd is the empty app-owned folder, with read-only sandbox retained.
-    await page.evaluate(sessionId => window.__TAURI_INTERNALS__.invoke('agent_write',{sessionId,data:'\r'}), agent.sessionId);
-    await page.waitForTimeout(1000);
-  }
-  await page.evaluate(sessionId => window.__TAURI_INTERNALS__.invoke('agent_write',{sessionId,data:'/mcp'}), agent.sessionId);
-  await page.waitForTimeout(300);
-  await page.evaluate(sessionId => window.__TAURI_INTERNALS__.invoke('agent_write',{sessionId,data:'\r'}), agent.sessionId);
-  await waitIPC('agent_read', value => {
-    const text = plain(value.data);
-    return /zgis/.test(text) && /spatial_query|33\s*tools|tools:\s*33/i.test(text);
-  }, {sessionId:agent.sessionId});
-  await page.getByRole('button',{name:'设置',exact:true}).click();
-  await page.getByRole('button',{name:'MCP',exact:true}).click();
-  await page.getByRole('button',{name:'停止 MCP',exact:true}).click();
-  await waitIPC('agent_current', value => !value?.running);
-  await page.getByRole('button',{name:'返回地图',exact:true}).click();
-  await page.getByTitle('隐藏侧栏，保留会话').click();
+  await agentNativeSmoke(page);
   await fileAction('移除图层');
   await page.getByRole('button',{name:'放弃并移除',exact:true}).click();
   await page.waitForFunction(() => document.querySelectorAll('[data-node-kind="layer"]').length===1);

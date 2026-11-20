@@ -27,12 +27,58 @@ test("MCP controls, snapshot isolation and generated layers keep source intact",
   await expect.poll(() => page.evaluate(() => window.__ZG_TEST__.mcpLayers)).toHaveLength(2);
   const final = await page.evaluate(() => window.__ZG_TEST__.mcpLayers);
   expect(final[0].features).toEqual(source.features);
-  await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
-  await expect(page.getByLabel("Codex 空间分析助手")).toBeVisible();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await expect(page.getByLabel("空间分析助手")).toBeVisible();
   await page.getByTitle("隐藏侧栏，保留会话").click();
-  await expect(page.getByLabel("Codex 空间分析助手")).toHaveCount(0);
+  await expect(page.getByLabel("空间分析助手")).toBeHidden();
 });
 
+
+test("Agent starts only the clicked CLI and allows switching after stop", async ({ page }) => {
+  await installDesktopMock(page);
+  await page.goto("/");
+  const trigger = page.getByRole("button", { name: "Agent", exact: true });
+  await trigger.click();
+  const panel = page.getByRole("region", { name: "空间分析助手" });
+  const codex = panel.getByRole("button", { name: "Codex CLI", exact: true });
+  const claude = panel.getByRole("button", { name: "Claude Code CLI", exact: true });
+  const launches = () => page.evaluate(() => window.__ZG_TEST__.calls.filter(c => c.command === "agent_open").map(c => c.args.cli));
+  await expect(codex).toBeEnabled();
+  await expect(claude).toBeEnabled();
+  expect(await launches()).toEqual([]);
+
+  await page.evaluate(() => { window.__ZG_TEST__.agentOpenError = "未能启动 Claude Code CLI，请检查安装"; });
+  await claude.click();
+  await expect(panel.getByRole("alert")).toHaveText("未能启动 Claude Code CLI，请检查安装");
+  await expect(codex).toBeEnabled();
+  await page.evaluate(() => { window.__ZG_TEST__.agentOpenError = ""; });
+  await claude.click();
+  await expect(panel.locator("header strong")).toHaveText("Claude Code CLI");
+  await expect(panel.getByRole("status")).toHaveText("运行中");
+  await expect(codex).toBeHidden();
+  expect(await launches()).toEqual(["claudeCode", "claudeCode"]);
+
+  await panel.getByRole("button", { name: "隐藏助手侧栏" }).click();
+  await expect(panel).toBeHidden();
+  await trigger.click();
+  await expect(panel.getByRole("status")).toHaveText("运行中");
+  expect(await launches()).toEqual(["claudeCode", "claudeCode"]);
+  await panel.getByRole("button", { name: "停止会话" }).click();
+  await codex.click();
+  await expect(panel.locator("header strong")).toHaveText("Codex CLI");
+  await expect(panel.getByRole("status")).toHaveText("运行中");
+  expect(await launches()).toEqual(["claudeCode", "claudeCode", "codex"]);
+
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: "MCP", exact: true }).click();
+  await page.getByRole("button", { name: "启用 MCP", exact: true }).click();
+  await page.getByRole("button", { name: "停止 MCP", exact: true }).click();
+  await expect(page.getByRole("button", { name: "启用 MCP", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "返回地图", exact: true }).click();
+  await expect(panel.getByRole("status")).toHaveText("未连接");
+  await expect(claude).toBeEnabled();
+  expect(await launches()).toEqual(["claudeCode", "claudeCode", "codex"]);
+});
 
 test("publication retries failed backup without duplicate layers and acks only durable snapshots", async ({ page }) => {
   await installDesktopMock(page);

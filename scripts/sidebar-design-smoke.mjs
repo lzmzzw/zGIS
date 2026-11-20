@@ -109,7 +109,7 @@ export async function sidebarDesignSmoke(page) {
       .locator(".right-sidebar")
       .screenshot({ path: `output/desktop/sidebar-design-${theme}-tools.png` });
     await page
-      .getByRole("button", { name: "Codex Agent", exact: true })
+      .getByRole("button", { name: "Agent", exact: true })
       .click();
     const agentResize = page.getByRole("separator", {
       name: "调整Agent侧栏宽度",

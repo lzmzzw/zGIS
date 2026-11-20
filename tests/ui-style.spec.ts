@@ -113,7 +113,7 @@ for (const theme of ["dark", "light"]) {
     );
     await page.keyboard.press("Escape");
     await page
-      .getByRole("button", { name: "Codex Agent", exact: true })
+      .getByRole("button", { name: "Agent", exact: true })
       .click();
     const close = page.getByRole("button", {
       name: "隐藏助手侧栏",

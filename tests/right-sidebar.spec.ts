@@ -30,7 +30,7 @@ test("both docks share drag and keyboard widths across switching and reload with
   await page.mouse.up();
   await expect(resize).toHaveAttribute("aria-valuenow", "532");
   await layout(page);
-  await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
   const agentResize = page.getByRole("separator", {
     name: "调整Agent侧栏宽度",
   });
@@ -52,7 +52,7 @@ test("both docks share drag and keyboard widths across switching and reload with
   await page.reload();
   await page.getByRole("button", { name: "工具", exact: true }).click();
   await expect(resize).toHaveAttribute("aria-valuenow", "612");
-  await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
   await expect(agentResize).toHaveAttribute("aria-valuenow", "612");
   await page.getByRole("button", { name: "隐藏助手侧栏" }).click();
   await expect(page.locator(".right-sidebar")).toBeHidden();
@@ -82,7 +82,7 @@ for (const preferences of [
       page.getByRole("separator", { name: "调整工具侧栏宽度" }),
     ).toHaveAttribute("aria-valuenow", preferences.expected);
     await page
-      .getByRole("button", { name: "Codex Agent", exact: true })
+      .getByRole("button", { name: "Agent", exact: true })
       .click();
     await expect(
       page.getByRole("separator", { name: "调整Agent侧栏宽度" }),
@@ -101,7 +101,7 @@ for (const theme of ["dark", "light"]) {
     );
     await page.goto("/");
     await page
-      .getByRole("button", { name: "Codex Agent", exact: true })
+      .getByRole("button", { name: "Agent", exact: true })
       .click();
     const resize = page.getByRole("separator", { name: "调整Agent侧栏宽度" });
     await resize.focus();

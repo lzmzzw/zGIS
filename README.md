@@ -20,7 +20,7 @@ Web 版提供本地 GeoJSON、CSV、SHP ZIP 和只读 GDB 图层显示、OpenStr
 - PostGIS 连接、元数据发现、geometry / WKT 文本读取、有主键图层事务编辑、冲突检测和新表导入。
 - 默认 OpenStreetMap；自定义 HTTP(S) XYZ 底图服务、逐服务显示管理与无底图模式。
 - 自动保存工作区与编辑草稿、保存后退出编辑、应用关闭询问和异常退出恢复、文件外部修改冲突保护。
-- 应用内空间分析工具箱，25 项矢量叠加、空间关系、几何转换和质量统计工具；分类树搜索与独立结果图层。操作与计算边界见 [工具箱说明](docs/processing-toolbox.md)。同一分析引擎也通过本机 MCP 提供给嵌入式 Codex CLI Agent，接入见 [空间分析说明](docs/spatial-mcp.md)。
+- 应用内空间分析工具箱，25 项矢量叠加、空间关系、几何转换和质量统计工具；分类树搜索与独立结果图层。操作与计算边界见 [工具箱说明](docs/processing-toolbox.md)。桌面 Agent 侧栏可选择 Codex CLI 或 Claude Code CLI，两者都通过本机 MCP 使用同一套空间分析工具。操作见 [MCP 与 Agent 侧栏](docs/spatial-mcp.md)。
 
 ## 运行与安装
 
@@ -92,7 +92,7 @@ pwsh -File scripts/build.ps1
 
 开发地址为 `http://127.0.0.1:1421`。浏览器仅用于前端验证，原生文件与数据库入口需要桌面运行。`pnpm smoke` 需要先运行 dev，使用已安装 Edge；fixtures 由测试脚本生成，不访问用户数据。
 
-macOS ARM64 支持 macOS 14 及以上。采用左侧系统原生红黄绿窗口按钮、系统全屏、macOS 字体与 Command+S / Command+Z / Command+Shift+Z；Delete 或 Mac 键盘的 Backspace 删除选中要素。原生关闭、Command+W、Command+Q 与 Dock 退出均经过编辑状态确认。底图配置和数据库密码以 AES-256-GCM 密文落盘，密钥与 MCP 固定令牌保存在钥匙串；认证助手配置见 [MCP 与 Codex Agent](docs/spatial-mcp.md)。Finder 启动时补充 Homebrew 和 Cargo 的常用 CLI 路径，Codex CLI 仍需单独安装并登录。macOS 构建命令与签名限制见 [发布说明](docs/release.md)。
+macOS ARM64 支持 macOS 14 及以上。采用左侧系统原生红黄绿窗口按钮、系统全屏、macOS 字体与 Command+S / Command+Z / Command+Shift+Z；Delete 或 Mac 键盘的 Backspace 删除选中要素。原生关闭、Command+W、Command+Q 与 Dock 退出均经过编辑状态确认。底图配置和数据库密码以 AES-256-GCM 密文落盘，密钥与 MCP 固定令牌保存在钥匙串；认证助手配置见 [MCP 与 Agent 侧栏](docs/spatial-mcp.md)。Finder 启动时补充 Homebrew、Cargo 和用户本地二进制目录；所选 CLI 仍需单独安装并登录。macOS 构建命令与签名限制见 [发布说明](docs/release.md)。
 
 后端单测可执行 `cargo test --manifest-path src-tauri/Cargo.toml --lib --locked`；Windows 需先载入 `scripts/msvc-environment.ps1`。Windows 打包脚本显式载入 MSVC，防止 Git 的 link.exe 抢占。Cargo.lock 和 pnpm-lock.yaml 都提交，构建、截图与测试数据在 output/target，不提交。
 

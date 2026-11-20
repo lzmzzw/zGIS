@@ -8,14 +8,20 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import "./agent.css";
 
-type Info = { sessionId: string; running: boolean };
+export type AgentCli = "codex" | "claudeCode";
+const CLI_LABELS: Record<AgentCli, string> = {
+  codex: "Codex CLI",
+  claudeCode: "Claude Code CLI",
+};
+type Info = { sessionId: string; cli: AgentCli; running: boolean };
 export default function AgentPanel({ onClose }: { onClose: () => void }) {
   useLocale();
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const session = useRef<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [info, setInfo] = useState<Info | null>(null);
+  const [busy, setBusy] = useState(true);
+  const running = info?.running === true;
   const [error, setError] = useState("");
   const attach = useRef<(info: Info) => Promise<void>>(async () => {});
 
@@ -49,7 +55,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
     term.open(host.current!);
     terminal.current = term;
     const resize = () => {
-      if (disposed) return;
+      if (disposed || !host.current?.offsetWidth) return;
       fit.fit();
       if (session.current)
         void invoke("agent_resize", {
@@ -85,9 +91,9 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
           }
         },
       ),
-      listen<Info>("zgis-agent-exit", (e) => {
-        if (!disposed && e.payload.sessionId === session.current)
-          setRunning(false);
+      listen<Info>("zgis-agent-exit", ({ payload }) => {
+        if (!disposed && payload.sessionId === session.current)
+          setInfo(payload);
       }),
     ]);
     attach.current = async (info) => {
@@ -115,9 +121,10 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
       replaying = false;
       const current = await invoke<Info | null>("agent_current");
       if (disposed) return;
-      setRunning(current?.sessionId === info.sessionId && current.running);
+      setInfo(current?.sessionId === info.sessionId ? current : null);
       resize();
-      term.focus();
+      if (current?.sessionId === info.sessionId && current.running && host.current?.offsetWidth)
+        term.focus();
     };
     void subscriptions
       .then(async () => {
@@ -127,6 +134,9 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
       })
       .catch((e) => {
         if (!disposed) setError(String(e));
+      })
+      .finally(() => {
+        if (!disposed) setBusy(false);
       });
     return () => {
       disposed = true;
@@ -139,11 +149,11 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
-  const open = async () => {
+  const open = async (cli: AgentCli) => {
     setBusy(true);
     setError("");
     try {
-      await attach.current(await invoke<Info>("agent_open"));
+      await attach.current(await invoke<Info>("agent_open", { cli }));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -157,7 +167,7 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
     try {
       await invoke("agent_close", { sessionId: session.current });
       session.current = null;
-      setRunning(false);
+      setInfo(null);
       terminal.current?.writeln(t("\r\n会话已停止。"));
     } catch (e) {
       setError(String(e));
@@ -166,11 +176,11 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
     }
   };
   return (
-    <section className="gis-agent-panel" aria-label={t("Codex 空间分析助手")}>
+    <section className="gis-agent-panel" aria-label={t("空间分析助手")}>
       <header className="processing-heading">
         <div>
-          <strong>Codex Agent</strong>
-          <span>{running ? t("运行中") : t("未连接")}</span>
+          <strong>{info ? CLI_LABELS[info.cli] : "Agent"}</strong>
+          <span role="status">{busy ? t("请稍候…") : running ? t("运行中") : t("未连接")}</span>
         </div>
         <button
           className="icon-button"
@@ -182,18 +192,23 @@ export default function AgentPanel({ onClose }: { onClose: () => void }) {
         </button>
       </header>
       <div className="gis-agent-toolbar">
-        <button disabled={busy || running} onClick={() => void open()}>
-          {busy ? t("请稍候…") : t("连接 Codex")}
-        </button>
-        <button disabled={busy || !running} onClick={() => void stop()}>
-          {t("停止会话")}
-        </button>
-      </div>
-      <p className="gis-agent-hint">
-        {t(
-          "需在本机安装并登录 Codex CLI。MCP 随应用启动，分析结果保留为图层，可另存。",
+        {running ? (
+          <button disabled={busy} onClick={() => void stop()}>
+            {t("停止会话")}
+          </button>
+        ) : (
+          <div className="gis-agent-choices" role="group" aria-label={t("选择要启动的命令行助手")}>
+            {(["codex", "claudeCode"] as const).map((cli) => (
+              <button key={cli} className="gis-agent-launch" disabled={busy} onClick={() => void open(cli)}>
+                {CLI_LABELS[cli]}
+              </button>
+            ))}
+          </div>
         )}
-      </p>
+      </div>
+      {!running && <p className="gis-agent-hint">
+        {t("请先在本机安装并登录所选 CLI。分析结果可作为独立图层添加到地图。")}
+      </p>}
       {error && (
         <p role="alert" className="gis-agent-error">
           {t(error)}

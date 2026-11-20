@@ -291,6 +291,7 @@ export default function App() {
   }, []);
 
   const [agentOpen, setAgentOpen] = useState(false);
+  const [agentMounted, setAgentMounted] = useState(false);
   const [toolboxOpen, setToolboxOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [requestedTool, setRequestedTool] = useState<{ id: string; nonce: number }>();
@@ -3687,13 +3688,14 @@ export default function App() {
             {desktop && modal !== "settings" && (
               <>
                 <IconButton
-                  label="Codex Agent"
+                  label="Agent"
                   active={agentOpen}
                   disabled={busy}
                   onClick={() => {
                     setInspector(undefined);
                     setStylePreview(undefined);
                     setToolboxOpen(false);
+                    setAgentMounted(true);
                     setAgentOpen((v) => !v);
                   }}
                 >
@@ -4921,7 +4923,7 @@ export default function App() {
               )}
             </section>
           </section>
-          {(toolboxMounted || inspectorLayer || (agentOpen && desktop)) && (
+          {(toolboxMounted || inspectorLayer || (agentMounted && desktop)) && (
             <RightSidebar
               hidden={!rightSidebarOpen}
               label={inspectorLayer ? t("图层检查器") : toolboxOpen ? t("工具") : "Agent"}
@@ -4982,8 +4984,10 @@ export default function App() {
                   />
                 </div>
               )}
-              {agentOpen && desktop && (
-                <AgentPanel onClose={() => setAgentOpen(false)} />
+              {agentMounted && desktop && (
+                <div className="processing-toolbox-host" hidden={!agentOpen}>
+                  <AgentPanel onClose={() => setAgentOpen(false)} />
+                </div>
               )}
             </RightSidebar>
           )}

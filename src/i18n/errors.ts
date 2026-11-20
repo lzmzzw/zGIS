@@ -20,6 +20,10 @@ Agent 输入失败|Agent input failed
 Codex CLI 不可用或配置无效，请检查安装与登录状态|Codex CLI unavailable or misconfigured. Check installation and sign-in.
 Codex MCP 名称无法安全隔离|Codex MCP names cannot be safely isolated
 Codex 配置探测超时|Codex configuration probe timed out
+Claude Code CLI 探测超时|Claude Code CLI probe timed out
+未能启动 Claude Code CLI，请检查安装|Failed to launch Claude Code CLI. Check installation.
+无法创建 Claude Code 会话配置|Could not create the Claude Code session configuration.
+请先停止当前 Agent 会话|Stop the current Agent session first.
 DBF包含超出安全精度的数值，请将该字段转换为文本再加载|DBF contains numbers beyond safe precision. Convert the field to text before loading.
 DBF头不完整|Incomplete DBF header
 EPSG:3857 不支持超出 ±85.05112878° 的纬度|EPSG:3857 does not support latitudes beyond ±85.05112878°

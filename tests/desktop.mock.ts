@@ -2,6 +2,8 @@ import type { Page } from "@playwright/test";
 import type { GeoFeature } from "../src/domain";
 import type { DatabaseSource, DatabaseCatalog } from "../src/bridge";
 import type { GdbCatalog, GdbReadResult } from "../src/gdb";
+import type { AgentCli } from "../src/AgentPanel";
+type AgentInfo = { sessionId: string; cli: AgentCli; running: boolean };
 type DeferredCommand = "gis_run_analysis" | "check_app_update" | "download_app_update" | "fetch_basemap_tile" | "gdb_open" | "gdb_read";
 export interface DesktopTestState {
   gdbCatalog: GdbCatalog | null;
@@ -11,6 +13,8 @@ export interface DesktopTestState {
   completedCommands: Partial<Record<DeferredCommand, number>>;
   releaseCommand: (command: DeferredCommand) => number;
   dropFiles: (files: {name:string;bytes:number[];sourceId?:string;sourcePath?:string;sourceHash?:string}[], error?:string) => Promise<void>;
+  agent: AgentInfo | null;
+  agentOpenError: string;
   mcpEnabled: boolean;
   mcpPaths: string[];
   mcpLayers: { id: string; name: string; features: unknown[] }[];
@@ -84,6 +88,8 @@ export async function installDesktopMock(
           pending.forEach(resolve => resolve());
           return pending.length;
         },
+        agent: null,
+        agentOpenError: "",
         mcpEnabled: false,
         mcpPaths: [],
         mcpLayers: [],
@@ -259,7 +265,18 @@ export async function installDesktopMock(
             if (command === "load_preferences") return localStorage.getItem("test.basemaps");
             if (command === "save_preferences") { localStorage.setItem("test.basemaps", String(args.content)); return null; }
             if (command === "gis_mcp_status" || command === "gis_mcp_set_enabled") {
-              if (command === "gis_mcp_set_enabled") state.mcpEnabled = Boolean(args.enabled);
+              if (command === "gis_mcp_set_enabled") {
+                state.mcpEnabled = Boolean(args.enabled);
+                if (!state.mcpEnabled && state.agent) {
+                  const payload = { ...state.agent, running: false };
+                  state.agent = null;
+                  for (const [id, listener] of listeners) {
+                    if (listener.event === "zgis-agent-exit") {
+                      await callbacks.get(listener.handler)?.({ event: listener.event, id, payload });
+                    }
+                  }
+                }
+              }
               return { enabled: state.mcpEnabled, endpoint: state.mcpEnabled ? "http://127.0.0.1:9999/mcp" : null, token: state.mcpEnabled ? "test-token" : null, authorizedPaths: state.mcpPaths };
             }
             if (command === "gis_mcp_audit") return [];
@@ -267,7 +284,15 @@ export async function installDesktopMock(
             if (command === "gis_results_ack") { state.analysisResults = state.analysisResults.filter(item => !(args.resultIds as string[]).includes(item.id)); return null; }
             if (command === "gis_authorize_files" || command === "gis_authorize_directory") { state.mcpPaths = ["C:/owned-test/vector.geojson"]; return state.mcpPaths; }
             if (command === "gis_revoke_access") { state.mcpPaths = []; return null; }
-            if (command === "agent_current") return null;
+            if (command === "agent_current") return state.agent;
+            if (command === "agent_open") {
+              if (state.agentOpenError) throw state.agentOpenError;
+              state.agent = { sessionId: `test-${args.cli}`, cli: args.cli as AgentCli, running: true };
+              return state.agent;
+            }
+            if (command === "agent_read") return { data: "", sequence: 0 };
+            if (command === "agent_close") { state.agent = null; return null; }
+            if (command === "agent_resize" || command === "agent_write") return null;
             if (command === "plugin:event|listen") {
               const id = next++;
               listeners.set(id, {

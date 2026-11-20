@@ -1714,7 +1714,7 @@ pub fn run() {
             }
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<gdb::GdbState>().shutdown();
-                app.state::<codex_agent::CodexAgent>().shutdown();
+                let _ = app.state::<codex_agent::CodexAgent>().shutdown();
                 app.state::<gis_mcp::GisMcp>().shutdown();
             }
         });

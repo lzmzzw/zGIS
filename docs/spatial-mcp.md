@@ -1,4 +1,4 @@
-# MCP 与 Codex Agent
+# MCP 与 Agent 侧栏
 
 用户可直接通过应用内 [空间分析工具箱](processing-toolbox.md) 运行 25 项矢量分析与统计，不需要启动 Agent 或 MCP。工具箱和 MCP 共用 Rust 引擎，来源保持不变，输出为独立结果。
 
@@ -30,7 +30,11 @@ Codex 的 MCP 配置与认证助手支持见 [官方 MCP 文档](https://learn.c
 
 Agent 对 zGIS 内部图层的操作统一使用 zGIS MCP，具体操作以工具清单和 schema 为准。当前图层自动同步为 WGS84 GeoJSON 快照，包括尚未保存的编辑；只传几何、属性和要素 ID，不传数据库连接、主键基线或密码。外部 GeoJSON、SHP、含 WKT 的 CSV 等数据优先交由 zGIS MCP 加载和分析，由调用 Agent 按自身权限规则判断是否可访问；zGIS 不校验外部文件访问授权。
 
-「Codex Agent」侧栏连接本机已安装、已登录的 Codex CLI。沿用 zTerm 的 PTY 交互方式，隐藏侧栏保留会话，停止会话、停止 MCP 或退出应用终止所属进程树。Agent 使用私有工作目录和只读 sandbox，禁用继承的 MCP、apps、plugins，只连接 zGIS；不改写 CLI 登录文件，内嵌会话不检查或执行 CLI 更新，版本维护在应用外进行。用户发送到 Codex 的提示与工具数据受所使用 Codex 服务的数据政策约束。
+### 内嵌 Agent
+
+打开主界面右上角的 **Agent**，点击 **Codex CLI** 或 **Claude Code CLI** 启动。只需预先在本机安装并登录所选 CLI；zGIS 自动连接本机 `zgis` MCP，无需手动配置。两种 CLI 使用同一套工具，可查询现有图层、进行缓冲或裁剪等矢量分析，也可将结果作为独立未保存图层添加到地图。可用终端的 `/mcp`（若所用 CLI 版本提供此命令）检查连接，也可在「设置 → MCP」查看调用审计。隐藏侧栏保留会话；停止会话后可改选另一种 CLI；停止 MCP 或退出应用会终止所属进程树。
+
+两种 CLI 均在私有工作目录运行，不由 zGIS 改写 CLI 登录或全局配置，不检查或执行 CLI 更新。Codex 沿用只读 sandbox，禁用继承的 MCP、apps、plugins。Claude Code 加载用户级设置以复用已有认证，不加载项目和本地设置；通过本次会话的严格 MCP 配置连接 zGIS，禁用内置工具、用户 hooks 和云连接器，不覆盖组织托管策略。MCP 配置只保存令牌的环境变量引用，不保存令牌值。提示与工具返回的数据受所选 CLI 服务的数据政策约束。
 
 ## 工具
 

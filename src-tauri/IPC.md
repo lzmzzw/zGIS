@@ -75,9 +75,9 @@ GeoJSON/CSV 产品保存逐要素/逐行生成文本，先分片暂存，最后�
 - `gis_results_drain`：重复读取待导入的 `{id,name,features}` 结果，不移除队列。`gis_results_ack {resultIds}`：最多确认 20 个结果，幂等移除；前端按稳定 ID 去重并在恢复副本写入成功后确认。队列跨 MCP 重启保留，不跨应用进程崩溃保留。
 - MCP 缓存与待导入结果各有独立 100 MiB 大小预算，队列最多 20 个结果；缓存预算检查采用流式计数。HTTP 连接绑定启动代次，服务停止重启后旧连接不能继承新服务。初始化版本取自 Cargo 包版本。
 - `gis_mcp_audit`：有界工具审计摘要。
-- `agent_open` / `agent_current`：`{sessionId,running}`；current 无会话时 null。
+- `agent_open {cli}` / `agent_current`：返回 `{sessionId,cli,running}`；`cli` 只能是 `codex` 或 `claudeCode`，current 无会话时返回 null。如果另一种 CLI 的会话仍在运行，须先停止再启动。
 - `agent_read {sessionId}`：`{data,sequence}`；`agent_write {sessionId,data}`、`agent_resize {sessionId,cols,rows}`、`agent_close {sessionId}`。
-- 事件 `zgis-agent-output {sessionId,data,sequence}` 与 `zgis-agent-exit {sessionId,running}`；先订阅后回放，按序号去重。启动与关闭按代次串行校验，取消中的启动不能发布会话。
+- 事件 `zgis-agent-output {sessionId,data,sequence}` 与 `zgis-agent-exit {sessionId,cli,running}`；先订阅后回放，按序号去重。启动与关闭按代次串行校验，取消中的启动不能发布会话。
 
 MCP 工具及计算边界见 [空间分析说明](../docs/spatial-mcp.md)。zGIS 内部图层的 Agent 操作统一使用 zGIS MCP，具体操作以工具清单和 schema 为准。外部文件是否可访问由调用 Agent 按自身权限规则判断，zGIS 不校验外部文件访问授权；这些接口不提供任意文件写入、数据库提交或 shell 调用。PostGIS 按场景使用 zGIS 已加载图层快照或 DBX 直接操作，zGIS MCP 不提供数据库直连。
 

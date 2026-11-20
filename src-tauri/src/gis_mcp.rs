@@ -13,7 +13,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tokio::{sync::Semaphore, task::JoinHandle};
 #[derive(Clone)]
 pub struct GisMcp {
@@ -204,10 +204,10 @@ pub async fn gis_mcp_set_enabled(
     state: tauri::State<'_, GisMcp>,
 ) -> Result<McpStatus, String> {
     if !enabled {
-        if let Some(agent) = app.try_state::<crate::codex_agent::CodexAgent>() {
-            agent.shutdown();
-        }
         state.disable().await;
+        if let Some(info) = app.try_state::<crate::codex_agent::CodexAgent>().and_then(|agent| agent.shutdown()) {
+            let _ = app.emit("zgis-agent-exit", info);
+        }
         return Ok(state.client_status(&app));
     }
     state.enable().await?;
@@ -1172,6 +1172,47 @@ mod tests {
         assert_eq!(m.inner.lock().unwrap().layers[0].value(),original);
         assert_eq!(m.inner.lock().unwrap().queue.len(),1);
         assert!(call(&m,"spatial_query",&json!({"source":{"resultId":cleaned["resultId"]},"target":{"resultId":cleaned["resultId"]},"bbox":[0,0,2,2]})).unwrap_err().contains("二选一"));
+    }
+    #[tokio::test]
+    async fn authenticated_http_client_discovers_and_publishes_vector_analysis() {
+        let mcp = GisMcp::default();
+        let layer = json!({"id":"source","name":"source","features":[test_feature(0)]});
+        sync_workspace(&mcp, vec![layer], Some("source".into()), false, vec![]).unwrap();
+        mcp.enable_at("127.0.0.1:0", false).await.unwrap();
+        let (endpoint, token) = mcp.access().unwrap();
+        let client = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().unwrap();
+        let rpc = async |id: u32, method: &str, params: Value| {
+            let response = client.post(&endpoint)
+                .bearer_auth(&token)
+                .header("accept", "application/json, text/event-stream")
+                .header("content-type", "application/json")
+                .header("mcp-protocol-version", "2025-11-25")
+                .body(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}).to_string())
+                .send().await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body: Value = serde_json::from_str(&response.text().await.unwrap()).unwrap();
+            assert!(body.get("error").is_none());
+            body["result"].clone()
+        };
+        let initialized = rpc(1, "initialize", json!({"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"vector-smoke","version":"1"}})).await;
+        assert_eq!(initialized["serverInfo"]["name"], "zgis");
+        let catalog = rpc(2, "tools/list", json!({})).await;
+        for name in ["list_layers", "buffer", "publish_result"] {
+            assert!(catalog["tools"].as_array().unwrap().iter().any(|tool| tool["name"] == name));
+        }
+        let snapshot = rpc(3, "tools/call", json!({"name":"list_layers"})).await;
+        assert_eq!(snapshot["structuredContent"]["activeLayerId"], "source");
+        let buffer = rpc(4, "tools/call", json!({"name":"buffer","arguments":{"source":{"layerId":"source"},"distanceMeters":25}})).await;
+        assert_eq!(buffer["isError"], false);
+        assert_eq!(buffer["structuredContent"]["featureCount"], 1);
+        let publication = rpc(5, "tools/call", json!({"name":"publish_result","arguments":{"resultId":buffer["structuredContent"]["resultId"],"name":"Test buffer"}})).await;
+        assert_eq!(publication["isError"], false);
+        {
+            let state = mcp.inner.lock().unwrap();
+            assert_eq!(state.queue.len(), 1);
+            assert_eq!(state.layers[0].features[0], test_feature(0));
+        }
+        mcp.disable().await;
     }
     #[tokio::test]
     async fn http_external_file_pagination_and_cache_release_roundtrip() {

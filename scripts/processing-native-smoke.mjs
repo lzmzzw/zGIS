@@ -197,7 +197,7 @@ try {
   await page.keyboard.press("ArrowLeft");
   await expect(toolboxResize).toHaveAttribute("aria-valuenow", "340");
   await checkDock();
-  await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
   const agentResize = page.getByRole("separator", {
     name: "调整Agent侧栏宽度",
   });
@@ -210,7 +210,7 @@ try {
   const agentWidth = await agentResize.getAttribute("aria-valuenow");
   await page.screenshot({ path: resolve(output, "agent-dock-native.png") });
   await page.getByRole("button", { name: "隐藏助手侧栏" }).click();
-  await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
   await expect(agentResize).toHaveAttribute("aria-valuenow", agentWidth);
   await page.getByRole("button", { name: "工具", exact: true }).click();
   await expect(toolboxResize).toHaveAttribute("aria-valuenow", agentWidth);

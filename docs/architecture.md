@@ -32,7 +32,7 @@ flowchart LR
   Bridge --> Native[原生文件与数据库数据层]
   Bridge --> Processing[内存分析引擎]
   Model --> Snapshot[MCP 图层快照]
-  Agent[Codex Agent] --> MCP[本机 MCP]
+  Agent[Codex CLI / Claude Code CLI] --> MCP[本机 MCP]
   MCP --> Snapshot
   MCP --> Processing
   Processing --> Result[独立结果图层]

@@ -79,7 +79,7 @@ XYZ 结果通过 GeoJSON 或 WKT 保存，并在工作副本恢复中保留；XY
 
 ## 实现与参考
 
-工具箱通过纯内存桌面命令 `gis_run_analysis` 调用共享 Rust 几何引擎，不要求启动 MCP 或 Codex，不读取任意路径或提交数据库。新增分析同时进入 MCP 工具清单，Agent 入口与权限边界见 [MCP 与 Codex Agent](spatial-mcp.md)。
+工具箱通过纯内存桌面命令 `gis_run_analysis` 调用共享 Rust 几何引擎，不要求启动 MCP 或 Agent，不读取任意路径或提交数据库。新增分析同时进入 MCP 工具清单，Agent 入口与权限边界见 [MCP 与 Agent 侧栏](spatial-mcp.md)。
 
 交互参考 [QGIS Processing Toolbox](https://docs.qgis.org/3.44/en/docs/user_manual/processing/toolbox.html) 的分类搜索与输入参数；算法用途参考 [矢量叠加](https://docs.qgis.org/3.44/en/docs/user_manual/processing_algs/qgis/vectoroverlay.html) 和 [矢量几何](https://docs.qgis.org/3.44/en/docs/user_manual/processing_algs/qgis/vectorgeometry.html)。zGIS 使用现有 Rust 引擎及上述计算边界，不宣称 QGIS 算法或精度完全等价。
 

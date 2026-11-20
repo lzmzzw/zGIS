@@ -12,17 +12,19 @@
   color: var(--muted);
 }
 .gis-agent-toolbar {
+  padding: 12px 16px 0;
+}
+.gis-agent-choices {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 12px 16px 0;
 }
-.gis-agent-toolbar > button:first-child:not(:disabled) {
+.gis-agent-launch:not(:disabled) {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-text);
 }
-.gis-agent-toolbar > button:first-child:hover:not(:disabled) {
+.gis-agent-launch:hover:not(:disabled) {
   background: var(--primary-hover);
 }
 .gis-agent-hint {

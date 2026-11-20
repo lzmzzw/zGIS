@@ -46,7 +46,7 @@ test("picker Escape retains import dialog and terminal follows theme without rem
 }) => {
   await installDesktopMock(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "Codex Agent", exact: true }).click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
   const terminal = page.locator(".gis-agent-terminal .xterm");
   await expect(terminal).toBeVisible();
   await terminal.evaluate((el) =>
